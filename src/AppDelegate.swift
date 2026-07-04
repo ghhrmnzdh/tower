@@ -29,7 +29,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         popover.behavior = .transient
         popover.animates = true
-        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        // Let SwiftUI's own layout size drive the popover. `.preferredContentSize`
+        // makes the hosting controller publish its fitting size (and keep
+        // republishing it as the content reflows), which NSPopover observes and —
+        // because `animates` is true — smoothly resizes to. Without it the popover
+        // is measured once from a stale/zero size: at launch the short "Starting…"
+        // view is mis-sized and floats detached from the menu bar, and when the
+        // daemon comes alive and the real content appears the window can't grow to
+        // fit. The width is a constant (popoverWidth), so only the height animates.
+        let host = NSHostingController(rootView: PopoverView(model: model))
+        host.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = host
 
         launchDaemonIfNeeded()
         model.start()
