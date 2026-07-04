@@ -38,6 +38,12 @@ cp "$SRC/towerd.py"      "$APP/Contents/Resources/towerd.py"
 cp "$SRC/tower-tui.py"   "$APP/Contents/Resources/tower-tui.py"
 [ -f "$SRC/AppIcon.icns" ] && cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 [ -f "$SRC/AppIcon.svg" ]  && cp "$SRC/AppIcon.svg"  "$APP/Contents/Resources/AppIcon.svg"
+# Bundled fonts (JetBrains Mono) — registered at launch by AppDelegate.
+if [ -d "$SRC/Fonts" ]; then
+  mkdir -p "$APP/Contents/Resources/Fonts"
+  cp "$SRC/Fonts"/*.ttf "$APP/Contents/Resources/Fonts/"
+  [ -f "$SRC/Fonts/OFL.txt" ] && cp "$SRC/Fonts/OFL.txt" "$APP/Contents/Resources/Fonts/OFL.txt"
+fi
 chmod +x "$APP/Contents/MacOS/tower"
 chmod +x "$APP/Contents/Resources/towerd.py" "$APP/Contents/Resources/tower-tui.py"
 
