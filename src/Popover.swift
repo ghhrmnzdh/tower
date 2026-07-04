@@ -15,6 +15,32 @@ struct PopoverView: View {
     @ObservedObject var model: TowerModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var agentSpace
+    /// Rendered small & inert inside Settings → Popover as a live preview: it
+    /// drops the footer nav and the danger alerts (which must not double up with
+    /// the real popover / dashboard) but shows the exact section composition.
+    var isPreview = false
+
+    // Popover composition — which sections show, and how tight. Written by
+    // Settings → Popover, read here; both sides share PopPref keys/defaults so
+    // they can never drift. Section ORDER stays fixed (it encodes attention);
+    // you choose what shows, not what outranks what.
+    @AppStorage(PopPref.net) private var showNet = true
+    @AppStorage(PopPref.agents) private var showAgents = true
+    @AppStorage(PopPref.location) private var showLocation = true
+    @AppStorage(PopPref.keepawake) private var showKeepAwake = true
+    @AppStorage(PopPref.plan) private var showPlan = true
+    @AppStorage(PopPref.density) private var density = "comfy"
+
+    private enum PopSection: Hashable { case net, agents, location, keepawake, plan }
+    private var sections: [PopSection] {
+        var s: [PopSection] = []
+        if showNet { s.append(.net) }
+        if showAgents { s.append(.agents) }
+        if showLocation { s.append(.location) }
+        if showKeepAwake { s.append(.keepawake) }
+        if showPlan { s.append(.plan) }
+        return s
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,56 +58,39 @@ struct PopoverView: View {
                 // and clipped by the menu bar. Header + footer stay pinned.
                 //
                 // .defaultScrollAnchor(.topLeading) is load-bearing, not
-                // cosmetic: the middle reorders under an animation
-                // (matchedGeometry + the reorder spring) whenever an agent moves
-                // section (working → done → resting). Mid-animation the column's
-                // height briefly overshoots the 460 cap, which hands the
-                // ScrollView a transient scroll range; without a pinned anchor it
-                // lands at a NON-zero content offset and STICKS there after the
-                // content settles back under the cap — with no scrollable range
-                // left to correct it. That is the recurring "UI shifted out of
-                // view" bug: horizontally it centered an over-wide frame (fixed
-                // by the leading pin below), vertically it stranded the top rows
-                // (NetRow + the AGENTS header) above the fold. Anchoring
-                // top-leading forces the resting position back to the origin on
-                // every content-size change, on both axes, so no reflow can leave
-                // a stuck offset.
+                // cosmetic: the middle reorders/resizes under an animation
+                // (matchedGeometry, the reorder spring, or a section toggling on
+                // and off). Mid-animation the column's height briefly overshoots
+                // the 460 cap, which hands the ScrollView a transient scroll
+                // range; without a pinned anchor it lands at a NON-zero content
+                // offset and STICKS there after the content settles back under
+                // the cap — the recurring "UI shifted out of view" bug (top rows
+                // stranded above the fold). Anchoring top-leading forces the
+                // resting position back to the origin on every content-size
+                // change, on both axes, so no reflow — including a customization
+                // toggle — can leave a stuck offset.
                 ScrollView {
                     VStack(spacing: 0) {
-                        NetRow(model: model)
-                        Divider().padding(.horizontal, TowerDesign.Size.padH)
-                        AgentsSection(model: model, space: agentSpace)
-                        Divider().padding(.horizontal, TowerDesign.Size.padH)
-                        LocationRow(model: model)
-                        Divider().padding(.horizontal, TowerDesign.Size.padH)
-                        PlanSection(model: model)
+                        // Dividers sit BETWEEN visible sections only (never a
+                        // leading/trailing edge), so hiding a section never
+                        // leaves an orphan rule. Order is fixed by `sections`.
+                        ForEach(Array(sections.enumerated()), id: \.element) { idx, sec in
+                            if idx > 0 {
+                                Divider().padding(.horizontal, TowerDesign.Size.padH)
+                            }
+                            section(sec).transition(.opacity)
+                        }
                     }
-                    // WHY the popover used to lurch left after a status/agent
-                    // update (the recurring clipped-label bug): a vertical
-                    // ScrollView *horizontally centers* any content wider than
-                    // its content viewport, and that offset STICKS until reopen.
-                    // Header/footer live outside the ScrollView, so only the
-                    // middle column drifts.
-                    //
-                    // The subtlety that kept this "fixed but not fixed": pinning
-                    // the content to the *constant* popoverWidth does NOT match
-                    // it to the viewport. The ScrollView's real content width
-                    // can differ from popoverWidth by a hair (safe-area / inset
-                    // / a reflow frame), and the instant the fixed-360 column is
-                    // even 1pt wider than the viewport it sits in, it gets
-                    // centered → leading edge goes negative → "AGENTS"→"GENTS"
-                    // and the radar marks clip off the left edge.
-                    //
-                    // The real cure is to let the column *track the viewport*
-                    // (maxWidth: .infinity) rather than assert a constant width:
-                    // content then equals the viewport by construction, so there
-                    // is never any overflow for the ScrollView to center. Leading
-                    // alignment keeps the origin fixed, and .clipped() trims any
-                    // transient per-row overflow (a numericText digit tick, a
-                    // matchedGeometry reorder frame) inside the column instead of
-                    // letting it disturb the origin or escape the popover.
+                    // Let the column TRACK THE VIEWPORT (maxWidth: .infinity)
+                    // rather than assert a constant 360 width: content then
+                    // equals the viewport by construction, so the ScrollView
+                    // never has overflow to horizontally center (the old
+                    // "AGENTS"→"GENTS" left-clip). Leading alignment fixes the
+                    // origin; .clipped() trims transient per-row overflow.
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .clipped()
+                    .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion),
+                               value: sections)
                 }
                 .frame(width: TowerDesign.Size.popoverWidth)
                 .frame(maxHeight: 460)
@@ -89,12 +98,38 @@ struct PopoverView: View {
                 .defaultScrollAnchor(.topLeading)
                 .scrollBounceBehavior(.basedOnSize)
             }
-            Divider()
-            PopFooter(model: model)
+            if !isPreview {
+                Divider()
+                PopFooter(model: model)
+            }
         }
         .frame(width: TowerDesign.Size.popoverWidth)
+        .environment(\.popoverCompact, density == "compact")
         .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion), value: model.alive)
-        .dangerAlerts(model)
+        .modifier(ConditionalDanger(model: model, active: !isPreview))
+    }
+
+    // Fixed order; each case gated in `sections`. Keeping this a switch (not a
+    // stored view list) preserves the per-section @ObservedObject wiring.
+    @ViewBuilder private func section(_ sec: PopSection) -> some View {
+        switch sec {
+        case .net:       NetRow(model: model)
+        case .agents:    AgentsSection(model: model, space: agentSpace)
+        case .location:  LocationRow(model: model)
+        case .keepawake: KeepAwakeRow(model: model)
+        case .plan:      PlanSection(model: model)
+        }
+    }
+}
+
+// Attach the two-stage danger alerts only on the real popover — never on the
+// inert Settings preview, where a second copy bound to the same model would
+// fight the dashboard's own alerts.
+private struct ConditionalDanger: ViewModifier {
+    let model: TowerModel
+    let active: Bool
+    func body(content: Content) -> some View {
+        if active { content.dangerAlerts(model) } else { content }
     }
 }
 
@@ -109,7 +144,8 @@ struct PopHeader: View {
         let routed = model.state?.routing?.installed ?? false
         let pending = model.retryPending
         HStack(spacing: 10) {
-            TowerRadar(state: model.radarState, size: 30, color: .primary)
+            TowerRadar(state: model.radarState, size: 30, color: .primary,
+                       awake: model.awakeGlow)
                 .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Tower").font(TowerDesign.Font.header)
@@ -222,6 +258,7 @@ struct AgentsSection: View {
     var space: Namespace.ID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showResting = false
+    @AppStorage(PopPref.resting) private var restingVisible = true
 
     var body: some View {
         let needs = model.needsYou
@@ -266,10 +303,10 @@ struct AgentsSection: View {
                 }
 
                 if needs.isEmpty && working.isEmpty {
-                    EmptyState(anyResting: !resting.isEmpty)
+                    EmptyState(anyResting: restingVisible && !resting.isEmpty)
                 }
 
-                if !resting.isEmpty {
+                if restingVisible && !resting.isEmpty {
                     DisclosureGroup(isExpanded: $showResting) {
                         ForEach(resting) { s in RestingRow(session: s) }
                     } label: {
@@ -585,11 +622,11 @@ struct EmptyState: View {
 }
 
 // --------------------------------------------------------------------------- //
-// Location — where the fence thinks you are. Keep-awake shows as a glyph only
-// (the control moved to the dashboard).
+// Location — where the fence thinks you are.
 // --------------------------------------------------------------------------- //
 struct LocationRow: View {
     @ObservedObject var model: TowerModel
+    @Environment(\.popoverCompact) private var compact
     var body: some View {
         let loc = model.state?.location
         let target = model.state?.guardInfo?.target_cc ?? "—"
@@ -612,11 +649,6 @@ struct LocationRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if model.state?.keepawake?.on == true {
-                Image(systemName: "moon.zzz.fill")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-                    .help("Keep-awake is on (control in the dashboard)")
-            }
             Button {
                 model.send(["cmd": "recheck"])
             } label: {
@@ -626,7 +658,54 @@ struct LocationRow: View {
             .help("Re-check location now")
         }
         .padding(.horizontal, TowerDesign.Size.padH)
-        .padding(.vertical, 6)
+        .padding(.vertical, compact ? 4 : 6)
+    }
+}
+
+// --------------------------------------------------------------------------- //
+// Keep awake — the tower's lamp, as a flat row (Wi-Fi-menu idiom). The beacon
+// mirrors the radar's core, so the same glow means the same thing everywhere.
+// Named by consequence (KeepAwakeCopy), tappable to cycle the mode.
+// --------------------------------------------------------------------------- //
+struct KeepAwakeRow: View {
+    @ObservedObject var model: TowerModel
+    @Environment(\.popoverCompact) private var compact
+    var body: some View {
+        let mode = model.keepAwakeMode
+        Menu {
+            Button("Sleep allowed") {
+                model.send(["cmd": "keepawake", "on": false, "mode": "off"])
+            }
+            Button("Awake — lid open") {
+                model.send(["cmd": "keepawake", "on": true, "mode": "idle"])
+            }
+            Button("Awake — lid closed") {
+                (NSApp.delegate as? AppDelegate)?.explainThenEnableClamshell(model: model)
+            }
+        } label: {
+            HStack(spacing: 11) {
+                BeaconView(mode: model.awakeGlow, size: 26)
+                    .frame(width: 26, height: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(KeepAwakeCopy.rowTitle(mode))
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+                    if !compact {
+                        Text(KeepAwakeCopy.line(mode))
+                            .font(TowerDesign.Font.activity).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 6)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, TowerDesign.Size.padH)
+            .padding(.vertical, compact ? 5 : 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
     }
 }
 
