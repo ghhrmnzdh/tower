@@ -1,17 +1,17 @@
-# Corral — Architecture (shared by both front-ends)
+# Tower — Architecture (shared by both front-ends)
 
-Corral has **one brain and two faces**. A single background **daemon** holds
+Tower has **one brain and two faces**. A single background **daemon** holds
 all logic and state; a **menubar app** (Swift) and a **terminal dashboard**
 (Python/curses) are thin views over it. They never talk to each other — they
 both read one state file and drop command files.
 
-The metaphor carries the product: the **fence** keeps Claude inside your
-country (geo guard), the **weather** explains why a horse stopped (network
-health), the **herd** is your running Claude agents (monitoring), and the
-**feed bill** is usage.
+One frame carries the product: the **fence** keeps Claude inside your
+country (geo guard), the **weather** explains why an agent stopped (network
+health), the **agents** view is your running Claude agents (monitoring), and
+**usage** is the plan/cost view.
 
 ```
-              ┌───────────────────────── ~/.corral/ ──────────────────────────┐
+              ┌───────────────────────── ~/.tower/ ──────────────────────────┐
               │  state.json   ← daemon writes ~1/s and instantly after a cmd  │
    reads ◀────┤  cmd/<id>.json → a front-end drops a command; daemon runs it  │
               │  config.json    persisted prefs (theme, country, plan budget) │
@@ -19,15 +19,15 @@ health), the **herd** is your running Claude agents (monitoring), and the
               │  daemon.log                                                   │
               └───────────────────────────────────────────────────────────────┘
         ▲                              ▲                               ▲
-   corrald.py                    src/*.swift                    corral-tui.py
+   towerd.py                    src/*.swift                    tower-tui.py
    (the daemon)                 (menu bar app)                 (terminal dashboard)
 ```
 
-(One-time migration: if `~/.geo-guard` exists from the Geo Guard era and
-`~/.corral` doesn't, the daemon renames it on startup — config carries over.
-It refuses while an old geoguardd still holds its lock.)
+(One-time migration: if a legacy state dir (`~/.corral` or `~/.geo-guard`)
+exists and `~/.tower` doesn't, the daemon renames it on startup — config
+carries over. It refuses while an old legacy daemon still holds its lock.)
 
-## The daemon — `src/corrald.py` (stdlib only)
+## The daemon — `src/towerd.py` (stdlib only)
 Runs these threads:
 - **proxy** — a local HTTP/HTTPS proxy on **:8888** (fixed, so routing stays
   stable). It CONNECT-tunnels HTTPS, so it sees each request's **hostname** but
@@ -98,7 +98,7 @@ Runs these threads:
   is **durable, accurate detection**, so `geo_loop` queries
   multiple independent sources (ip-api → ipwho.is → ipapi.co, proxy-bypassed) and
   a merely-slow ("degraded") link still counts as reachable. `claude -p /usage`
-  rides the same gate — it never runs off-country or on an unstable net.
+  is gated the same way — it never runs off-country or on an unstable net.
 - **Single instance.** An `flock` on `daemon.lock` means a second launch just
   exits; front-ends can always safely try to start it.
 - **Transcript parsing is defensive.** The session JSONL format is

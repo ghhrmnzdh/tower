@@ -1,8 +1,7 @@
-# Geo Guard on Windows — implementation plan
+# Tower on Windows — implementation plan
 
-> Written before the macOS app was renamed to **Corral** (and grew network
-> health + agent monitoring). Names and paths below (`geoguardd`,
-> `~/.geo-guard`) map to `corrald` / `~/.corral` in the current codebase.
+> A forward-looking plan to bring **Tower** to Windows. Names and paths
+> (`towerd`, `~/.tower`) match the current macOS codebase.
 
 This document describes how to recreate the exact experience we built on macOS —
 a **native tray app** plus a **terminal dashboard**, both driven by the same
@@ -10,7 +9,7 @@ Python daemon — on Windows 10/11.
 
 The guiding principle is unchanged: **one daemon owns all logic and state; the
 UIs are thin front-ends that read one JSON file and write command files.** That
-split is what makes the port tractable — ~80% of the code (`geoguardd.py`) is
+split is what makes the port tractable — ~80% of the code (`towerd.py`) is
 already portable Python; only the OS-specific edges and the native UI change.
 
 ---
@@ -19,9 +18,9 @@ already portable Python; only the OS-specific edges and the native UI change.
 
 | Layer | macOS (this repo) | Windows equivalent |
 |---|---|---|
-| Core daemon | `geoguardd.py` (stdlib) | Same file, with a small `platform` shim (see §2) |
-| State channel | `~/.geo-guard/state.json` | `%USERPROFILE%\.geo-guard\state.json` (identical) |
-| Command channel | `~/.geo-guard/cmd/*.json` | Same (identical) |
+| Core daemon | `towerd.py` (stdlib) | Same file, with a small `platform` shim (see §2) |
+| State channel | `~/.tower/state.json` | `%USERPROFILE%\.tower\state.json` (identical) |
+| Command channel | `~/.tower/cmd/*.json` | Same (identical) |
 | Native UI | Swift `NSStatusItem` menubar app | **C#/.NET `NotifyIcon` tray app** (WPF or WinUI 3) |
 | Terminal UI | Python `curses` TUI | Python TUI using **ANSI + `msvcrt`** (stdlib) or `windows-curses` |
 | Routing | writes `HTTPS_PROXY` into `~/.claude/settings.json` | **Identical** — Claude Code reads the same file on Windows |
@@ -33,7 +32,7 @@ proxy plumbing is needed.
 
 ---
 
-## 2. Porting `geoguardd.py` (the daemon)
+## 2. Porting `towerd.py` (the daemon)
 
 Keep it as one file. Introduce a tiny platform layer for the four Unix-only
 touch points:
@@ -43,7 +42,7 @@ touch points:
 - **Option A (stdlib):** `msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)` on an opened
   lock file.
 - **Option B (recommended):** a **named mutex** via `ctypes`:
-  `kernel32.CreateMutexW(None, False, "Global\\GeoGuardDaemon")` and check
+  `kernel32.CreateMutexW(None, False, "Global\\TowerDaemon")` and check
   `GetLastError() == ERROR_ALREADY_EXISTS`. Cleaner semantics than file locks.
 
 Wrap it:
@@ -92,7 +91,7 @@ on Windows.
 (`urllib`), the transcript usage index, the state writer, and the command
 watcher — is pure stdlib and runs unmodified.
 
-Deliverable: `geoguardd.py` + `_win.py` (ctypes helpers, imported only when
+Deliverable: `towerd.py` + `_win.py` (ctypes helpers, imported only when
 `os.name == "nt"`).
 
 ---
@@ -111,10 +110,10 @@ first-party, no runtime to bundle if published self-contained, and gives a real
 ### Behavior (mirror `menubar.swift` 1:1)
 1. **On launch:** locate and start the daemon if `state.json` is stale.
    ```
-   Process.Start("python", "geoguardd.py")   // or a bundled python
+   Process.Start("python", "towerd.py")   // or a bundled python
    ```
    The daemon's single-instance lock makes a redundant launch harmless.
-2. **Poll** `%USERPROFILE%\.geo-guard\state.json` every 1 s (a
+2. **Poll** `%USERPROFILE%\.tower\state.json` every 1 s (a
    `DispatcherTimer`), deserialize to the same model shape.
 3. **Tray icon reflects status** — swap between pre-rendered `.ico`s (or draw
    with GDI+): green shield (protected), amber shield (blocking / unknown), gray
@@ -128,7 +127,7 @@ first-party, no runtime to bundle if published self-contained, and gives a real
    Swift app.
 6. **Quit confirmation (Cmd-Q analog):** intercept the tray "Quit" menu item
    and window close; show a `MessageBox`:
-   *"Quit Geo Guard? This turns the guard off and restores Claude to a direct
+   *"Quit Tower? This turns the guard off and restores Claude to a direct
    connection."* On confirm, send `{"cmd":"quit"}`, wait ~1.2 s for the daemon
    to `route_off`, then exit. Bind to the app-level accelerator so the flyout,
    when focused, treats a close as this same confirmed-quit.
@@ -148,7 +147,7 @@ handles the `guard` reserved-word case (same trick as Swift's `CodingKeys`).
   (Windows Terminal and modern conhost support VT sequences once you enable
   `ENABLE_VIRTUAL_TERMINAL_PROCESSING` via `SetConsoleMode`) and read keys with
   **`msvcrt.getwch()`** (non-blocking via `msvcrt.kbhit()`). The existing
-  `geo-guard-tui.py` layout logic (formatting helpers, bars, sparkline, status
+  `tower-tui.py` layout logic (formatting helpers, bars, sparkline, status
   colors) is reusable almost verbatim; only the `curses` calls (`addstr`,
   `getch`, color pairs) get swapped for an ANSI writer + `msvcrt` input.
 - **Fastest to port:** `pip install windows-curses` and run the existing TUI
@@ -164,8 +163,8 @@ k.GetConsoleMode(h, ctypes.byref(mode))
 k.SetConsoleMode(h, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
 ```
 
-Ship a `Geo Guard (Terminal).cmd` (the analog of the `.command` file) that runs
-`python geo-guard-tui.py`.
+Ship a `Tower (Terminal).cmd` (the analog of the `.command` file) that runs
+`python tower-tui.py`.
 
 ---
 
@@ -177,7 +176,7 @@ Ship a `Geo Guard (Terminal).cmd` (the analog of the `.command` file) that runs
   embeddable Python and invoke it from the tray app. (a) matches how the macOS
   build depends on system `python3`.
 - **Installer:** **Inno Setup** (simple) or **MSIX** (Store-friendly). It should:
-  - lay down `geoguardd.py`, `_win.py`, `geo-guard-tui.py`, `GeoGuard.exe`, icons;
+  - lay down `towerd.py`, `_win.py`, `tower-tui.py`, `Tower.exe`, icons;
   - optionally add a **Startup** shortcut / `HKCU\...\Run` key so the guard
     starts at login (mirrors a macOS Login Item);
   - create Start-menu entries for the tray app and the terminal dashboard.

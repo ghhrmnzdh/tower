@@ -1,61 +1,62 @@
-# 🐎 Corral
+# 📡 Tower
 
-**Corral — a control tower for your Claude agents.** When you're running many
-agents across terminal tabs and projects, Corral rounds them all into one
-view: what each is doing, which one needs you (blocked, asking, done), and
-which are colliding on the same repo. Herd the loose ones into the pen so none
-wander off unwatched.
+**Tower — a control tower for your Claude agents.** When you're running many
+agents across terminal tabs and projects, Tower brings them into one view:
+what each is doing, which one needs you (blocked, asking, done), and which are
+colliding on the same repo — so none run off unwatched.
 
-One little ranch, four jobs:
+One daemon, four jobs:
 
-- **The herd** — every running Claude Code agent, live: status, activity,
+- **The agents** — every running Claude Code agent, live: status, activity,
   model, momentum. A ranked **needs-you queue** (failed > blocked > asking >
   done) with notifications, and click-to-focus that agent's terminal.
-- **The weather** — when Claude errors mid-session, Corral instantly answers
+- **The weather** — when Claude errors mid-session, Tower instantly answers
   *"is it my internet, is it slow, or is it Anthropic?"* — passive latency
   probes + an on-demand speed test.
 - **The fence** — pin Claude Code to one country. A tiny local proxy blocks
   Claude's requests when you're **confirmed outside** your target country
-  (fail-open: an unconfirmed location never blocks).
-- **The feed bill** — your real plan usage (mirrored from `claude -p /usage`)
+  (fail-closed: an unconfirmed location never gets through).
+- **Usage** — your real plan usage (mirrored from `claude -p /usage`)
   plus a clearly-labeled local token/cost estimate.
 
 Two front-ends, one daemon, one source of truth:
 
-- **`Corral.app`** — a native menubar agent (Swift/AppKit + SwiftUI, macOS 14+).
+- **`Tower.app`** — a native menubar agent (Swift/AppKit + SwiftUI, macOS 14+).
   No dock icon, no browser, no terminal required.
 - **Terminal dashboard** — a stdlib `curses` TUI (now with mouse support) for
   when you live in the shell.
 
-Both read the same `~/.corral/state.json` and drive the daemon through the
+Both read the same `~/.tower/state.json` and drive the daemon through the
 same command files, so you can use either (or both) interchangeably.
 
-> Corral is the app formerly known as **Geo Guard**, grown up. Your
-> `~/.geo-guard` state migrates automatically on first launch.
+> Tower is the app formerly known as **Geo Guard** (then Corral), grown up.
+> Your `~/.corral` or `~/.geo-guard` state migrates automatically on first
+> launch.
 
-## The horses
+## The marks
 
-One horse per Claude model — **the craft scales with the caliber**
-(crayon → flat vector → sculpted badge → gilded myth):
+Tower's identity is a **radar on a control tower** — its five states *are* the
+guard (cleared, verifying, held on the connection, held off-country, or
+unguarded). The menu bar is that radar; it animates only while a state has
+something to say. Alongside it, one still mark per Claude model:
 
-| Model | Horse |
+| Model | Mark |
 |---|---|
-| **Fable** | Mythic winged stallion, gold-leaf heraldry |
-| **Opus** | Prancing stallion emblem — sculpted, glossy, premium badge |
-| **Sonnet** | Clean galloping horse — flat vector, confident lines |
-| **Haiku** | Little pony — a child's crayon doodle |
+| **Fable** | a gold spiral |
+| **Opus** | three orbiting rings + core, rosso |
+| **Sonnet** | a single steel S stroke |
+| **Haiku** | three crayon ticks + core |
 
-The **menu bar shows the highest-tier horse currently at work** (it takes a
-subtle canter step while a tool call runs), a horseshoe when the corral is
-quiet, and a needs-you count. See [docs/DESIGN.md](docs/DESIGN.md) for the
-whole design system.
+See [docs/DESIGN.md](docs/DESIGN.md) for the whole design system, or open
+[Tower Identity Study.html](Tower%20Identity%20Study.html) to watch the marks
+live.
 
 ## Documentation
 
 | Doc | What it covers |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The daemon, IPC, routing, fail-open, net probes, agent monitoring |
-| [docs/DESIGN.md](docs/DESIGN.md) | The design system — horses, attention semantics, motion tokens |
+| [docs/DESIGN.md](docs/DESIGN.md) | The design system — the radar, model marks, attention semantics, motion tokens |
 | [docs/APP.md](docs/APP.md) | The macOS menubar app — build, popover, dashboard, notifications |
 | [docs/TUI.md](docs/TUI.md) | The terminal dashboard — cards, actions menu, mouse |
 | [windows_plan.md](windows_plan.md) | Plan to port this to Windows |
@@ -65,51 +66,50 @@ whole design system.
 
 ## Quick start
 
-**Menubar app** — double-click **`Corral.app`**. A horse(shoe) appears in your
+**Menubar app** — double-click **`Tower.app`**. The tower radar appears in your
 menu bar; click it for the popover.
 
-**Terminal** — double-click **`Corral (Terminal).command`**, or run:
+**Terminal** — double-click **`Tower (Terminal).command`**, or run:
 
 ```bash
-python3 "Corral.app/Contents/Resources/corral-tui.py"
+python3 "Tower.app/Contents/Resources/tower-tui.py"
 ```
 
 Either front-end starts the background daemon automatically if it isn't
 already running.
 
 > **First launch:** because the app is ad-hoc signed (not notarized), macOS may
-> say it's from an unidentified developer. Right-click **Corral.app → Open →
+> say it's from an unidentified developer. Right-click **Tower.app → Open →
 > Open** once; normal double-clicks work after that.
 
 ---
 
 ## The menu bar at a glance
 
-Strict priority — the loudest true thing wins:
+The radar's state *is* the guard (tint carries the alert level):
 
-| Icon | Meaning |
+| Radar | Meaning |
 |---|---|
-| 🔴 `wifi.slash` | **Your internet is offline** — Claude errors are local, not Anthropic |
-| 🟠 `exclamationmark.icloud` | **Anthropic API unreachable** — your internet is fine |
-| `wifi.exclamationmark` | Captive portal (tinted) or slow connection (plain) |
-| 🟠 `exclamationmark.shield.fill` | **Blocking Claude** — confirmed outside your target country |
-| 🐎 a horse | Agents at work — the silhouette is the highest-tier model running |
-| a horseshoe | The corral is quiet |
+| **clear** — calm ring + blips | Guarding · in-country and a path to Anthropic is open |
+| **verify** — a rotating sweep | Confirming your location; held until sure |
+| 🟠 **holdNet** — amber dashed ring + pings | No usable path (offline / captive / API) — held pending |
+| 🟠 **holdGeo** — amber ring + fence + off-country blip | Wrong country / VPN — held, not failed |
+| 🔴 **off** — red dashed ring, hollow core | Routing off — Claude connects directly, **unguarded** |
 
 Badge: needs-you count (red if something failed) · optional usage %.
 
 ---
 
-## What the herd view shows
+## What the agents view shows
 
-Per agent: project, model (its horse), live activity (`editing
+Per agent: project, model (its mark), live activity (`editing
 src/Model.swift`), status, a `n ✓` completed-tools momentum counter, and age.
 Plus: same-repo collision banners (escalating when two agents edit the same
 file), a "while you were away" event history in the dashboard, and macOS
 notifications when an agent flips to blocked / asking / failed / done.
 
 Statuses are derived read-only from Claude Code's own session transcripts —
-Corral never writes into `~/.claude` and never injects input. The
+Tower never writes into `~/.claude` and never injects input. The
 "waiting for approval" state is an honest heuristic (a pending tool call with
 a stalled transcript can also be a slow tool).
 
@@ -117,7 +117,7 @@ a stalled transcript can also be a slow tool).
 
 ## Safety model
 
-Corral is careful never to leave Claude Code in a broken state:
+Tower is careful never to leave Claude Code in a broken state:
 
 1. **It never routes Claude at a dead proxy.** Routing is only written to
    `settings.json` when the proxy is actually accepting connections.
@@ -128,7 +128,7 @@ Corral is careful never to leave Claude Code in a broken state:
    the proxy up; if the daemon dies, it removes routing on the way out.
 4. **Fail-open.** If your location can't be confirmed (offline, rate-limited),
    Claude is **not** blocked — a failed lookup must never knock Claude offline.
-5. **It backs up `settings.json`** to `settings.json.corral.bak` before its
+5. **It backs up `settings.json`** to `settings.json.tower.bak` before its
    first edit.
 6. **Network probes never go through the proxy** and never touch your Claude
    credentials; the Anthropic probe is a TLS handshake, not an API request.
@@ -165,36 +165,36 @@ Requires **Xcode Command Line Tools** (`swiftc`) to build the app, and
 **Python 3.8+** at runtime.
 
 ```bash
-./build.sh          # compiles src/*.swift → Corral.app (~20s)
+./build.sh          # compiles src/*.swift → Tower.app (~20s)
 ```
 
 ### Project layout
 
 ```
-corral/
-├── Corral.app/                  # built product (regenerate with build.sh)
-├── Corral (Terminal).command    # double-click → terminal dashboard
+tower/
+├── Tower.app/                  # built product (regenerate with build.sh)
+├── Tower (Terminal).command    # double-click → terminal dashboard
+├── Tower Identity Study.html   # the radar + model marks, live
 ├── build.sh                     # assembles the .app from src/
-├── assets/horses/               # the design-system SVGs
 ├── docs/                        # ARCHITECTURE, DESIGN, APP, TUI
 ├── windows_plan.md              # plan to port this to Windows
 └── src/
-    ├── corrald.py               # the daemon (proxy + geo + usage + net + agents + IPC)
-    ├── *.swift                  # native menubar app (AppKit + SwiftUI)
-    ├── corral-tui.py            # terminal dashboard (curses)
+    ├── towerd.py               # the daemon (proxy + geo + usage + net + agents + IPC)
+    ├── *.swift                  # native menubar app (AppKit + SwiftUI); Glyph.swift = the marks
+    ├── tower-tui.py            # terminal dashboard (curses)
     ├── Info.plist
-    └── AppIcon.icns / AppIcon.svg
+    └── AppIcon.icns
 ```
 
 ### How the pieces talk
 
 ```
                 ┌───────────────────────┐
-   writes  ───▶ │  ~/.corral/state.json │  ◀── reads (menubar + TUI, 1×/s)
+   writes  ───▶ │  ~/.tower/state.json │  ◀── reads (menubar + TUI, 1×/s)
                 └───────────────────────┘
-   corrald.py                                 src/*.swift / corral-tui.py
+   towerd.py                                 src/*.swift / tower-tui.py
                 ┌───────────────────────┐
-   reads  ◀──── │  ~/.corral/cmd/*.json │  ◀── writes commands (route, focus…)
+   reads  ◀──── │  ~/.tower/cmd/*.json │  ◀── writes commands (route, focus…)
                 └───────────────────────┘
 ```
 
@@ -209,7 +209,7 @@ codebase small and the [Windows port](windows_plan.md) straightforward.
 - **macOS 14+**, Apple Silicon.
 - **Python 3.8+** on `PATH` (macOS ships one; Homebrew or python.org also fine).
 - **Xcode Command Line Tools** — only to *build* (`xcode-select --install`).
-- **Claude Code** installed, so there are agents to corral.
+- **Claude Code** installed, so there are agents to tower.
 
 No root, no daemons installed system-wide (except the optional keep-awake
 "lid-closed" mode, which asks for admin once and can be fully removed).
@@ -222,11 +222,11 @@ probes.
 
 - **Turn everything off:** quit the app (it removes routing) or press `Q` in
   the terminal.
-- **Full manual reset:** delete `~/.corral/`, and if `env.HTTPS_PROXY` still
+- **Full manual reset:** delete `~/.tower/`, and if `env.HTTPS_PROXY` still
   points at `127.0.0.1` in `~/.claude/settings.json`, remove it (or restore
-  `~/.claude/settings.json.corral.bak`).
-- **Remove the app:** delete `Corral.app`. Nothing else is left behind.
-- If you ever want to see the TUI onboarding again, delete `~/.corral/.tui_seen`.
+  `~/.claude/settings.json.tower.bak`).
+- **Remove the app:** delete `Tower.app`. Nothing else is left behind.
+- If you ever want to see the TUI onboarding again, delete `~/.tower/.tui_seen`.
 
 ---
 

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tower — Identity Study</title>
+<style>
+  :root { --amber:#E6A93C; --red:#E5484D; --ink:#0C0C0E; --paper:#E7E6E2; --mut:#8b8b86; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body {
+    background:var(--ink); color:var(--paper); min-height:100vh;
+    font-family:'Newsreader',Georgia,serif; padding:60px 40px 100px;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .wrap { width:100%; max-width:1100px; display:flex; flex-direction:column; gap:52px; }
+  .mono { font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .kicker { font-size:11px; letter-spacing:.24em; color:#6E6E6A; text-transform:uppercase; }
+  h1 { margin:.4rem 0 0; font-weight:500; font-size:42px; letter-spacing:-.01em; }
+  p.lede { margin:.6rem 0 0; font-size:17px; line-height:1.6; color:#9A9A95; max-width:62ch; }
+  h2 { font-weight:500; font-size:22px; margin:0 0 4px; }
+  .sub { font-size:13px; color:var(--mut); margin:0 0 22px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; }
+  .card {
+    background:#141416; border:1px solid rgba(255,255,255,.08); border-radius:20px;
+    padding:24px 18px 18px; display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  .glyph { width:120px; height:120px; color:var(--paper); }
+  .name { font-weight:500; font-size:18px; }
+  .desc { font-size:11px; letter-spacing:.03em; color:#7C7C77; text-align:center; line-height:1.5; text-transform:uppercase; }
+  .desc.mono { letter-spacing:.14em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="mono kicker">Tower · macOS menu bar</div>
+    <h1>One living mark for the guard</h1>
+    <p class="lede">A radar on a control tower. Its five states are the guard itself — cleared, verifying, held on the connection, held off-country, or unguarded. Still until something needs saying; alive the moment it does. Alongside it, one quiet mark per Claude model.</p>
+  </header>
+
+  <section>
+    <h2>The radar — guard status</h2>
+    <p class="sub mono">clear · verify · hold&nbsp;·&nbsp;connection · hold&nbsp;·&nbsp;location · unguarded</p>
+    <div class="grid" id="radars"></div>
+  </section>
+
+  <section>
+    <h2>Model marks</h2>
+    <p class="sub mono">one still glyph per tier — haiku · sonnet · opus · fable</p>
+    <div class="grid" id="models"></div>
+  </section>
+
+</div>
+
+<script>
+const AMBER = '#E6A93C', RED = '#E5484D';
+const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function svg(inner){ return '<svg viewBox="0 0 100 100" width="100%" height="100%" fill="none" style="overflow:visible;display:block">'+inner+'</svg>'; }
+
+// ---- the radar glyph (tower) ------------------------------------------------
+function buildRadar(){
+  return '<g data-part="all">'
+    +'<circle data-part="ring" cx="50" cy="50" r="33" stroke="currentColor" stroke-width="6" fill="none"/>'
+    +'<circle data-part="pulse" cx="50" cy="50" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0"/>'
+    +'<circle data-part="ping" cx="50" cy="50" r="8" stroke="currentColor" stroke-width="3.5" fill="none" opacity="0"/>'
+    +'<circle data-part="ping" cx="50" cy="50" r="8" stroke="currentColor" stroke-width="3.5" fill="none" opacity="0"/>'
+    +'<g data-part="sweep" opacity="0"><path data-part="sweepTrail" d="M50 50 L50 17 A 33 33 0 0 0 21 34 Z" fill="currentColor" fill-opacity="0.16"/><line x1="50" y1="50" x2="50" y2="17" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></g>'
+    +'<circle data-part="blip" cx="64" cy="41" r="3.6" fill="currentColor"/>'
+    +'<circle data-part="blip" cx="38" cy="58" r="3.6" fill="currentColor"/>'
+    +'<circle data-part="blip" cx="58" cy="66" r="3.6" fill="currentColor"/>'
+    +'<g data-part="geo" opacity="0"><circle data-part="fence" cx="50" cy="50" r="15" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="4 5"/><line x1="50" y1="50" x2="72" y2="32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 4"/><circle data-part="offHalo" cx="72" cy="32" r="5" stroke="currentColor" stroke-width="2.5" fill="none" opacity="0"/><g data-part="offMark"><circle cx="72" cy="32" r="5" fill="currentColor"/></g></g>'
+    +'<circle data-part="center" cx="50" cy="50" r="4.5" fill="currentColor"/>'
+    +'<circle data-part="centerRing" cx="50" cy="50" r="5.5" fill="none" stroke="'+RED+'" stroke-width="4" opacity="0"/>'
+    +'</g>';
+}
+
+// ---- model marks ------------------------------------------------------------
+function buildModel(m){
+  let s='';
+  if(m==='haiku'){ for(let k=0;k<3;k++){ const a=(-90+k*120)*Math.PI/180,dx=Math.cos(a),dy=Math.sin(a); s+='<line x1="'+(50+dx*16).toFixed(1)+'" y1="'+(50+dy*16).toFixed(1)+'" x2="'+(50+dx*34).toFixed(1)+'" y2="'+(50+dy*34).toFixed(1)+'" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>'; } s+='<circle cx="50" cy="50" r="7" fill="currentColor"/>'; }
+  else if(m==='sonnet'){ s='<path d="M50 25 A12.5 12.5 0 0 1 50 50 A12.5 12.5 0 0 0 50 75" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>'; }
+  else if(m==='opus'){ const arc=(r,g)=>{ const a0=(g+30)*Math.PI/180,a1=(g+330)*Math.PI/180; return 'M '+(50+r*Math.cos(a0)).toFixed(1)+' '+(50+r*Math.sin(a0)).toFixed(1)+' A '+r+' '+r+' 0 1 1 '+(50+r*Math.cos(a1)).toFixed(1)+' '+(50+r*Math.sin(a1)).toFixed(1); }; [[16,90],[27,210],[38,330]].forEach(rg=>{ s+='<path d="'+arc(rg[0],rg[1])+'" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>'; }); s+='<circle cx="50" cy="50" r="5" fill="currentColor"/>'; }
+  else { let d=''; const steps=120; for(let i=0;i<=steps;i++){ const f=i/steps,ang=f*2.35*2*Math.PI-Math.PI/2,rr=2.5+(35-2.5)*f; d+=(i?' L ':'M ')+(50+rr*Math.cos(ang)).toFixed(1)+' '+(50+rr*Math.sin(ang)).toFixed(1);} s='<path d="'+d+'" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="50" r="4" fill="currentColor"/>'; }
+  return svg(s);
+}
+
+// ---- per-frame update (radar) -----------------------------------------------
+function updateRadar(p, sk, P){
+  const A = reduce ? 0 : 1;
+  const off = sk==='off';
+  let rc='currentColor', rd='none';
+  if(off){ rc=RED; rd='5 7'; } else if(sk==='holdNet'){ rc=AMBER; rd='5 6'; } else if(sk==='holdGeo') rc=AMBER;
+  p.ring.setAttribute('stroke', rc); p.ring.setAttribute('stroke-dasharray', rd);
+  p.center.style.opacity = off?0:1; p.centerRing.style.opacity = off?1:0;
+  p.center.setAttribute('fill', sk==='holdNet'?AMBER:'currentColor');
+  p.sweep.style.opacity = sk==='verify'?1:0;
+  if(sk==='verify'){ p.sweep.setAttribute('transform','rotate('+((P*150)%360).toFixed(2)+' 50 50)'); }
+  if(sk==='clear'){ const pr=(P*0.42)%1; p.pulse.setAttribute('r', A?(8+pr*26).toFixed(2):'22'); p.pulse.style.opacity = A?((1-pr)*0.5).toFixed(3):'0.3'; } else { p.pulse.style.opacity=0; }
+  if(sk==='holdNet'){ p.pings.forEach((pg,i)=>{ pg.setAttribute('stroke',AMBER); if(A){ const pr=((P*0.7)+i*0.5)%1; pg.setAttribute('r',(7+pr*15).toFixed(2)); pg.style.opacity=(Math.max(0,1-pr)*0.7).toFixed(3);} else { pg.setAttribute('r',(11+i*7).toFixed(1)); pg.style.opacity=(0.55-i*0.25).toFixed(2);} }); } else { p.pings.forEach(pg=>pg.style.opacity=0); }
+  p.blips.forEach((b,i)=>{ b.style.opacity = sk==='clear' ? (0.8+0.2*Math.sin(P*1.6+i*1.3)*A).toFixed(3) : (sk==='verify' ? (0.3+0.12*Math.sin(P*2.2+i)*A).toFixed(3) : (off?0.22:0)); });
+  p.geo.style.opacity = sk==='holdGeo'?1:0;
+  if(sk==='holdGeo'){
+    p.fence.setAttribute('stroke',AMBER); p.offHalo.setAttribute('stroke',AMBER);
+    p.fence.setAttribute('transform','rotate('+((P*45)%360).toFixed(2)+' 50 50)');
+    const dx=-0.773, dy=0.634, lunge=A*6*(0.5+0.5*Math.sin(P*2.2)), s=1+0.16*Math.sin(P*3.0)*A;
+    p.offMark.setAttribute('transform','translate('+(dx*lunge).toFixed(2)+' '+(dy*lunge).toFixed(2)+') translate(72 32) scale('+s.toFixed(3)+') translate(-72 -32)');
+    p.offMark.querySelector('circle').setAttribute('fill',AMBER);
+    if(A){ const hp=(P*1.1)%1; p.offHalo.setAttribute('r',(5+hp*9).toFixed(2)); p.offHalo.style.opacity=((1-hp)*0.8).toFixed(3); p.offHalo.setAttribute('cx',(72+dx*lunge).toFixed(2)); p.offHalo.setAttribute('cy',(32+dy*lunge).toFixed(2)); }
+    else { p.offHalo.setAttribute('r','10'); p.offHalo.style.opacity='0.5'; }
+  } else { p.offHalo.style.opacity=0; }
+}
+
+function cacheRadar(cont){
+  const map={pings:[],blips:[]};
+  cont.querySelectorAll('[data-part]').forEach(n=>{ const k=n.getAttribute('data-part'); if(k==='ping') map.pings.push(n); else if(k==='blip') map.blips.push(n); else map[k]=n; });
+  return map;
+}
+
+// ---- build the page ---------------------------------------------------------
+const RADARS = [
+  ['clear','Cleared','guarding · path open'],
+  ['verify','Verifying','confirming location'],
+  ['holdNet','Hold · connection','no usable path — pending'],
+  ['holdGeo','Hold · location','off-country — pending'],
+  ['off','Unguarded','routing off — danger'],
+];
+const MODELS = [
+  ['haiku','Haiku','three marks · fast & spare'],
+  ['sonnet','Sonnet','one stroke · balanced'],
+  ['opus','Opus','three rings · deep'],
+  ['fable','Fable','a spiral · mythic'],
+];
+const ACCENT = { haiku:'#E8842C', sonnet:'#3B6FB5', opus:'#B0343C', fable:'#C9A227' };
+
+const insts = [];
+const rroot = document.getElementById('radars');
+RADARS.forEach(([state,name,desc])=>{
+  const card=document.createElement('div'); card.className='card';
+  const g=document.createElement('div'); g.className='glyph'; g.innerHTML=svg(buildRadar());
+  const nm=document.createElement('div'); nm.className='name'; nm.textContent=name;
+  const d=document.createElement('div'); d.className='desc mono'; d.textContent=desc;
+  card.append(g,nm,d); rroot.appendChild(card);
+  insts.push({parts:cacheRadar(g), state});
+});
+
+const mroot = document.getElementById('models');
+MODELS.forEach(([m,name,desc])=>{
+  const card=document.createElement('div'); card.className='card';
+  const g=document.createElement('div'); g.className='glyph'; g.style.color=ACCENT[m]; g.innerHTML=buildModel(m);
+  const nm=document.createElement('div'); nm.className='name'; nm.textContent=name;
+  const d=document.createElement('div'); d.className='desc'; d.textContent=desc;
+  card.append(g,nm,d); mroot.appendChild(card);
+});
+
+let phase=0, last=0;
+function frame(ts){
+  const t=ts/1000; let dt=last?t-last:0.016; last=t; if(dt>0.05) dt=0.05;
+  phase += dt; const P=phase;
+  insts.forEach(i=>updateRadar(i.parts, i.state, P));
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

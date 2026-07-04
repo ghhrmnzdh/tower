@@ -1,12 +1,12 @@
-# Corral — Terminal Dashboard
+# Tower — Terminal Dashboard
 
 A zero-dependency (`curses`, stdlib only) terminal front-end for the guard. It
-renders `~/.corral/state.json` and drives the daemon by dropping command
+renders `~/.tower/state.json` and drives the daemon by dropping command
 files — see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## Run
 ```bash
-python3 "Corral.app/Contents/Resources/corral-tui.py"
+python3 "Tower.app/Contents/Resources/tower-tui.py"
 ```
 If the daemon isn't running it starts it (single-instance, so this is safe).
 
@@ -19,7 +19,7 @@ you can reopen it later):
 - **[Enter] open dashboard.**
 
 Your choices are remembered — subsequent launches go **straight to the
-dashboard**. (To see onboarding again, delete `~/.corral/.tui_seen`.)
+dashboard**. (To see onboarding again, delete `~/.tower/.tui_seen`.)
 
 ## The dashboard is deliberately non-reactive — but clickable
 A stray keypress does **nothing**, so you can't accidentally toggle routing by
@@ -29,7 +29,7 @@ fat-fingering a key. Deliberate gestures work:
 |---|---|
 | `Enter` (or `m` / `space`) | Open the **Actions menu** |
 | `q` or `Q` | Quit the dashboard (**both** leave the guard running) |
-| **Mouse click** | Act on what you clicked: guard rows toggle, the country name opens the picker, the NETWORK card runs a speed test, the plan section refreshes, a HERD row focuses that agent's terminal |
+| **Mouse click** | Act on what you clicked: guard rows toggle, the country name opens the picker, the NETWORK card runs a speed test, the plan section refreshes, an AGENTS row focuses that agent's terminal |
 | **Scroll wheel** | Moves the selection in the menu and country picker |
 
 ## The Actions menu
@@ -62,9 +62,9 @@ with `Enter` (or a click), close with `Esc`:
 - **NETWORK** — where a Claude error comes from: status dot
   (online/degraded/offline/api_issue/captive), `net` vs `api` latency, an
   API-latency sparkline (outages peg the top), and the last speed-test result.
-- **THE HERD** — Claude agents on this Mac: `N at work · M done today · K need
+- **AGENTS** — Claude agents on this Mac: `N at work · M done today · K need
   you`, then rows (needs-you first: ✗ failed / ⛔ waiting approval / ? asking /
-  ✓ done, then the working herd) as
+  ✓ done, then the working agents) as
   `project — activity · model · age`. Collisions show as a ⚠ line when two
   agents share a repo (louder when they touch the same file). Click a row to
   focus that agent's terminal.

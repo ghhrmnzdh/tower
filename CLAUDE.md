@@ -1,9 +1,9 @@
 # CLAUDE.md
 
-Corral: a control tower for your Claude agents — pin Claude Code to a country
-(the fence), isolate network faults (the weather), watch usage (the feed
-bill), and monitor every running Claude agent (the herd). One daemon, two
-front-ends (menubar app + terminal dashboard). Renamed from Geo Guard.
+Tower: a control tower for your Claude agents — pin Claude Code to a country
+(the fence), isolate network faults (the weather), watch usage, and monitor
+every running Claude agent. One daemon, two front-ends (menubar app + terminal
+dashboard). Formerly Geo Guard, then Corral.
 
 It is Claude-Code-only, and it is an **honest status layer** — a little helper
 so Claude is never confused by a shifting location. If something looks wrong
@@ -14,19 +14,22 @@ a direct connection. Leave it running; it will clear itself when the underlying
 condition (your location or your connection) recovers.
 
 ## Layout
-- `src/corrald.py` — the daemon (proxy + geo + usage + plan + net health +
+- `src/towerd.py` — the daemon (proxy + geo + usage + plan + net health +
   agent monitor + file IPC). stdlib only.
 - `src/*.swift` — native menu-bar app (main / AppDelegate / Model /
-  DesignSystem / Horses / StatusIcon / Popover / Dashboard / Notifier /
+  DesignSystem / Glyph / StatusIcon / Popover / Dashboard / Notifier /
   Components).
-- `src/corral-tui.py` — terminal dashboard (curses, stdlib only).
-- `assets/horses/` — the horse design-system SVGs (see docs/DESIGN.md).
+- `src/Glyph.swift` — the identity marks: the tower **radar** (guard status,
+  five animated states) and the still per-model marks. One geometry backs both
+  the live SwiftUI `Canvas` views and the menu-bar `ImageRenderer` templates.
+- `src/tower-tui.py` — terminal dashboard (curses, stdlib only).
+- `Tower Identity Study.html` — the radar + model marks, live (design reference).
 - `build.sh` — compiles the app bundle from `src/` (`-target arm64-apple-macos14.0`).
 - `docs/` — ARCHITECTURE.md, DESIGN.md, APP.md, TUI.md.
 
 ## Build / run
-- `./build.sh` then `open "Corral.app"`.
-- TUI: `python3 "Corral.app/Contents/Resources/corral-tui.py"`.
+- `./build.sh` then `open "Tower.app"`.
+- TUI: `python3 "Tower.app/Contents/Resources/tower-tui.py"`.
 
 ## Invariants — don't break these
 - **Never route Claude via the shell.** Routing edits `~/.claude/settings.json`
@@ -70,11 +73,11 @@ condition (your location or your connection) recovers.
   before it takes effect, and the warning must call out how many agents are
   *working right now* (they'd immediately send unguarded requests). Turning
   the guard *on* stays one tap; only the off-direction is gated. App:
-  `CorralModel.requestDanger` + `DangerAlerts`; TUI: `danger_confirm`.
+  `TowerModel.requestDanger` + `DangerAlerts`; TUI: `danger_confirm`.
 - **Read-only toward Claude Code sessions:** the agent monitor never writes
   into `~/.claude` and never injects input into a session.
-- **Daemon is single-instance** (`flock` on `~/.corral/daemon.lock`).
-- **Front-ends are thin:** read `~/.corral/state.json`, write `cmd/*.json`.
+- **Daemon is single-instance** (`flock` on `~/.tower/daemon.lock`).
+- **Front-ends are thin:** read `~/.tower/state.json`, write `cmd/*.json`.
   All logic lives in the daemon. Keep the app and TUI feature-matched
   (exception: the TUI's agent view is a compact card for now).
 - **No third-party deps:** Python stdlib + AppKit/SwiftUI only. Net probes are
@@ -83,6 +86,6 @@ condition (your location or your connection) recovers.
   read the token). Local token/cost is a separate, clearly-labeled estimate.
 - **Transcript parsing is defensive:** the JSONL format is undocumented and
   drifts; per-line try/except, surface `meta.parse_errors`, never crash.
-- **The design system is law:** docs/DESIGN.md — craft = caliber, motion =
-  state change (failure never bounces), one loudest thing at a time, Reduce
-  Motion always honored.
+- **The design system is law:** docs/DESIGN.md — the mark is the state (radar =
+  guard, model mark = model), motion = state change (failure never bounces),
+  one loudest thing at a time, Reduce Motion always honored.
