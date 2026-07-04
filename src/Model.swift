@@ -78,7 +78,26 @@ struct GUsage: Decodable {
 }
 
 // Real plan usage — mirrors `claude -p /usage` (Settings → Usage page).
-struct GPlanBucket: Decodable { var pct: Int?; var resets: String? }
+struct GPlanBucket: Decodable {
+    var pct: Int?
+    var resets: String?
+    var resets_at: Double?
+
+    /// Live relative reset time, no timezone — "in 3h", "in 2d", "now".
+    /// Falls back to the raw stamp with the "(timezone)" trimmed off.
+    var resetDisplay: String? {
+        if let at = resets_at {
+            let s = at - Date().timeIntervalSince1970
+            if s <= 30 { return "now" }
+            if s < 5400 { return "in \(max(1, Int(s / 60)))m" }
+            if s < 129_600 { return "in \(Int(s / 3600))h" }
+            return "in \(Int(s / 86_400))d"
+        }
+        guard let r = resets, !r.isEmpty else { return nil }
+        return r.replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "",
+                                      options: .regularExpression)
+    }
+}
 struct GLast24h: Decodable { var requests: Int?; var sessions: Int? }
 struct GPlan: Decodable {
     var ok: Bool?
