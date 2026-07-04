@@ -130,6 +130,25 @@ def model_name(mid):
     return "Other" if mid in ("unknown", "", None) else mid
 
 
+def model_label(sess):
+    """Model + effort as the app shows it: "Opus 4.8 · HIGH". Version is parsed
+    from the model id (numeric runs, dropping a yyyymmdd date suffix); effort is
+    the daemon's compact label. Effort omitted when unknown."""
+    base = model_name(sess.get("model") or sess.get("model_family"))
+    mid = (sess.get("model") or "").lower().split("[", 1)[0]   # drop "[1m]" etc.
+    nums, cur = [], ""
+    for ch in mid + " ":
+        if ch.isdigit():
+            cur += ch
+        else:
+            if cur and len(cur) < 6:     # skip 6+ digit runs (date suffixes)
+                nums.append(cur)
+            cur = ""
+    label = f"{base} {'.'.join(nums)}" if nums else base
+    eff = sess.get("effort")
+    return f"{label} · {str(eff).upper()}" if eff else label
+
+
 def ago(since):
     if not isinstance(since, (int, float)) or not since:
         return ""
@@ -174,8 +193,8 @@ def agent_row(sess, reason, since):
     what = (sess.get("activity")
             or AGENT_PHRASE.get(reason or sess.get("status"), reason or "…"))
     parts = [f"{name} — {what}"]
-    if sess.get("model_family"):
-        parts.append(str(sess["model_family"]))
+    if sess.get("model") or sess.get("model_family"):
+        parts.append(model_label(sess))
     when = ago(since or sess.get("status_since") or sess.get("last_activity"))
     if when:
         parts.append(when)
@@ -1295,7 +1314,8 @@ def _sig(d):
     ag = d.get("agents") or {}
     summary = ag.get("summary") or {}
     ag_sig = (tuple(sorted((str(x.get("session_id")), str(x.get("status")),
-                            str(x.get("activity")))
+                            str(x.get("activity")), str(x.get("model")),
+                            str(x.get("effort")))
                            for x in (ag.get("sessions") or [])
                            if isinstance(x, dict))),
               len(ag.get("needs_you") or []), len(ag.get("collisions") or []),
