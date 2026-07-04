@@ -162,7 +162,8 @@ struct GAgentSession: Decodable, Identifiable {
     var kind: String?            // interactive|background|infra
     var model: String?
     var model_family: String?    // fable|opus|sonnet|haiku|other
-    var effort: String?          // low|med|high|xhigh|ultra (nil = unknown)
+    var effort: String?          // low|medium|high|xhigh|max (nil = unknown)
+    var context: String?         // context-window tag, e.g. "1M" (nil = default)
     var project_name: String?
     var cwd: String?
     var git_root: String?
@@ -184,16 +185,21 @@ struct GAgentSession: Decodable, Identifiable {
 
     var tier: ModelTier { ModelTier(family: model_family) }
 
-    /// Full model name with version parsed from the id — "Opus 4.8", "Sonnet 5",
-    /// "Haiku 4.5". Falls back to the bare tier name when there's no id/version.
+    /// Full model name — version parsed from the id and the context-window tag
+    /// appended when present: "Opus 4.8 · 1M", "Sonnet 5", "Haiku 4.5". Falls
+    /// back to the bare tier name when there's no id/version.
     var modelDisplay: String {
         let base = tier.display
-        guard let raw = model?.lowercased() else { return base }
-        // drop any bracketed suffix ("claude-opus-4-8[1m]" → "claude-opus-4-8")
-        let id = raw.split(separator: "[").first.map(String.init) ?? raw
-        // numeric runs, dropping any 6+ digit run (a yyyymmdd date suffix)
-        let nums = id.split { !$0.isNumber }.map(String.init).filter { $0.count < 6 }
-        return nums.isEmpty ? base : "\(base) \(nums.joined(separator: "."))"
+        var out = base
+        if let raw = model?.lowercased() {
+            // drop any bracketed suffix ("claude-opus-4-8[1m]" → "claude-opus-4-8")
+            let id = raw.split(separator: "[").first.map(String.init) ?? raw
+            // numeric runs, dropping any 6+ digit run (a yyyymmdd date suffix)
+            let nums = id.split { !$0.isNumber }.map(String.init).filter { $0.count < 6 }
+            if !nums.isEmpty { out = "\(base) \(nums.joined(separator: "."))" }
+        }
+        if let c = context, !c.isEmpty { out += " · \(c)" }
+        return out
     }
 
     /// The effort chip label, upper-cased ("HIGH", "XHIGH", "ULTRA"). nil hides it.
@@ -445,6 +451,17 @@ final class TowerModel: ObservableObject {
         }
     }
 
+    /// Keep-awake, distilled to a lamp glow for the radar + beacon. Orthogonal
+    /// to the guard state — the Mac can be held awake in any of them.
+    var awakeGlow: AwakeGlow {
+        guard state?.keepawake?.on == true else { return .none }
+        return state?.keepawake?.mode == "clamshell" ? .clamshell : .idle
+    }
+    /// "off" | "idle" | "clamshell" — the effective keep-awake mode.
+    var keepAwakeMode: String {
+        (state?.keepawake?.on == true ? state?.keepawake?.mode : nil) ?? "off"
+    }
+
     /// Sessions worth showing (daemon already excludes "infra").
     var agentSessions: [GAgentSession] { state?.agents?.sessions ?? [] }
 
@@ -552,6 +569,42 @@ func agoString(sinceEpoch: Double) -> String {
     let hrs = mins / 60
     if hrs < 36 { return String(format: "%.1fh", hrs) }
     return "\(Int(hrs / 24))d"
+}
+
+// Keep-awake, in the user's language — named by the consequence, not the
+// mechanism (the TUI card already reads this way). Shared by the popover row
+// and the dashboard card so the two never drift.
+enum KeepAwakeCopy {
+    /// Compact title for the flat popover row.
+    static func rowTitle(_ mode: String) -> String {
+        switch mode {
+        case "idle":      return "Staying awake · lid open"
+        case "clamshell": return "Staying awake · lid closed"
+        default:          return "Sleep allowed"
+        }
+    }
+    /// Headline for the dashboard card.
+    static func title(_ mode: String) -> String {
+        switch mode {
+        case "idle":      return "Staying awake"
+        case "clamshell": return "On vigil · lid closed OK"
+        default:          return "Sleep allowed"
+        }
+    }
+    /// The consequence, one line.
+    static func line(_ mode: String) -> String {
+        switch mode {
+        case "idle":      return "Long agents keep running while the lid is open."
+        case "clamshell": return "Agents keep running even after you close the lid."
+        default:          return "The Mac may sleep on its own — a long agent can be cut off."
+        }
+    }
+    /// Menu / picker option labels, in mode order [off, idle, clamshell].
+    static let options: [(mode: String, label: String)] = [
+        ("off", "Sleep allowed"),
+        ("idle", "Awake — lid open"),
+        ("clamshell", "Awake — lid closed"),
+    ]
 }
 
 // Country table (matches the TUI). Sorted by name for the picker.
