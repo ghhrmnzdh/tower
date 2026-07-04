@@ -33,19 +33,6 @@ let TowerRedNS   = NSColor(red: 0xE5 / 255, green: 0x48 / 255, blue: 0x4D / 255,
 // --------------------------------------------------------------------------- //
 enum RadarState {
     case clear, verify, holdNet, holdGeo, off
-
-    /// Menu-bar tint (template images tint uniformly). nil = default label color.
-    var tint: NSColor? {
-        switch self {
-        case .off: return TowerRedNS
-        case .holdNet, .holdGeo: return TowerAmberNS
-        case .clear, .verify: return nil
-        }
-    }
-    /// Whether this state carries motion worth animating in the menu bar.
-    var animates: Bool {
-        switch self { case .clear: return false; default: return true } // clear pulses; gate on agents in AppDelegate
-    }
 }
 
 // --------------------------------------------------------------------------- //
@@ -166,27 +153,46 @@ func drawRadar(_ ctx: GraphicsContext, size: CGFloat, state: RadarState,
 }
 
 // --------------------------------------------------------------------------- //
-// Model marks — one still glyph per tier.
+// Model marks — one monochrome glyph per tier. Still at rest (`energy` 0);
+// alive, in the model's own way, while its agent works (`energy` toward 1).
+// Deliberately colorless: minimal, the row's accent lives in text alone.
 // --------------------------------------------------------------------------- //
-func drawModelMark(_ ctx: GraphicsContext, size: CGFloat, tier: ModelTier, color: Color) {
+func drawModelMark(_ ctx: GraphicsContext, size: CGFloat, tier: ModelTier,
+                   color: Color, phase P: Double = 0, energy: Double = 0) {
     let sc = size / 100
-    var g = ctx
-    g.scaleBy(x: sc, y: sc)
-    func stroke(_ path: Path, _ w: CGFloat) {
-        g.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+    let E = max(0, energy)
+    var g0 = ctx
+    g0.scaleBy(x: sc, y: sc)
+    func stroke(_ ctx: GraphicsContext, _ path: Path, _ w: CGFloat) {
+        ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
     }
+    func rotoscale(_ deg: Double, _ k: Double) -> GraphicsContext {
+        var g = g0
+        g.translateBy(x: 50, y: 50); g.rotate(by: .degrees(deg)); g.scaleBy(x: k, y: k); g.translateBy(x: -50, y: -50)
+        return g
+    }
+
     switch tier {
     case .haiku:
+        // The whole mark sways; each tick breathes outward on its own beat.
+        let rotAll = E * 6 * sin(P * 0.7)
+        let g = rotoscale(rotAll, 1)
         for k in 0..<3 {
             let a = (-90 + Double(k) * 120) * .pi / 180, dx = cos(a), dy = sin(a)
+            let osc = 0.5 + 0.5 * sin(P * 2.3 + Double(k) * 2.094)
+            let off = E * 3.4 * osc
             var p = Path()
-            p.move(to: CGPoint(x: 50 + dx * 16, y: 50 + dy * 16))
-            p.addLine(to: CGPoint(x: 50 + dx * 34, y: 50 + dy * 34))
-            stroke(p, 8)
+            p.move(to: CGPoint(x: 50 + dx * (16 + off), y: 50 + dy * (16 + off)))
+            p.addLine(to: CGPoint(x: 50 + dx * (34 + off), y: 50 + dy * (34 + off)))
+            stroke(g, p, 8)
         }
-        g.fill(circle(hub, 7), with: .color(color))
+        let cs = 1 + E * 0.22 * sin(P * 3.0)
+        g.fill(circle(hub, 7 * cs), with: .color(color))
 
     case .sonnet:
+        // A slow, continuous turn.
+        let rot = E * (P * 16) + E * 4 * sin(P * 1.3)
+        let s = 1 + E * 0.05 * sin(P * 1.3)
         var p = Path()
         for i in 0...24 {                       // upper arc, bulges right
             let a = (-90 + Double(i) / 24 * 180) * .pi / 180
@@ -197,32 +203,46 @@ func drawModelMark(_ ctx: GraphicsContext, size: CGFloat, tier: ModelTier, color
             let a = (-90 - Double(i) / 24 * 180) * .pi / 180
             p.addLine(to: CGPoint(x: 50 + 12.5 * cos(a), y: 62.5 + 12.5 * sin(a)))
         }
-        stroke(p, 8)
+        stroke(rotoscale(rot, s), p, 8)
 
     case .opus:
-        let radii = [16.0, 27.0, 38.0], gaps = [90.0, 210.0, 330.0]
+        // Three rings orbiting at their own rates; the core pulses.
+        let radii = [16.0, 27.0, 38.0], gaps = [90.0, 210.0, 330.0], rates = [14.0, -10.0, 8.0]
         for i in 0..<3 {
+            let rr = E * (P * rates[i]), s = 1 + E * 0.06 * sin(P * 1.7 - Double(i) * 0.8)
             var p = Path()
             for j in 0...48 {                   // a 300° arc, open at the gap
                 let a = (gaps[i] + 30 + Double(j) / 48 * 300) * .pi / 180
                 let pt = CGPoint(x: 50 + radii[i] * cos(a), y: 50 + radii[i] * sin(a))
                 if j == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
             }
-            stroke(p, 6.5)
+            stroke(rotoscale(rr, s), p, 6.5)
         }
-        g.fill(circle(hub, 5), with: .color(color))
+        let cs = 1 + E * 0.18 * sin(P * 2.1)
+        g0.fill(circle(hub, 5 * cs), with: .color(color))
 
     case .fable, .other:
-        var p = Path()
+        // A highlight winds up the spiral.
         let steps = 120
-        for i in 0...steps {
-            let f = Double(i) / Double(steps)
+        func spiral(_ f: Double) -> CGPoint {
             let ang = f * 2.35 * 2 * .pi - .pi / 2, rr = 2.5 + (35 - 2.5) * f
-            let pt = CGPoint(x: 50 + rr * cos(ang), y: 50 + rr * sin(ang))
-            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+            return CGPoint(x: 50 + rr * cos(ang), y: 50 + rr * sin(ang))
         }
-        stroke(p, 8)
-        g.fill(circle(hub, 4), with: .color(color))
+        var base = Path()
+        for i in 0...steps { let p = spiral(Double(i) / Double(steps)); if i == 0 { base.move(to: p) } else { base.addLine(to: p) } }
+        stroke(g0, base, 8)
+        if E > 0.01 {
+            let head = (P * 0.22).truncatingRemainder(dividingBy: 1)
+            let tail = max(0, head - 0.16)
+            var seg = Path()
+            var first = true
+            var f = tail
+            while f <= head { let p = spiral(f); if first { seg.move(to: p); first = false } else { seg.addLine(to: p) }; f += 0.01 }
+            g0.stroke(seg, with: .color(color.opacity(min(1, E) * 0.95)),
+                      style: StrokeStyle(lineWidth: 8.6, lineCap: .round, lineJoin: .round))
+            g0.fill(circle(spiral(head), 5), with: .color(color.opacity(min(1, E))))
+        }
+        g0.fill(circle(hub, 4), with: .color(color))
     }
 }
 
@@ -251,36 +271,56 @@ struct TowerRadar: View {
     }
 }
 
-/// A still model mark, colored by the tier accent.
+/// A monochrome model mark. Still at rest; smoothly alive while `working`.
 struct ModelGlyphView: View {
     let tier: ModelTier
+    var working: Bool = false
     var size: CGFloat = TowerDesign.Size.rowGlyph
-    var color: Color? = nil
+    var color: Color = .primary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Canvas { ctx, sz in
-            drawModelMark(ctx, size: sz.width, tier: tier, color: color ?? tier.accent)
+        let live = working && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
+            Canvas { ctx, sz in
+                drawModelMark(ctx, size: sz.width, tier: tier, color: color,
+                              phase: live ? tl.date.timeIntervalSinceReferenceDate : 0,
+                              energy: live ? 1 : 0)
+            }
+            .frame(width: size, height: size)
         }
-        .frame(width: size, height: size)
     }
 }
 
 // --------------------------------------------------------------------------- //
-// Menu-bar templates — the radar, baked to a monochrome NSImage per frame.
+// Menu-bar radar — baked to a full-color NSImage per frame so it reads exactly
+// like the popover: brand amber/red for the state, a neutral (resolved from the
+// menu-bar appearance) for everything else. NOT a template — the colors ARE the
+// information (amber hold vs red unguarded), so we never let AppKit flatten them.
 // --------------------------------------------------------------------------- //
 enum Glyph {
-    /// Radar for the menu bar at an explicit phase. Monochrome (isTemplate) so
-    /// AppKit tints it to the bar; the caller sets contentTintColor per state.
-    @MainActor static func radar(_ state: RadarState, phase: Double, reduce: Bool) -> NSImage? {
+    @MainActor static func radar(_ state: RadarState, phase: Double,
+                                 neutral: Color, reduce: Bool) -> NSImage? {
         let pt = TowerDesign.Size.menubarPt
         let view = Canvas { ctx, sz in
-            drawRadar(ctx, size: sz.width, state: state, phase: phase, color: .black, reduce: reduce)
+            drawRadar(ctx, size: sz.width, state: state, phase: phase, color: neutral, reduce: reduce)
         }
         .frame(width: pt, height: pt)
         let r = ImageRenderer(content: view)
         r.scale = NSScreen.main?.backingScaleFactor ?? 2
         guard let img = r.nsImage else { return nil }
-        img.isTemplate = true
+        img.isTemplate = false
         return img
+    }
+
+    /// The menu bar's foreground color, resolved for its current appearance —
+    /// matches the popover's `.primary` so the two radars line up.
+    @MainActor static func menubarNeutral() -> Color {
+        let ea = NSApp.effectiveAppearance
+        var resolved = NSColor.labelColor
+        ea.performAsCurrentDrawingAppearance {
+            resolved = NSColor.labelColor.usingColorSpace(.sRGB) ?? .labelColor
+        }
+        return Color(nsColor: resolved)
     }
 }
