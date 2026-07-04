@@ -143,6 +143,7 @@ struct GAgentSession: Decodable, Identifiable {
     var kind: String?            // interactive|background|infra
     var model: String?
     var model_family: String?    // fable|opus|sonnet|haiku|other
+    var effort: String?          // low|med|high|xhigh|ultra (nil = unknown)
     var project_name: String?
     var cwd: String?
     var git_root: String?
@@ -161,6 +162,27 @@ struct GAgentSession: Decodable, Identifiable {
     var health: GHealth?
     var dismissed: Bool?
     var id: String { session_id ?? "\(pid ?? 0)" }
+
+    var tier: ModelTier { ModelTier(family: model_family) }
+
+    /// Full model name with version parsed from the id — "Opus 4.8", "Sonnet 5",
+    /// "Haiku 4.5". Falls back to the bare tier name when there's no id/version.
+    var modelDisplay: String {
+        let base = tier.display
+        guard let raw = model?.lowercased() else { return base }
+        // drop any bracketed suffix ("claude-opus-4-8[1m]" → "claude-opus-4-8")
+        let id = raw.split(separator: "[").first.map(String.init) ?? raw
+        // numeric runs, dropping any 6+ digit run (a yyyymmdd date suffix)
+        let nums = id.split { !$0.isNumber }.map(String.init).filter { $0.count < 6 }
+        return nums.isEmpty ? base : "\(base) \(nums.joined(separator: "."))"
+    }
+
+    /// The effort chip label, upper-cased ("HIGH", "XHIGH", "ULTRA"). nil hides it.
+    var effortLabel: String? {
+        guard let e = effort?.trimmingCharacters(in: .whitespaces), !e.isEmpty
+        else { return nil }
+        return e.uppercased()
+    }
 }
 struct GNeedsYou: Decodable, Identifiable {
     var session_id: String?; var reason: String?; var since: Double?
