@@ -157,14 +157,15 @@ func drawRadar(_ ctx: GraphicsContext, size: CGFloat, state: RadarState,
     // readable tell). clamshell breathes deeper so lid-closed reads as "more".
     // Neutral by design — never amber/red — so a guard hold always outranks it.
     if awake != .none {
+        // idle = a steady lit lamp; only the lid-closed vigil breathes.
+        let breathing = awake == .clamshell
         let live: Double = reduce ? 0 : 1
-        let amp = awake == .clamshell ? 1.0 : 0.6
-        let per = awake == .clamshell ? 2.4 : 2.9
-        let br  = live > 0 ? (0.5 + 0.5 * sin(P * 2 * .pi / per)) : 0.7
+        let amp = breathing ? 1.0 : 0.6
+        let br  = (breathing && live > 0) ? (0.5 + 0.5 * sin(P * 2 * .pi / 2.4)) : 0.7
         for (r, op) in [(CGFloat(15), 0.09), (CGFloat(11), 0.15), (CGFloat(7.5), 0.22)] {
             g0.fill(circle(hub, r), with: .color(color.opacity(op * (0.75 + 0.35 * br * amp))))
         }
-        let haloR = 9.5 + (live > 0 ? 1.7 * br * amp : 0.9)
+        let haloR = 9.5 + 1.7 * br * amp
         g0.stroke(circle(hub, CGFloat(haloR)),
                   with: .color(color.opacity(0.44 + 0.30 * br * amp)),
                   style: StrokeStyle(lineWidth: 2.2))
@@ -286,15 +287,15 @@ func drawBeacon(_ ctx: GraphicsContext, size: CGFloat, mode: AwakeGlow,
     var g0 = ctx
     g0.scaleBy(x: sc, y: sc)
     let on = mode != .none
+    let breathing = mode == .clamshell
     let live: Double = reduce ? 0 : 1
-    let amp = mode == .clamshell ? 1.0 : 0.6
-    let per = mode == .clamshell ? 2.4 : 2.9
-    let br  = live > 0 ? (0.5 + 0.5 * sin(P * 2 * .pi / per)) : 0.7
+    let amp = breathing ? 1.0 : 0.6
+    let br  = (breathing && live > 0) ? (0.5 + 0.5 * sin(P * 2 * .pi / 2.4)) : 0.7
     if on {
         for (r, op) in [(CGFloat(30), 0.10), (CGFloat(21), 0.17), (CGFloat(13), 0.26)] {
             g0.fill(circle(hub, r), with: .color(color.opacity(op * (0.75 + 0.35 * br * amp))))
         }
-        let ringR = 17 + (live > 0 ? 2 * br * amp : 1)
+        let ringR = 17 + 2 * br * amp
         g0.stroke(circle(hub, CGFloat(ringR)),
                   with: .color(color.opacity(0.30 + 0.25 * br * amp)),
                   style: StrokeStyle(lineWidth: 4.5))
@@ -366,7 +367,8 @@ struct BeaconView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let live = mode != .none && !reduceMotion
+        // Only the lid-closed vigil breathes; idle is a still, lit lamp.
+        let live = mode == .clamshell && !reduceMotion
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
             Canvas { ctx, sz in
                 drawBeacon(ctx, size: sz.width, mode: mode,
