@@ -1,17 +1,18 @@
-// Corral — app delegate: status item, popover, daemon supervision, quit flow.
+// Tower — app delegate: status item, popover, daemon supervision, quit flow.
 
 import AppKit
 import SwiftUI
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = CorralModel()
+    let model = TowerModel()
     var statusItem: NSStatusItem!
     var popover = NSPopover()
-    var iconTimer: Timer?
+    var pollTimer: Timer?
+    /// Smooth ~30fps clock, live only while the radar has motion to show.
+    var animTimer: Timer?
     var daemon: Process?
     var confirmedQuit = false
-    /// Alternates the menubar horse's canter frame while a tool is in flight.
-    var canterStep = false
     lazy var dashboard = DashboardWindowController(model: model)
     lazy var notifier = Notifier(model: model)
 
@@ -30,18 +31,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         launchDaemonIfNeeded()
         model.start()
 
-        // Keep the icon in sync with daemon state; the 1.2s cadence doubles
-        // as the canter clock (no loop faster than 1.2s — restraint rule).
-        iconTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            if self.model.anyTooling && !reduceMotion {
-                self.canterStep.toggle()
-            } else {
-                self.canterStep = false
+        // Poll daemon state once a second: refresh the icon, fire notifications,
+        // and start/stop the smooth animation clock as the radar state changes.
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.updateIcon()
+                self.notifier.process()
+                self.refreshAnimClock()
             }
-            self.updateIcon()
-            self.notifier.process()
+        }
+    }
+
+    /// The radar animates only when there's motion worth spending frames on:
+    /// a hold or a verify sweep, or a calm scan while agents are actually
+    /// working. Idle-clear and unguarded-off are static (and Reduce Motion
+    /// freezes everything). This keeps the menu bar smooth but battery-quiet.
+    private var radarShouldAnimate: Bool {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
+        switch model.radarState {
+        case .verify, .holdNet, .holdGeo: return true
+        case .clear: return model.agentsWorking > 0
+        case .off: return false
+        }
+    }
+
+    private func refreshAnimClock() {
+        let want = radarShouldAnimate
+        if want, animTimer == nil {
+            let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateIcon() }
+            }
+            RunLoop.main.add(t, forMode: .common)   // keep ticking during menu tracking
+            animTimer = t
+        } else if !want, animTimer != nil {
+            animTimer?.invalidate()
+            animTimer = nil
         }
     }
 
@@ -51,12 +76,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // ---- Menubar icon ---- //
-    // Priority: net fault > guard blocking > highest-tier horse > horseshoe
-    // (see StatusIcon.swift). Badge text: needs-you count, then optional
-    // usage %. Tint only ever means alert.
+    // The Tower radar (see StatusIcon.swift), refreshed at the current phase.
+    // Badge text: needs-you count, then optional usage %. Tint only ever means
+    // alert.
     func updateIcon() {
         guard let button = statusItem.button else { return }
-        let icon = menubarIcon(for: model, canterStep: canterStep)
+        let phase = Date().timeIntervalSinceReferenceDate
+        let icon = menubarIcon(for: model, phase: phase)
         button.image = icon.image
         button.contentTintColor = icon.tint
         button.image?.accessibilityDescription = icon.describe
@@ -91,7 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.attributedTitle = s
             button.imagePosition = .imageLeading
         }
-        button.toolTip = "Corral — \(icon.describe)"
+        button.toolTip = "Tower — \(icon.describe)"
     }
 
     // ---- Daemon supervision ---- //
@@ -99,9 +125,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // The daemon is single-instance (flock), so an extra spawn is harmless —
         // it just exits. We always try; whoever wins owns the lock.
         guard let res = Bundle.main.resourcePath else { return }
-        let script = res + "/corrald.py"
+        let script = res + "/towerd.py"
         guard FileManager.default.fileExists(atPath: script) else {
-            alert("Missing daemon", "corrald.py was not found in the app bundle.")
+            alert("Missing daemon", "towerd.py was not found in the app bundle.")
             return
         }
         let py = firstExisting([
@@ -139,14 +165,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func confirmQuit() { NSApp.terminate(nil) }
 
     // Gently predict & explain a permission BEFORE macOS shows its prompt.
-    func explainThenEnableClamshell(model: CorralModel) {
+    func explainThenEnableClamshell(model: TowerModel) {
         popover.performClose(nil)
         let a = NSAlert()
         a.messageText = "Keep your Mac awake with the lid closed?"
         a.informativeText = """
         macOS will ask for your password once, right after this.
 
-        Corral uses it only to run “pmset disablesleep” so long-running \
+        Tower uses it only to run “pmset disablesleep” so long-running \
         Claude agents keep working after you close the lid. Nothing else is \
         accessed. You can switch it off anytime, and Reset removes it.
         """
@@ -173,7 +199,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               + "location guard."
             : ""
         let a = NSAlert()
-        a.messageText = "Quit Corral and turn off the guard?"
+        a.messageText = "Quit Tower and turn off the guard?"
         a.informativeText = "Quitting removes routing from settings.json — "
             + "Claude Code goes back to a DIRECT connection with no country "
             + "guard at all." + agentClause
@@ -187,7 +213,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let b = NSAlert()
         b.messageText = "Are you absolutely sure?"
         b.informativeText = "This disables Claude Code's location protection "
-            + "entirely until you reopen Corral." + agentClause
+            + "entirely until you reopen Tower." + agentClause
         b.alertStyle = .critical
         b.addButton(withTitle: "Quit & Disable Guard")
         b.addButton(withTitle: "Keep the Guard On")
