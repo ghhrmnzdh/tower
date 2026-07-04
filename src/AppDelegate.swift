@@ -1,6 +1,7 @@
 // Tower — app delegate: status item, popover, daemon supervision, quit flow.
 
 import AppKit
+import CoreText
 import SwiftUI
 
 @MainActor
@@ -17,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var notifier = Notifier(model: model)
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        registerBundledFonts()                  // JetBrains Mono, before any UI
         NSApp.setActivationPolicy(.accessory)   // menubar agent, no dock icon
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -85,6 +87,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = icon.image
         button.contentTintColor = nil   // the radar image carries its own colors
         button.image?.accessibilityDescription = icon.describe
+        button.toolTip = "Tower — \(icon.describe)"
+
+        // Freeze the button's WIDTH while the popover is open. The status item is
+        // variableLength, so changing the badge text (needs-you count / usage %)
+        // or toggling imagePosition RESIZES the button. The open popover is
+        // anchored to this exact button (`show(relativeTo: b.bounds, of: b)`), so
+        // resizing it moves the anchor out from under the popover — AppKit then
+        // repositions the window and re-lays the hosted SwiftUI content, and that
+        // reflow is what shoved/clipped the popover's middle every time the agent
+        // count changed (e.g. dismissing an agent). The radar image is fixed-size
+        // so it's safe to keep animating; only the badge is deferred, and it
+        // catches up on the next poll once the popover closes.
+        guard !popover.isShown else { return }
 
         // Badge: "⚡N" needs-you count (red when something failed), then the
         // usage % if that preference is on.
@@ -116,7 +131,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.attributedTitle = s
             button.imagePosition = .imageLeading
         }
-        button.toolTip = "Tower — \(icon.describe)"
     }
 
     // ---- Daemon supervision ---- //
@@ -181,6 +195,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if a.runModal() == .alertFirstButtonReturn {
             model.send(["cmd": "keepawake", "on": true, "mode": "clamshell"])
+        }
+    }
+
+    /// Register the bundled JetBrains Mono faces (Resources/Fonts/*.ttf) with the
+    /// process font manager so `Font.custom("JetBrainsMono-…")` resolves. Scoped
+    /// to this process — never touches the user's installed fonts. Idempotent
+    /// enough for a single launch; a duplicate-registration error is harmless.
+    private func registerBundledFonts() {
+        guard let dir = Bundle.main.url(forResource: "Fonts", withExtension: nil),
+              let ttfs = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: nil)
+        else { return }
+        for url in ttfs where url.pathExtension.lowercased() == "ttf" {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }
 
