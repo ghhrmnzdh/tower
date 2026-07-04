@@ -162,6 +162,30 @@ def ago(since):
     return f"{int(s / 86400)}d"
 
 
+def until(at):
+    """Live relative time in the future — 'in 3h', 'in 2d', 'now'."""
+    if not isinstance(at, (int, float)) or not at:
+        return ""
+    s = at - time.time()
+    if s <= 30:
+        return "now"
+    if s < 5400:
+        return f"in {int(s / 60)}m"
+    if s < 129600:
+        return f"in {int(s / 3600)}h"
+    return f"in {int(s / 86400)}d"
+
+
+def reset_text(node):
+    """A reset stamp shown relative, with no timezone. Falls back to the raw
+    stamp minus its '(timezone)' tail if there's no parsed epoch."""
+    rel = until(node.get("resets_at"))
+    if rel:
+        return rel
+    raw = node.get("resets") or ""
+    return raw.split("(", 1)[0].strip()
+
+
 _EIGHTHS = " ▏▎▍▌▋▊▉"
 
 
@@ -626,8 +650,9 @@ def draw(win, s):
             safe_addstr(win, y, BX, bar(p / 100.0, BAR_W),
                         cp(bcolor(p)) | curses.A_BOLD)
             txt = f"{p:3d}% used"
-            if node.get("resets"):
-                txt += f"   resets {node['resets']}"
+            rt = reset_text(node)
+            if rt:
+                txt += f"   resets {rt}"
             safe_addstr(win, y, VX, txt, cp(C_DIM))
             HITBOXES.append((y, 2, w - 3, "planrefresh"))
             y += 1
