@@ -145,6 +145,9 @@ def model_label(sess):
                 nums.append(cur)
             cur = ""
     label = f"{base} {'.'.join(nums)}" if nums else base
+    ctx = sess.get("context")
+    if ctx:
+        label += f" · {ctx}"
     eff = sess.get("effort")
     return f"{label} · {str(eff).upper()}" if eff else label
 
@@ -271,6 +274,11 @@ def cp(n):
 MOUSE_B1 = curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED
 MOUSE_WHEEL_UP = curses.BUTTON4_PRESSED
 MOUSE_WHEEL_DOWN = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+# Dashboard single-key shortcuts that map straight onto a do_click() action —
+# the toggles/pickers documented in HELP. ($/k/u/? run their own modal/cmd and
+# are handled inline in run().)
+KEY_ACTIONS = {ord("r"): "route", ord("e"): "enforce", ord("a"): "scope",
+               ord("c"): "country", ord("p"): "country", ord("w"): "keepawake"}
 HITBOXES = []
 
 
@@ -545,14 +553,15 @@ def draw(win, s):
                         "pending_tool": ("⛔", C_WARN),
                         "asking": ("?", C_ACCENT),
                         "done": ("✓", C_GOOD)}.get(reason, ("•", C_WARN))
-            arow.append((mark, mc, agent_row(sess, reason, nu.get("since")), sid))
+            arow.append((mark, mc, agent_row(sess, reason, nu.get("since")), sid,
+                         sess.get("status") == "working"))
             listed.add(sid)
         for x in (ag.get("sessions") or []):
             if not isinstance(x, dict) or x.get("dismissed"):
                 continue
             if x.get("status") == "working" and x.get("session_id") not in listed:
                 arow.append(("●", C_DIM, agent_row(x, "working", None),
-                             x.get("session_id")))
+                             x.get("session_id"), True))
         coll = None
         for c in (ag.get("collisions") or []):
             if not isinstance(c, dict):
@@ -585,9 +594,13 @@ def draw(win, s):
                 safe_addstr(win, yy, 4, counts[:max(0, cardw - 4)],
                             cp(C_TITLE) | curses.A_BOLD)
                 yy += 1
-                for mark, mc, txt, sid in arow[:nrows]:
+                for mark, mc, txt, sid, live in arow[:nrows]:
                     safe_addstr(win, yy, 4, mark, cp(mc) | curses.A_BOLD)
-                    safe_addstr(win, yy, 7, txt[:max(0, cardw - 7)], cp(C_TITLE))
+                    clipped = txt[:max(0, cardw - 7)]
+                    if live:             # working agent: shimmer like the header
+                        draw_shimmer(win, yy, 7, clipped, C_TITLE)
+                    else:
+                        safe_addstr(win, yy, 7, clipped, cp(C_TITLE))
                     if sid:              # click a row → focus that session
                         HITBOXES.append((yy, 4, w - 3, ("focus", sid)))
                     yy += 1
@@ -1340,7 +1353,7 @@ def _sig(d):
     summary = ag.get("summary") or {}
     ag_sig = (tuple(sorted((str(x.get("session_id")), str(x.get("status")),
                             str(x.get("activity")), str(x.get("model")),
-                            str(x.get("effort")))
+                            str(x.get("effort")), str(x.get("context")))
                            for x in (ag.get("sessions") or [])
                            if isinstance(x, dict))),
               len(ag.get("needs_you") or []), len(ag.get("collisions") or []),
@@ -1412,7 +1425,12 @@ def run(win):
         # the "Reconnecting Claude…" shimmer animates smoothly (~12fps).
         sig = _sig(last)
         pending = bool((last or {}).get("guard", {}).get("pending"))
-        if sig != sig_prev or now - last_draw > 0.5 or pending:
+        # A working agent's row shimmers; keep repainting every tick so it
+        # animates smoothly (same cadence as the "Reconnecting Claude…" header).
+        working_live = any(
+            isinstance(x, dict) and x.get("status") == "working"
+            for x in ((last or {}).get("agents") or {}).get("sessions") or [])
+        if sig != sig_prev or now - last_draw > 0.5 or pending or working_live:
             render()
             sig_prev = sig
             last_draw = now
@@ -1421,15 +1439,46 @@ def run(win):
             ch = win.getch()
         except KeyboardInterrupt:
             return
-        # The dashboard is intentionally NON-reactive: a stray key does nothing.
-        # Everything happens through the deliberate actions menu. q / Q both quit
-        # (they leave the guard running — stopping it lives in the menu).
-        if ch in (ord("q"), ord("Q")):
+        if ch == -1:                      # idle tick — nothing pressed
+            continue
+        # The dashboard is fully driveable three ways — single-key shortcuts
+        # (the set documented in HELP / the help modal and hinted on the cards,
+        # e.g. "[w] change"), the mouse, or the actions menu. `q` quits and
+        # leaves the guard running; `Q` is the guarded off-switch (stop guard +
+        # restore a direct Claude connection) and is double-confirmed. A key
+        # that isn't a shortcut does nothing.
+        st = last or {}
+        if ch == ord("q"):
             return
-        if ch in (curses.KEY_ENTER, 10, 13, ord("m"), ord(" ")):
+        if ch == ord("Q"):
+            if danger_confirm(
+                    win, st,
+                    "Stop the guard and restore Claude to a DIRECT, "
+                    "unguarded connection?",
+                    "This turns the guard off entirely, then quits."):
+                send({"cmd": "quit"})
+                return
+            sig_prev = object()
+        elif ch in (curses.KEY_ENTER, 10, 13, ord("m"), ord(" ")):
             if actions_menu(win) == "quit":
                 return
             sig_prev = object()   # force a repaint after the menu closes
+        elif ch in KEY_ACTIONS:
+            if do_click(win, KEY_ACTIONS[ch], st) == "quit":
+                return
+            sig_prev = object()   # repaint after the shortcut acts
+        elif ch == ord("$"):
+            cost_modal(win, st)
+            sig_prev = object()
+        elif ch == ord("k"):
+            send({"cmd": "recheck"})
+            sig_prev = object()
+        elif ch == ord("u"):
+            send({"cmd": "refreshplan"})
+            sig_prev = object()
+        elif ch == ord("?"):
+            help_modal(win)
+            sig_prev = object()
         elif ch == curses.KEY_MOUSE:
             try:
                 _, mx, my, _, bs = curses.getmouse()
@@ -1438,7 +1487,7 @@ def run(win):
             if bs & MOUSE_B1:
                 act = hit_at(my, mx)
                 if act is not None:
-                    if do_click(win, act, last or {}) == "quit":
+                    if do_click(win, act, st) == "quit":
                         return
                     sig_prev = object()   # repaint after any click action
 
