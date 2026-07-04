@@ -1,5 +1,7 @@
-## Publishes site/ to GitHub Pages.
-## Enable once: Settings → Pages → Build and deployment → Source: GitHub Actions.
+## Publishes site/ to GitHub Pages. Pages is enabled automatically on the first
+## run (configure-pages `enablement: true` + the `pages: write` permission
+## below) — no manual Settings step needed. If an org policy blocks programmatic
+## enablement, set it once: Settings → Pages → Source: GitHub Actions.
 name: Deploy site to GitHub Pages
 
 on:
@@ -28,6 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true      # enable Pages (build_type=workflow) if not already
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
