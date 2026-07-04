@@ -973,15 +973,16 @@ def _activity_for(rec, status):
 
 
 def _norm_effort(v):
-    """Claude Code `effortLevel` → the compact badge label the app renders.
-    None for anything unrecognised so the UI can simply omit the chip."""
+    """Claude Code `effortLevel` → the compact badge label the app renders,
+    using Claude Code's own vocabulary (…, high, xhigh, max). None for anything
+    unrecognised so the UI can simply omit the chip."""
     s = str(v or "").strip().lower()
     return {"low": "low", "minimal": "low",
             "medium": "med", "med": "med", "normal": "med",
             "high": "high",
             "xhigh": "xhigh", "x-high": "xhigh", "extra-high": "xhigh",
-            "max": "ultra", "maximum": "ultra", "ultra": "ultra",
-            "highest": "ultra"}.get(s)
+            "max": "max", "maximum": "max", "ultra": "max",
+            "highest": "max"}.get(s)
 
 
 def _git_branch_of(root):
@@ -1684,6 +1685,7 @@ class AgentMonitor:
             "model": model,
             "model_family": _model_family(model),
             "effort": self._effort_of(cwd, git_root),
+            "context": self._ctx_tag_of(cwd, git_root, _model_family(model)),
             "project_name": os.path.basename(cwd) if cwd else None,
             "cwd": cwd,
             "git_root": git_root,
@@ -1755,17 +1757,42 @@ class AgentMonitor:
         rooted at its project: user < project < project-local (later wins),
         mirroring Claude Code's own precedence. Returns the compact badge label
         ("high", "xhigh", "ultra", …) or None. Read-only — never writes."""
-        val = None
-        d = self._settings.get(CLAUDE_SETTINGS)
-        if d and d.get("effortLevel"):
-            val = d.get("effortLevel")
+        def _pick(d):
+            if isinstance(d, dict):
+                return d.get("effortLevel") or d.get("reasoningEffort")
+            return None
+
+        val = _pick(self._settings.get(CLAUDE_SETTINGS))
         base = git_root or cwd
         if base:
             for name in ("settings.json", "settings.local.json"):
-                d = self._settings.get(os.path.join(base, ".claude", name))
-                if d and d.get("effortLevel"):
-                    val = d.get("effortLevel")
+                v = _pick(self._settings.get(os.path.join(base, ".claude", name)))
+                if v:
+                    val = v
         return _norm_effort(val)
+
+    def _ctx_tag_of(self, cwd, git_root, family):
+        """Context-window variant tag (e.g. "1M") for a session. The transcript's
+        model id doesn't carry it — only the configured model does ("opus[1m]") —
+        so read that from the same settings cascade. Applied only when the
+        configured model's family matches the session's running family, so a
+        haiku session is never mis-tagged with an opus default's window."""
+        def _model(d):
+            return d.get("model") if isinstance(d, dict) else None
+        mid = _model(self._settings.get(CLAUDE_SETTINGS))
+        base = git_root or cwd
+        if base:
+            for name in ("settings.json", "settings.local.json"):
+                m = _model(self._settings.get(os.path.join(base, ".claude", name)))
+                if m:
+                    mid = m
+        if not mid or "[" not in mid:
+            return None
+        fam, _, rest = str(mid).lower().partition("[")
+        if not (family and family != "other" and family in fam):
+            return None                 # unknown family or a different model
+        tag = rest.split("]", 1)[0].strip()
+        return tag.upper() or None      # "1m" -> "1M"
 
     def _git_root_of(self, cwd):
         if not cwd:
