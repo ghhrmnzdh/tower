@@ -171,3 +171,38 @@ enum ModelTier: String, CaseIterable, Comparable {
         }
     }
 }
+
+// --------------------------------------------------------------------------- //
+// Popover composition — app-local prefs (UserDefaults). Shared keys/defaults so
+// the Settings panel that WRITES them and the popover that READS them can never
+// drift. Defaults reproduce today's full popover for anyone who never opens
+// Settings. Registered once at launch (AppDelegate.registerDefaults).
+// --------------------------------------------------------------------------- //
+enum PopPref {
+    static let net = "pop.net"
+    static let agents = "pop.agents"
+    static let location = "pop.location"
+    static let keepawake = "pop.keepawake"
+    static let plan = "pop.plan"
+    static let resting = "pop.resting"
+    static let density = "pop.density"        // "comfy" | "compact"
+    static let needsBadge = "mb.needsBadge"   // menu-bar needs-you count on/off
+
+    /// The launch defaults — today's full popover, unchanged for anyone who
+    /// never opens Settings: every section on, comfortable, resting shown
+    /// (collapsed), the needs-you badge on.
+    static let defaults: [String: Any] = [
+        net: true, agents: true, location: true, keepawake: true, plan: true,
+        resting: true, density: "comfy", needsBadge: true,
+    ]
+}
+
+// Row density for the popover, read by every flat section via the environment
+// so a single toggle re-tunes them all without threading a parameter through.
+private struct PopoverCompactKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var popoverCompact: Bool {
+        get { self[PopoverCompactKey.self] }
+        set { self[PopoverCompactKey.self] = newValue }
+    }
+}
