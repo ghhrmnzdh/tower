@@ -29,25 +29,33 @@ to five looks (`RadarState`, `src/Glyph.swift`):
 | **holdGeo** | amber ring, rotating fence, a lunging off-country blip | wrong country / VPN — held, not failed |
 | **off** | red dashed ring, hollow red core | routing off — direct requests. **Danger** |
 
-The **menu bar is the radar** (template monochrome; tint carries the alert level —
-red for unguarded, amber for a hold, nothing otherwise). It animates only when a
-state has motion worth spending frames on — a hold, a verify sweep, or a calm
-scan while agents are working — and freezes under Reduce Motion. The same radar,
-in color, anchors the popover header, the empty state, and the app icon.
+The **menu bar is the radar**, rendered in **full color** so it reads exactly
+like the popover header: the amber/red brand tones *are* the signal, with a
+neutral resolved from the bar's own appearance for everything else (never a flat
+template tint — that would throw away the amber-hold-vs-red-unguarded
+distinction). It animates only when a state has motion worth spending frames on —
+a hold, a verify sweep, or a calm scan while agents are working — and freezes
+under Reduce Motion. The same radar anchors the popover header, the empty state,
+and the app icon. Hold/danger tones: amber `#E6A93C`, red `#E5484D`.
 
 ## Model marks
 
-One still glyph per Claude model tier — a center and the lines around it,
-colored by the tier accent. They mark *which* model an agent is; they don't move.
+One **monochrome** mark per Claude model tier — a center and the lines around
+it. Deliberately colorless and minimal: still at rest, and while its agent
+works each comes alive in its own way — haiku's ticks breathe outward, sonnet
+turns, opus's rings orbit, fable's spiral winds. Motion is smooth (a 60fps
+`Canvas` TimelineView, paused when idle / under Reduce Motion).
 
-| Model | Mark | Accent |
-|---|---|---|
-| **Fable** | a spiral | gold `#C9A227` |
-| **Opus** | three orbiting rings + core | rosso `#B0343C` |
-| **Sonnet** | a single S stroke | steel `#3B6FB5` |
-| **Haiku** | three ticks + core | crayon `#E8842C` |
+| Model | Mark |
+|---|---|
+| **Fable** | a spiral, a highlight winding up it |
+| **Opus** | three orbiting rings + a pulsing core |
+| **Sonnet** | a single S stroke, slowly turning |
+| **Haiku** | three ticks breathing out + a core |
 
-The hold/danger accents are shared brand colors: amber `#E6A93C`, red `#E5484D`.
+The tier accent (Fable gold `#C9A227`, Opus rosso `#B0343C`, Sonnet steel
+`#3B6FB5`, Haiku crayon `#E8842C`) appears only in the row's small text label —
+never on the mark itself.
 All marks are drawn in a 0…100 box by `drawRadar` / `drawModelMark`
 (`src/Glyph.swift`); one geometry backs both the live SwiftUI `Canvas` views and
 the menu-bar templates baked by `ImageRenderer`.
@@ -64,7 +72,7 @@ fixed queue positions, distinct motion:
 | asking | systemIndigo | `questionmark.bubble.fill` | one pulse on arrival | Needs You, rank 3 |
 | done | systemGreen | checkmark **draws on** (trim 0→1) | payoff spring + 0.9s glow | Needs You, rank 4 |
 | stall / loop | systemYellow | `exclamationmark.triangle.fill` | none | agent row, badged |
-| working — thinking | tier accent | the model mark | still (row carries the motion) | Agents |
+| working — thinking | monochrome | the model mark | alive — per-model motion (60fps) | Agents |
 | working — tool in flight | secondary | activity line | shimmer sweep (1.8s) | Agents |
 | guard pending — reconnecting | status warn | `arrow.triangle.2.circlepath` | "Reconnecting Claude…" shimmer sweep (1.8s) | header sub-line |
 | collision | yellow (repo) / red (same file) | `arrow.triangle.merge` | slides in once | banner above agents |

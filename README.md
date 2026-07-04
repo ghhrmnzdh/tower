@@ -86,7 +86,7 @@ already running.
 
 ## The menu bar at a glance
 
-The radar's state *is* the guard (tint carries the alert level):
+The radar's state *is* the guard (full color — amber for a hold, red for unguarded):
 
 | Radar | Meaning |
 |---|---|

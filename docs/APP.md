@@ -24,7 +24,7 @@ Requires Xcode Command Line Tools (`swiftc`) to build, and Python 3 at runtime.
 
 ## The menu-bar icon — the tower radar
 The menu bar is a single mark, the **radar**, whose state *is* the guard
-(monochrome template; tint carries the alert level, nothing else):
+(full color — the amber/red brand tones are the signal, matching the popover):
 
 | Radar | Meaning |
 |---|---|
