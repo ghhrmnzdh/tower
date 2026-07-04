@@ -49,6 +49,29 @@ LOG_FILE = os.path.join(CONFIG_DIR, "daemon.log")
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude", "projects")
 CLAUDE_SETTINGS = os.path.join(HOME, ".claude", "settings.json")
 SETTINGS_BAK = CLAUDE_SETTINGS + ".tower.bak"
+
+# TCC-protected locations. Tower is a *monitor*, not a file manager: it must
+# NEVER open or enumerate anything under these, because the first read triggers
+# a macOS "Tower wants to access your Desktop/Photos/Music…" prompt — attributed
+# to us, at an unpredictable moment, for data we never actually need. An agent
+# whose cwd sits here still gets a row (project_name is derived from the path
+# string, no I/O); we simply skip the git-root/branch/collision file reads for
+# it. See the "Never trip a TCC prompt" invariant in CLAUDE.md. (/Volumes covers
+# external/network disks, also gated by TCC on recent macOS.)
+_PROTECTED_ROOTS = tuple(os.path.join(HOME, d) for d in (
+    "Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music",
+    os.path.join("Library", "Mobile Documents"),   # iCloud Drive
+    os.path.join("Library", "CloudStorage"),        # third-party cloud mounts
+)) + ("/Volumes",)
+
+
+def _is_protected(path):
+    """True if `path` is inside a TCC-gated folder — string-only, never stats
+    (a stat/open here is itself what we're avoiding)."""
+    if not path:
+        return False
+    p = os.path.normpath(os.path.abspath(path))
+    return any(p == r or p.startswith(r + os.sep) for r in _PROTECTED_ROOTS)
 LEGACY_SETTINGS_BAKS = [CLAUDE_SETTINGS + ".corral.bak",
                         CLAUDE_SETTINGS + ".geo-guard.bak"]
 
@@ -963,8 +986,8 @@ def _norm_effort(v):
 
 def _git_branch_of(root):
     """Branch from .git/HEAD (worktree .git-file indirection handled)."""
-    if not root:
-        return None
+    if not root or _is_protected(root):
+        return None                 # never read files inside a TCC-gated folder
     gd = os.path.join(root, ".git")
     try:
         if os.path.isfile(gd):
@@ -1749,8 +1772,16 @@ class AgentMonitor:
             return None
         if cwd in self._git_cache:
             return self._git_cache[cwd]
+        # An agent working inside Desktop/Documents/Photos/Music/etc. still gets
+        # a row, but we do NOT walk its tree looking for .git — the first stat
+        # there fires a TCC prompt. Cache the skip so we only decide once.
+        if _is_protected(cwd):
+            self._git_cache[cwd] = None
+            return None
         root, d = None, cwd
         while True:
+            if _is_protected(d):
+                break               # never cross into a gated folder mid-walk
             if os.path.exists(os.path.join(d, ".git")):
                 root = d
                 break
@@ -2191,7 +2222,10 @@ def fetch_plan():
                 [claude, "-p", "/usage",
                  "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE],
                 stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, timeout=90, env=env)
+                text=True, timeout=90, env=env,
+                cwd=CONFIG_DIR)     # neutral cwd: never let claude scan a
+                                    # protected folder it happened to inherit
+
             res = parse_usage((r.stdout or "") + "\n" + (r.stderr or ""))
             if res.get("ok"):
                 return res
