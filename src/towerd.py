@@ -29,6 +29,10 @@ import threading
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:                       # zoneinfo is stdlib on 3.9+
+    ZoneInfo = None
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
@@ -858,6 +862,7 @@ class NetMonitor:
 # The snapshot's field names are a contract with the Swift app — don't rename.
 # --------------------------------------------------------------------------- #
 AGENT_INTERVAL = 2.0
+AGENT_FAST_INTERVAL = 0.5     # between full refreshes: cheap activity-only tick
 # Thresholds; each overridable via the same-named key in ~/.tower/config.json
 AGENT_WORKING_S = 10.0        # agent_working_s: fresher mtime = working
 AGENT_IDLE_S = 300.0          # agent_idle_s: staler (process alive) = idle
@@ -933,6 +938,15 @@ def _activity_phrase(tool):
     if n == "askuserquestion":
         return "asking a question"
     return f"using {name}"
+
+
+def _activity_for(rec, status):
+    """The live description line for a session: the API-error reason when the
+    turn has failed, otherwise the phrase for its latest tool_use. Shared by the
+    full-refresh row builder and the between-refresh fast tick so both agree."""
+    if status == "failed" and rec.get("api_error_msg"):
+        return rec.get("api_error_msg")
+    return _activity_phrase(rec.get("last_tool"))
 
 
 def _git_branch_of(root):
@@ -1105,6 +1119,26 @@ class TranscriptIndex:
             if path not in seen:
                 self._files.pop(path, None)
 
+    def retail_known(self):
+        """Cheap re-tail of already-tracked files only — no directory walk.
+        Stats each known transcript and parses any newly-appended lines. Skips
+        discovery of new files and shrink/compaction resets (the full scan()
+        handles those); this exists so the fast tick can refresh live activity
+        every ~0.5s at a fraction of scan()'s cost."""
+        for path, rec in list(self._files.items()):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if rec["mtime"] == st.st_mtime and rec["size"] == st.st_size:
+                continue
+            if st.st_size < rec["size"]:
+                continue                # shrunk/replaced — defer to full scan()
+            self._tail(path, rec)
+            rec["mtime"] = st.st_mtime
+            rec["size"] = st.st_size
+            rec["summary"]["mtime"] = st.st_mtime
+
     def summaries(self):
         return {p: r["summary"] for p, r in self._files.items()}
 
@@ -1118,6 +1152,7 @@ class TranscriptIndex:
                 "started": None, "last_ts": None, "last_user_ts": None,
                 "last_stop": None, "last_text": None, "last_synth": False,
                 "trailing_error": False, "turn_done_ts": None,
+                "api_retrying": False, "api_error_msg": None,
                 "open_tools": {}, "last_tool": None,
                 "err_ring": deque(maxlen=10), "tools_done": 0, "errors": 0,
                 "subagents": 0, "files": set(),
@@ -1187,8 +1222,24 @@ class TranscriptIndex:
             if v:
                 s["last_prompt"] = str(v)[:300]
         elif t == "system":
-            if o.get("subtype") == "turn_duration":
+            sub = o.get("subtype")
+            if sub == "turn_duration":
                 s["turn_done_ts"] = ts or s["last_ts"]
+            elif sub == "api_error":
+                # Claude is retrying a failed API call (connection / overload /
+                # rate-limit). These lines keep refreshing the transcript mtime,
+                # so without an explicit flag the agent would look "working"
+                # through the entire retry storm. Record it so the status engine
+                # can surface the truth in real time.
+                s["api_retrying"] = True
+                err = o.get("error") if isinstance(o.get("error"), dict) else {}
+                att, mx = o.get("retryAttempt"), o.get("maxRetries")
+                if att and mx:
+                    s["api_error_msg"] = f"API error — retrying {att}/{mx}"
+                else:
+                    s["api_error_msg"] = ("API error — " + str(
+                        err.get("formatted") or err.get("message")
+                        or "retrying"))[:160]
         elif t == "assistant":
             self._assistant(s, o, ts)
         elif t == "user":
@@ -1204,6 +1255,8 @@ class TranscriptIndex:
         elif model:
             s["model"] = model
             s["last_synth"] = False
+            s["api_retrying"] = False   # a real reply landed — recovered
+            s["api_error_msg"] = None
         stop = m.get("stop_reason")
         if stop:                # multi-line msgs: last line carries the final
             s["last_stop"] = stop
@@ -1241,6 +1294,16 @@ class TranscriptIndex:
                     s["subagents"] += 1
         if texts:
             s["last_text"] = "\n".join(texts)[-2000:]
+        if model == "<synthetic>":
+            # A <synthetic> assistant message is Claude's own error notice. Only
+            # treat the API-error variety as a fault (a "[Request interrupted]"
+            # is also synthetic but is not a failure) — key off the explicit
+            # flag / top-level error, or the "API Error:" text Claude writes.
+            first = texts[0].strip() if texts else ""
+            if (o.get("isApiErrorMessage") or o.get("error")
+                    or "api error" in first.lower()):
+                s["api_retrying"] = False    # terminal error, not a retry line
+                s["api_error_msg"] = first[:160] or "API error"
 
     def _user(self, s, o, ts):
         m = o.get("message")
@@ -1266,6 +1329,8 @@ class TranscriptIndex:
             s["last_text"] = None
             s["last_synth"] = False
             s["trailing_error"] = False
+            s["api_retrying"] = False
+            s["api_error_msg"] = None
 
 
 class AgentMonitor:
@@ -1302,16 +1367,49 @@ class AgentMonitor:
                       "meta": {"lsof_ok": True, "parse_errors": 0,
                                "claude_versions": []}}
 
-    def loop(self, interval=AGENT_INTERVAL):
+    def loop(self, interval=AGENT_INTERVAL, fast=AGENT_FAST_INTERVAL):
         while not self.state.stop.is_set():
             try:
                 self.refresh()
             except Exception as e:  # noqa: BLE001
                 log(f"agents refresh error: {e}")
             waited = 0.0
-            while waited < interval and not self.state.stop.is_set():
-                time.sleep(0.25)
-                waited += 0.25
+            while waited < interval - 1e-6 and not self.state.stop.is_set():
+                time.sleep(fast)
+                waited += fast
+                if waited < interval - 1e-6:    # the last tick == next refresh
+                    try:
+                        self._fast_tick()
+                    except Exception as e:  # noqa: BLE001
+                        log(f"agents fast tick error: {e}")
+
+    def _fast_tick(self):
+        """Between full refreshes, keep the live description honest without a
+        full cycle. Re-tails only known transcripts (no `ps`/lsof, no status
+        engine, no directory walk) and patches the transcript-derived fields —
+        activity line, last-activity clock, tick counters — onto the existing
+        snapshot. Status/pending/health stay as the last full refresh computed
+        them; they get re-evaluated on the next 2s cycle. Rows are NOT re-sorted
+        (reordering agents every 0.5s would be visually jarring)."""
+        self.transcripts.retail_known()
+        by_sid = {}
+        for rec in self.transcripts.summaries().values():
+            sid = rec.get("session_id")
+            if sid:
+                prev = by_sid.get(sid)
+                if prev is None or rec["mtime"] > prev["mtime"]:
+                    by_sid[sid] = rec
+        with self.lock:
+            for sess in self._snap["sessions"]:
+                rec = by_sid.get(sess["session_id"])
+                if rec is None:
+                    continue
+                sess["activity"] = _activity_for(rec, sess["status"])
+                sess["last_activity"] = rec.get("mtime")
+                sess["ticks"] = {"tools_done": rec.get("tools_done", 0),
+                                 "files": len(rec.get("files") or ()),
+                                 "errors": rec.get("errors", 0),
+                                 "subagents": rec.get("subagents", 0)}
 
     # -- merge + status engine ------------------------------------------- #
     def refresh(self):
@@ -1437,19 +1535,27 @@ class AgentMonitor:
             return "gone", None
         if rec is None:
             return "working", None      # process up, transcript not seen yet
+        # A trailing API error surfaces IMMEDIATELY — before the freshness gate
+        # below — because an active retry storm keeps writing api_error lines
+        # that refresh mtime, which would otherwise mask the fault as "working".
+        # Cleared the moment a real reply lands (recovery) or a new turn starts.
+        if rec.get("api_retrying") or rec.get("api_error_msg"):
+            return "failed", None
         age = now - rec["mtime"]
         if age < self.working_s:
             return "working", None
         if age > self.idle_s:
             return "idle", None
-        # stalled between 10s and 5min
+        # stalled between 10s and 5min. "pending_tool" means a tool call is
+        # genuinely OPEN — a tool_use with no matching tool_result yet — i.e.
+        # actually awaiting approval or a slow run. Do NOT infer it from
+        # last_stop=="tool_use": that stays set through the think-gap AFTER a
+        # tool's result comes back, so on auto-accept it produced a phantom
+        # "waiting to edit X" from the stale last_tool. Require an open tool.
         open_tools = rec.get("open_tools") or {}
-        if rec.get("last_stop") == "tool_use" or open_tools:
-            tool = None
-            if open_tools:
-                tool = max(open_tools.values(),
-                           key=lambda t: t.get("since") or 0)
-            tool = tool or rec.get("last_tool") or {}
+        if open_tools:
+            tool = max(open_tools.values(),
+                       key=lambda t: t.get("since") or 0)
             name = tool.get("name") or "?"
             pt = {"name": name, "detail": tool.get("detail"),
                   "since": tool.get("since") or rec["mtime"]}
@@ -1520,7 +1626,7 @@ class AgentMonitor:
             "last_prompt": rec.get("last_prompt"),
             "status": status,
             "status_since": tr["since"],
-            "activity": _activity_phrase(rec.get("last_tool")),
+            "activity": _activity_for(rec, status),
             "pending_tool": pt if status in ("pending_tool", "asking")
             else None,
             "tty": tty,
@@ -1918,17 +2024,50 @@ def parse_usage(out):
     return res
 
 
+# A hermetic sandbox for every `claude -p /usage`. This is THE fix for the
+# unpredictable macOS Photos / Apple Music / Contacts permission prompts: at
+# startup claude captures a "shell snapshot" by sourcing the user's shell rc
+# (~/.zshrc, ~/.zprofile, …), and that rc pulls in tools / shell integrations
+# that touch those data stores — the TCC prompt is then attributed to Tower,
+# because Tower spawned claude, every 60s, at no predictable moment. We remove
+# BOTH trigger paths for /usage: point zsh/sh/bash at an EMPTY rc (so nothing is
+# sourced) and load ZERO MCP servers (an MCP server can reach Contacts/Photos
+# too). HOME is left intact so claude still finds its own auth under ~/.claude.
+# Verified: /usage returns byte-identical output and the tell-tale rc-sourcing
+# side effect ("Shell cwd was reset…") disappears.
+USAGE_NORC_DIR = os.path.join(CONFIG_DIR, "norc")          # empty ZDOTDIR
+USAGE_MCP_FILE = os.path.join(CONFIG_DIR, "empty-mcp.json")  # zero MCP servers
+
+
+def _ensure_usage_sandbox():
+    """Create the empty ZDOTDIR + empty MCP config once; keep the rc dir clean."""
+    try:
+        os.makedirs(USAGE_NORC_DIR, exist_ok=True)
+        for n in (".zshrc", ".zshenv", ".zprofile", ".zlogin", ".profile"):
+            p = os.path.join(USAGE_NORC_DIR, n)
+            if os.path.lexists(p):
+                os.remove(p)                    # never let an rc sneak back in
+        if not os.path.exists(USAGE_MCP_FILE):
+            with open(USAGE_MCP_FILE, "w") as f:
+                f.write('{"mcpServers":{}}')
+    except OSError as e:  # noqa: BLE001
+        log(f"usage sandbox setup failed: {e}")
+
+
 def _claude_env():
-    """Env for invoking claude, minimized to what /usage needs:
-    - strip Claude-Code *nesting* vars (they make a nested `claude -p /usage`
-      print run-stats instead of the usage report),
-    - point it at a plain, non-interactive shell with NO user rc files, so
-      claude's shell snapshot never sources ~/.zshrc — that's what pulls in
-      tools that touch Photos/Music and trigger TCC prompts blamed on us,
-    - keep a sane PATH so it still finds its helpers."""
+    """Env for a hermetic `claude -p /usage` (see USAGE_NORC_DIR above):
+    - strip Claude-Code *nesting* vars (else a nested /usage prints run-stats
+      instead of the usage report),
+    - neutralise every shell's rc sourcing — the Photos/Music/Contacts TCC
+      trigger — via an empty ZDOTDIR and blanked ENV/BASH_ENV,
+    - keep a sane PATH (helpers) and HOME (claude's own auth in ~/.claude)."""
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("CLAUDE_CODE") and k != "CLAUDECODE"
            and k != "CLAUDE_EFFORT"}
+    _ensure_usage_sandbox()
+    env["ZDOTDIR"] = USAGE_NORC_DIR     # zsh sources $ZDOTDIR/.z* → none exist
+    env["ENV"] = ""                     # sh: no startup file
+    env["BASH_ENV"] = ""                # bash non-interactive: no startup file
     extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
     have = env.get("PATH", "").split(":")
     env["PATH"] = ":".join([p for p in extra if p not in have] + have)
@@ -1945,9 +2084,11 @@ def fetch_plan():
     # usage report; retry a few times so one bad response doesn't fail the cycle.
     for _ in range(3):
         try:
-            r = subprocess.run([claude, "-p", "/usage"],
-                               stdin=subprocess.DEVNULL, capture_output=True,
-                               text=True, timeout=90, env=env)
+            r = subprocess.run(
+                [claude, "-p", "/usage",
+                 "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE],
+                stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=90, env=env)
             res = parse_usage((r.stdout or "") + "\n" + (r.stderr or ""))
             if res.get("ok"):
                 return res
