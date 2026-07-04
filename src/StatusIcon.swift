@@ -1,21 +1,19 @@
 // Tower — menu bar icon policy.
 //
-// The menu bar is the Tower radar. Its state is the guard, distilled
-// (Model.radarState):
-//   off      → routing off, unguarded        (red)
-//   holdGeo  → off-country, held pending      (amber)
-//   holdNet  → no usable path, held pending   (amber)
-//   verify   → confirming location            (monochrome, sweeping)
-//   clear    → guarding, path open            (monochrome, calm)
-// The image is a monochrome template; tint carries the alert level (red for
-// unguarded, amber for a hold), nothing else. The needs-you / usage badge is
-// drawn beside it by AppDelegate.
+// The menu bar is the Tower radar, rendered exactly like the popover header so
+// the two always match. Its state is the guard, distilled (Model.radarState):
+//   off      → routing off, unguarded        (red ring, hollow core)
+//   holdGeo  → off-country, held pending      (amber ring + fence + blip)
+//   holdNet  → no usable path, held pending   (amber ring + sonar pings)
+//   verify   → confirming location            (neutral, sweeping)
+//   clear    → guarding, path open            (neutral, calm)
+// Full color — the amber/red IS the information — with a neutral resolved from
+// the menu-bar appearance. The needs-you / usage badge is drawn by AppDelegate.
 
 import AppKit
 
 struct MenubarIcon {
     let image: NSImage?
-    let tint: NSColor?
     let describe: String
 }
 
@@ -23,8 +21,8 @@ struct MenubarIcon {
 func menubarIcon(for model: TowerModel, phase: Double) -> MenubarIcon {
     let state = model.radarState
     let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let image = Glyph.radar(state, phase: phase, reduce: reduce)
+    let image = Glyph.radar(state, phase: phase, neutral: Glyph.menubarNeutral(), reduce: reduce)
         ?? NSImage(systemSymbolName: "dot.radiowaves.left.and.right",
                    accessibilityDescription: nil)
-    return MenubarIcon(image: image, tint: state.tint, describe: model.status.title)
+    return MenubarIcon(image: image, describe: model.status.title)
 }
