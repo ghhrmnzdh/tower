@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Built product — regenerate with ./build.sh
+Geo Guard.app/
+Corral.app/
+
+# Local runtime state (created at ~/.corral, never in-repo, but just in case)
+.corral/
+.geo-guard/

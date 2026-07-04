@@ -1,0 +1,214 @@
+// Corral — app delegate: status item, popover, daemon supervision, quit flow.
+
+import AppKit
+import SwiftUI
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    let model = CorralModel()
+    var statusItem: NSStatusItem!
+    var popover = NSPopover()
+    var iconTimer: Timer?
+    var daemon: Process?
+    var confirmedQuit = false
+    /// Alternates the menubar horse's canter frame while a tool is in flight.
+    var canterStep = false
+    lazy var dashboard = DashboardWindowController(model: model)
+    lazy var notifier = Notifier(model: model)
+
+    func applicationDidFinishLaunching(_ note: Notification) {
+        NSApp.setActivationPolicy(.accessory)   // menubar agent, no dock icon
+
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.target = self
+        updateIcon()
+
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+
+        launchDaemonIfNeeded()
+        model.start()
+
+        // Keep the icon in sync with daemon state; the 1.2s cadence doubles
+        // as the canter clock (no loop faster than 1.2s — restraint rule).
+        iconTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            if self.model.anyTooling && !reduceMotion {
+                self.canterStep.toggle()
+            } else {
+                self.canterStep = false
+            }
+            self.updateIcon()
+            self.notifier.process()
+        }
+    }
+
+    func openDashboard(tab: DashboardTab) {
+        popover.performClose(nil)
+        dashboard.open(tab: tab)
+    }
+
+    // ---- Menubar icon ---- //
+    // Priority: net fault > guard blocking > highest-tier horse > horseshoe
+    // (see StatusIcon.swift). Badge text: needs-you count, then optional
+    // usage %. Tint only ever means alert.
+    func updateIcon() {
+        guard let button = statusItem.button else { return }
+        let icon = menubarIcon(for: model, canterStep: canterStep)
+        button.image = icon.image
+        button.contentTintColor = icon.tint
+        button.image?.accessibilityDescription = icon.describe
+
+        // Badge: "⚡N" needs-you count (red when something failed), then the
+        // usage % if that preference is on.
+        var parts: [(String, NSColor)] = []
+        let needs = model.needsYouCount
+        if needs > 0 {
+            parts.append((" \(needs)", model.anyFailed ? .systemRed : .systemOrange))
+        }
+        let mode = UserDefaults.standard.string(forKey: "menubarMode") ?? "session"
+        if let plan = model.state?.plan, plan.ok == true {
+            let pct = mode == "session" ? plan.session?.pct
+                    : mode == "week" ? plan.week?.pct : nil
+            if let p = pct {
+                parts.append((needs > 0 ? " · \(p)%" : " \(p)%", levelNSColor(p)))
+            }
+        }
+        if parts.isEmpty {
+            button.attributedTitle = NSAttributedString(string: "")
+            button.title = ""
+            button.imagePosition = .imageOnly
+        } else {
+            let s = NSMutableAttributedString()
+            for (text, color) in parts {
+                s.append(NSAttributedString(string: text, attributes: [
+                    .foregroundColor: color,
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+                ]))
+            }
+            button.attributedTitle = s
+            button.imagePosition = .imageLeading
+        }
+        button.toolTip = "Corral — \(icon.describe)"
+    }
+
+    // ---- Daemon supervision ---- //
+    func launchDaemonIfNeeded() {
+        // The daemon is single-instance (flock), so an extra spawn is harmless —
+        // it just exits. We always try; whoever wins owns the lock.
+        guard let res = Bundle.main.resourcePath else { return }
+        let script = res + "/corrald.py"
+        guard FileManager.default.fileExists(atPath: script) else {
+            alert("Missing daemon", "corrald.py was not found in the app bundle.")
+            return
+        }
+        let py = firstExisting([
+            "/opt/homebrew/bin/python3", "/usr/local/bin/python3",
+            "/Library/Frameworks/Python.framework/Versions/Current/bin/python3",
+            "/usr/bin/python3",
+        ]) ?? "/usr/bin/python3"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: py)
+        p.arguments = [script]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run(); daemon = p } catch {
+            alert("Couldn't start guard", "Failed to launch python3:\n\(error.localizedDescription)")
+        }
+    }
+
+    func firstExisting(_ paths: [String]) -> String? {
+        paths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    // ---- Popover ---- //
+    @objc func togglePopover() {
+        if popover.isShown { popover.performClose(nil); return }
+        guard let b = statusItem.button else { return }
+        notifier.lastPopoverOpen = Date()
+        // Standard status-item anchor: hang off the bottom edge of the button.
+        // (The popover itself is height-capped in PopoverView so it can never
+        // grow taller than the screen and get shoved out of place / clipped.)
+        popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    // ---- Quit (Cmd-Q, or the popover button) ---- //
+    @objc func confirmQuit() { NSApp.terminate(nil) }
+
+    // Gently predict & explain a permission BEFORE macOS shows its prompt.
+    func explainThenEnableClamshell(model: CorralModel) {
+        popover.performClose(nil)
+        let a = NSAlert()
+        a.messageText = "Keep your Mac awake with the lid closed?"
+        a.informativeText = """
+        macOS will ask for your password once, right after this.
+
+        Corral uses it only to run “pmset disablesleep” so long-running \
+        Claude agents keep working after you close the lid. Nothing else is \
+        accessed. You can switch it off anytime, and Reset removes it.
+        """
+        a.alertStyle = .informational
+        a.addButton(withTitle: "Continue")
+        a.addButton(withTitle: "Not now")
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn {
+            model.send(["cmd": "keepawake", "on": true, "mode": "clamshell"])
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if confirmedQuit { return .terminateNow }
+        popover.performClose(nil)
+
+        // Quitting removes routing → Claude connects directly, UNGUARDED. This
+        // is a dangerous action, so we double-confirm and call out any agents
+        // that are working right now (they'd send unguarded requests at once).
+        let working = model.agentsWorking
+        let agentClause = working > 0
+            ? "\n\n⚠︎ \(working) Claude agent\(working == 1 ? " is" : "s are") "
+              + "working right now and will immediately send requests with no "
+              + "location guard."
+            : ""
+        let a = NSAlert()
+        a.messageText = "Quit Corral and turn off the guard?"
+        a.informativeText = "Quitting removes routing from settings.json — "
+            + "Claude Code goes back to a DIRECT connection with no country "
+            + "guard at all." + agentClause
+        a.alertStyle = .critical
+        a.addButton(withTitle: "Continue…")
+        a.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+
+        // Final confirmation — deliberately a second, distinct step.
+        let b = NSAlert()
+        b.messageText = "Are you absolutely sure?"
+        b.informativeText = "This disables Claude Code's location protection "
+            + "entirely until you reopen Corral." + agentClause
+        b.alertStyle = .critical
+        b.addButton(withTitle: "Quit & Disable Guard")
+        b.addButton(withTitle: "Keep the Guard On")
+        NSApp.activate(ignoringOtherApps: true)
+        guard b.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+
+        // Tell the daemon to quit → it removes routing and exits cleanly.
+        confirmedQuit = true
+        model.send(["cmd": "quit"])
+        // Give the daemon a moment to route_off before we go.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
+        return .terminateLater
+    }
+
+    func alert(_ title: String, _ msg: String) {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = msg
+        a.alertStyle = .critical
+        a.runModal()
+    }
+}

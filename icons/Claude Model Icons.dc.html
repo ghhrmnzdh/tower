@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:#0C0C0E}
+@keyframes ping{from{transform:translate(-50%,-50%) scale(.5);opacity:.5}to{transform:translate(-50%,-50%) scale(1.8);opacity:0}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" style="min-height:100vh;background:#0C0C0E;color:#ECEAE6;font-family:'Newsreader',Georgia,serif;padding:60px 40px 100px;display:flex;flex-direction:column;align-items:center">
+ <div style="width:100%;max-width:1180px;display:flex;flex-direction:column;gap:42px">
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.24em;color:#6E6E6A;text-transform:uppercase">Claude · macOS menu bar</div>
+    <h1 style="margin:0;font-weight:500;font-size:44px;line-height:1.08;letter-spacing:-0.01em;color:#EFEDE9;max-width:18ch">A living mark for every model</h1>
+    <p style="margin:0;font-size:17.5px;line-height:1.6;color:#9A9A95;max-width:62ch">Four monochrome glyphs from one idea — a center, and the lines that move around it. Perfectly still while you work; alive the moment a model starts to think.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <button data-ref="liveBtn" onClick="{{ onToggleLive }}" style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:transparent;color:#cdccc8;cursor:pointer">○  Preview live</button>
+      <button data-ref="themeBtn" onClick="{{ onToggleTheme }}" style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:transparent;color:#cdccc8;cursor:pointer">☾  Dark bar</button>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6E6E6A;letter-spacing:.02em">Hover a mark to bring it alive · click to keep it running</span>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px">
+
+    <div data-card="haiku" data-model="haiku" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" onClick="{{ onCardClick }}" style="position:relative;background:#141416;border:1px solid rgba(255,255,255,0.08);border-radius:22px;padding:28px 24px 22px;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:border-color .35s ease,background .35s ease">
+      <span data-pill="haiku" style="position:absolute;top:14px;right:15px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);color:#6E6E6A">IDLE</span>
+      <div style="position:relative;width:140px;height:140px;display:grid;place-items:center;margin:6px 0 20px">
+        <div data-glow="haiku" style="position:absolute;inset:-8%;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(242,240,236,0.55), rgba(242,240,236,0) 66%);opacity:0;pointer-events:none"></div>
+        <span data-pulse style="position:absolute;top:50%;left:50%;width:104px;height:104px;border-radius:50%;border:1.5px solid rgba(242,240,236,0.6);opacity:0;pointer-events:none;transform:translate(-50%,-50%) scale(.5)"></span>
+        <div data-hero="haiku" style="position:relative;width:112px;height:112px;color:#F2F0EC"></div>
+      </div>
+      <div style="font-family:'Newsreader',serif;font-weight:500;font-size:27px;letter-spacing:.005em;color:#EEECE8">Haiku</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#7C7C77;margin-top:9px;text-align:center;line-height:1.5">Three marks · fast &amp; spare</div>
+    </div>
+
+    <div data-card="sonnet" data-model="sonnet" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" onClick="{{ onCardClick }}" style="position:relative;background:#141416;border:1px solid rgba(255,255,255,0.08);border-radius:22px;padding:28px 24px 22px;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:border-color .35s ease,background .35s ease">
+      <span data-pill="sonnet" style="position:absolute;top:14px;right:15px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);color:#6E6E6A">IDLE</span>
+      <div style="position:relative;width:140px;height:140px;display:grid;place-items:center;margin:6px 0 20px">
+        <div data-glow="sonnet" style="position:absolute;inset:-8%;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(242,240,236,0.55), rgba(242,240,236,0) 66%);opacity:0;pointer-events:none"></div>
+        <span data-pulse style="position:absolute;top:50%;left:50%;width:104px;height:104px;border-radius:50%;border:1.5px solid rgba(242,240,236,0.6);opacity:0;pointer-events:none;transform:translate(-50%,-50%) scale(.5)"></span>
+        <div data-hero="sonnet" style="position:relative;width:112px;height:112px;color:#F2F0EC"></div>
+      </div>
+      <div style="font-family:'Newsreader',serif;font-weight:500;font-size:27px;letter-spacing:.005em;color:#EEECE8">Sonnet</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#7C7C77;margin-top:9px;text-align:center;line-height:1.5">A single turn · balanced</div>
+    </div>
+
+    <div data-card="opus" data-model="opus" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" onClick="{{ onCardClick }}" style="position:relative;background:#141416;border:1px solid rgba(255,255,255,0.08);border-radius:22px;padding:28px 24px 22px;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:border-color .35s ease,background .35s ease">
+      <span data-pill="opus" style="position:absolute;top:14px;right:15px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);color:#6E6E6A">IDLE</span>
+      <div style="position:relative;width:140px;height:140px;display:grid;place-items:center;margin:6px 0 20px">
+        <div data-glow="opus" style="position:absolute;inset:-8%;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(242,240,236,0.55), rgba(242,240,236,0) 66%);opacity:0;pointer-events:none"></div>
+        <span data-pulse style="position:absolute;top:50%;left:50%;width:104px;height:104px;border-radius:50%;border:1.5px solid rgba(242,240,236,0.6);opacity:0;pointer-events:none;transform:translate(-50%,-50%) scale(.5)"></span>
+        <div data-hero="opus" style="position:relative;width:112px;height:112px;color:#F2F0EC"></div>
+      </div>
+      <div style="font-family:'Newsreader',serif;font-weight:500;font-size:27px;letter-spacing:.005em;color:#EEECE8">Opus</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#7C7C77;margin-top:9px;text-align:center;line-height:1.5">Nested rings · deep &amp; grand</div>
+    </div>
+
+    <div data-card="fable" data-model="fable" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" onClick="{{ onCardClick }}" style="position:relative;background:#141416;border:1px solid rgba(255,255,255,0.08);border-radius:22px;padding:28px 24px 22px;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:border-color .35s ease,background .35s ease">
+      <span data-pill="fable" style="position:absolute;top:14px;right:15px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,0.12);color:#6E6E6A">IDLE</span>
+      <div style="position:relative;width:140px;height:140px;display:grid;place-items:center;margin:6px 0 20px">
+        <div data-glow="fable" style="position:absolute;inset:-8%;border-radius:50%;background:radial-gradient(circle at 50% 50%, rgba(242,240,236,0.55), rgba(242,240,236,0) 66%);opacity:0;pointer-events:none"></div>
+        <span data-pulse style="position:absolute;top:50%;left:50%;width:104px;height:104px;border-radius:50%;border:1.5px solid rgba(242,240,236,0.6);opacity:0;pointer-events:none;transform:translate(-50%,-50%) scale(.5)"></span>
+        <div data-hero="fable" style="position:relative;width:112px;height:112px;color:#F2F0EC"></div>
+      </div>
+      <div style="font-family:'Newsreader',serif;font-weight:500;font-size:27px;letter-spacing:.005em;color:#EEECE8">Fable</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#7C7C77;margin-top:9px;text-align:center;line-height:1.5">One unbroken line · a story</div>
+    </div>
+
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px;margin-top:6px">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#6E6E6A">In the menu bar</div>
+    <div data-ref="wall" style="position:relative;height:112px;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,0.09);box-shadow:0 30px 70px -40px rgba(0,0,0,.85);background:#26262d">
+      <div data-ref="menubar" style="position:absolute;top:0;left:0;right:0;height:28px;display:flex;align-items:center;gap:16px;padding:0 14px;font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:12.5px;color:rgba(255,255,255,0.92);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)">
+        <span style="width:9px;height:9px;border-radius:2px;background:currentColor;opacity:.9;display:inline-block"></span>
+        <span style="font-weight:600">Agent</span>
+        <span style="opacity:.82">File</span><span style="opacity:.82">Edit</span><span style="opacity:.82">View</span><span style="opacity:.82">Run</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:15px">
+          <span data-mb="haiku" data-model="haiku" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" style="width:18px;height:18px;display:inline-block;cursor:pointer"></span>
+          <span data-mb="sonnet" data-model="sonnet" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" style="width:18px;height:18px;display:inline-block;cursor:pointer"></span>
+          <span data-mb="opus" data-model="opus" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" style="width:18px;height:18px;display:inline-block;cursor:pointer"></span>
+          <span data-mb="fable" data-model="fable" onMouseEnter="{{ onEnter }}" onMouseLeave="{{ onLeave }}" style="width:18px;height:18px;display:inline-block;cursor:pointer"></span>
+          <span style="width:1px;height:14px;background:currentColor;opacity:.22"></span>
+          <span style="display:inline-flex;align-items:center"><svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x="0.6" y="1.4" width="19" height="9.2" rx="2.2" stroke="currentColor" stroke-opacity="0.5" stroke-width="1"></rect><rect x="2.2" y="3" width="13" height="6" rx="1" fill="currentColor"></rect><rect x="21" y="4" width="1.8" height="4" rx="0.9" fill="currentColor" fill-opacity="0.5"></rect></svg></span>
+          <span style="font-variant-numeric:tabular-nums;opacity:.9">Fri 9:41</span>
+        </div>
+      </div>
+    </div>
+    <p style="margin:0;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6E6E6A;letter-spacing:.02em;line-height:1.6">The active model's mark sits at the right of the bar. Switch it between light and dark — every glyph is one color and inverts automatically.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;border-top:1px solid rgba(255,255,255,0.08);padding-top:26px;margin-top:4px">
+    <div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;color:#8f8f8a">IDLE</div><div style="font-size:15px;color:#8A8A85;line-height:1.55;margin-top:7px">A still, single-color template that adapts to any menu bar background.</div></div>
+    <div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;color:#8f8f8a">LIVE</div><div style="font-size:15px;color:#8A8A85;line-height:1.55;margin-top:7px">A smooth, GPU-light loop that plays only while a model is running.</div></div>
+    <div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;color:#8f8f8a">VECTOR</div><div style="font-size:15px;color:#8A8A85;line-height:1.55;margin-top:7px">Delivered as scalable artwork — crisp from 16&nbsp;px upward.</div></div>
+  </div>
+
+ </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+ &quot;iconColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#F2F0EC&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#F2F0EC&quot;,&quot;#E7E4DC&quot;,&quot;#CFE8DA&quot;,&quot;#D7E0F2&quot;],&quot;section&quot;:&quot;Style&quot;},
+ &quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#7FD19A&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#7FD19A&quot;,&quot;#8FB8F0&quot;,&quot;#E4C06A&quot;],&quot;section&quot;:&quot;Style&quot;},
+ &quot;motionSpeed&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.5,&quot;max&quot;:1.8,&quot;step&quot;:0.1,&quot;unit&quot;:&quot;×&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Motion&quot;}
+}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.models=['haiku','sonnet','opus','fable'];
+    this.energy={}; this.hover={}; this.pinned={}; this.pillState={}; this.cardState={};
+    this.models.forEach(m=>{ this.energy[m]={e:0,v:0}; this.hover[m]=false; this.pinned[m]=false; this.pillState[m]=null; this.cardState[m]=null; });
+    this.liveAll=false; this.menuTheme='dark'; this.built=false; this.phase=0; this.last=0; this.mounted=false;
+    this.loop=this.loop.bind(this);
+  }
+
+  iconColor(){ return this.props.iconColor || '#F2F0EC'; }
+  accent(){ return this.props.accentColor || '#7FD19A'; }
+  speed(){ return this.props.motionSpeed || 1; }
+
+  svgWrap(inner){ return '<svg viewBox="0 0 100 100" width="100%" height="100%" fill="none" style="overflow:visible;display:block">'+inner+'</svg>'; }
+  build(m){ return this.svgWrap(m==='haiku'?this.buildHaiku():m==='sonnet'?this.buildSonnet():m==='opus'?this.buildOpus():this.buildFable()); }
+
+  buildHaiku(){
+    let s='<g data-part="root">';
+    for(let k=0;k<3;k++){
+      const a=(-90+k*120)*Math.PI/180, dx=Math.cos(a), dy=Math.sin(a);
+      const x1=50+dx*15, y1=50+dy*15, x2=50+dx*33, y2=50+dy*33;
+      s+='<g data-part="tick" data-dx="'+dx.toFixed(5)+'" data-dy="'+dy.toFixed(5)+'"><line x1="'+x1.toFixed(2)+'" y1="'+y1.toFixed(2)+'" x2="'+x2.toFixed(2)+'" y2="'+y2.toFixed(2)+'" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></g>';
+    }
+    s+='<circle data-part="core" cx="50" cy="50" r="6.5" fill="currentColor"/></g>';
+    return s;
+  }
+  buildSonnet(){
+    const R=12.5, top=50-2*R, bot=50+2*R;
+    const d='M 50 '+top+' A '+R+' '+R+' 0 0 1 50 50 A '+R+' '+R+' 0 0 0 50 '+bot;
+    return '<g data-part="root"><path d="'+d+'" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></g>';
+  }
+  buildOpus(){
+    const arc=(r,gap)=>{ const a0=(gap+30)*Math.PI/180, a1=(gap+330)*Math.PI/180; const x0=50+r*Math.cos(a0), y0=50+r*Math.sin(a0), x1=50+r*Math.cos(a1), y1=50+r*Math.sin(a1); return 'M '+x0.toFixed(2)+' '+y0.toFixed(2)+' A '+r+' '+r+' 0 1 1 '+x1.toFixed(2)+' '+y1.toFixed(2); };
+    const rings=[[15,90],[25,210],[35,330]]; let s='';
+    rings.forEach((rg,i)=>{ s+='<g data-part="ring" data-i="'+i+'"><path d="'+arc(rg[0],rg[1])+'" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/></g>'; });
+    s+='<circle data-part="core" cx="50" cy="50" r="4.5" fill="currentColor"/>';
+    return s;
+  }
+  buildFable(){
+    const turns=2.35, steps=150, r0=2.5, r1=35; let d='';
+    for(let i=0;i<=steps;i++){ const f=i/steps, ang=f*turns*2*Math.PI-Math.PI/2, rr=r0+(r1-r0)*f; const x=50+rr*Math.cos(ang), y=50+rr*Math.sin(ang); d+=(i?' L ':'M ')+x.toFixed(2)+' '+y.toFixed(2); }
+    let s='';
+    s+='<path data-part="spiralBase" d="'+d+'" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>';
+    s+='<path data-part="spiralHi" d="'+d+'" fill="none" stroke="currentColor" stroke-width="7.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0"/>';
+    s+='<circle data-part="headGlow" cx="50" cy="50" r="9" fill="currentColor" style="opacity:0"/>';
+    s+='<circle data-part="head" cx="50" cy="50" r="5" fill="currentColor" style="opacity:0"/>';
+    s+='<circle data-part="core" cx="50" cy="50" r="3.5" fill="currentColor"/>';
+    return s;
+  }
+
+  cache(m,cont){
+    const q=s=>cont.querySelector(s), qa=s=>Array.from(cont.querySelectorAll(s));
+    const inst={model:m,cont};
+    if(m==='haiku'){ inst.root=q('[data-part=root]'); inst.core=q('[data-part=core]'); inst.ticks=qa('[data-part=tick]'); }
+    else if(m==='sonnet'){ inst.root=q('[data-part=root]'); }
+    else if(m==='opus'){ inst.rings=qa('[data-part=ring]'); inst.core=q('[data-part=core]'); }
+    else { inst.base=q('[data-part=spiralBase]'); inst.hi=q('[data-part=spiralHi]'); inst.head=q('[data-part=head]'); inst.headGlow=q('[data-part=headGlow]'); inst.core=q('[data-part=core]'); inst.L=inst.base.getTotalLength(); inst.hi.setAttribute('stroke-dasharray',(0.16*inst.L).toFixed(2)+' '+inst.L.toFixed(2)); }
+    return inst;
+  }
+
+  ensureBuilt(){
+    if(!this.rootEl || this.built) return;
+    const R=this.rootEl;
+    this.menubar=R.querySelector('[data-ref=menubar]');
+    this.wall=R.querySelector('[data-ref=wall]');
+    this.liveBtn=R.querySelector('[data-ref=liveBtn]');
+    this.themeBtn=R.querySelector('[data-ref=themeBtn]');
+    this.instances=[]; this.glow={}; this.pills={}; this.cards={}; this.heroConts=[];
+    const col=this.iconColor();
+    this.models.forEach(m=>{
+      R.querySelectorAll('[data-hero="'+m+'"],[data-mb="'+m+'"]').forEach(cont=>{ cont.innerHTML=this.build(m); this.instances.push(this.cache(m,cont)); });
+      this.glow[m]=R.querySelector('[data-glow="'+m+'"]');
+      this.pills[m]=R.querySelector('[data-pill="'+m+'"]');
+      this.cards[m]=R.querySelector('[data-card="'+m+'"]');
+      const hc=R.querySelector('[data-hero="'+m+'"]'); if(hc){ hc.style.color=col; this.heroConts.push(hc); }
+    });
+    this.built=true;
+    this.applyTheme(); this.applyLive(); this.startLoop();
+  }
+
+  applyTheme(){
+    const bar=this.menubar, wall=this.wall, btn=this.themeBtn; if(!bar||!wall) return;
+    if(this.menuTheme==='dark'){
+      bar.style.background='rgba(22,22,25,0.55)';
+      bar.style.color='rgba(255,255,255,0.92)';
+      bar.style.borderBottom='1px solid rgba(255,255,255,0.10)';
+      wall.style.background='radial-gradient(120% 130% at 18% -10%, #4a4a55 0%, #26262d 55%, #1b1b21 100%)';
+      if(btn) btn.textContent='☾  Dark bar';
+    } else {
+      bar.style.background='rgba(248,248,250,0.62)';
+      bar.style.color='rgba(0,0,0,0.82)';
+      bar.style.borderBottom='1px solid rgba(0,0,0,0.10)';
+      wall.style.background='radial-gradient(120% 130% at 18% -10%, #eef0f5 0%, #d3d7e0 55%, #c2c7d2 100%)';
+      if(btn) btn.textContent='☀  Light bar';
+    }
+  }
+  applyLive(){
+    const b=this.liveBtn; if(!b) return;
+    if(this.liveAll){ b.style.background=this.accent(); b.style.color='#0c0c0e'; b.style.borderColor='transparent'; b.textContent='●  Live preview on'; }
+    else { b.style.background='transparent'; b.style.color='#cdccc8'; b.style.borderColor='rgba(255,255,255,0.14)'; b.textContent='○  Preview live'; }
+  }
+
+  ping(el){ const p=el&&el.querySelector('[data-pulse]'); if(!p) return; p.style.animation='none'; void p.offsetWidth; p.style.animation='ping 0.7s cubic-bezier(.22,.61,.36,1) forwards'; }
+
+  startLoop(){
+    if(this._running || typeof requestAnimationFrame!=='function') return;
+    this._running=true; this.mounted=true; this.last=0;
+    const self=this;
+    const frame=(ts)=>{ try{ self.loop(ts); }catch(e){} if(self.rootEl && !self.rootEl.isConnected){ self._running=false; return; } requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  }
+  componentDidMount(){ this.mounted=true; this.ensureBuilt(); this.startLoop(); }
+  componentWillUnmount(){ this.mounted=false; if(this.raf) cancelAnimationFrame(this.raf); }
+  componentDidUpdate(){
+    if(!this.rootEl) return;
+    if(this.instances){ if(this.instances.some(i=>i.cont.childElementCount===0)){ this.built=false; this.ensureBuilt(); } }
+    else { this.ensureBuilt(); }
+    const col=this.iconColor(); if(this.heroConts) this.heroConts.forEach(c=>c.style.color=col);
+    this.applyTheme(); this.applyLive();
+  }
+
+  loop(ts){
+    if(!this.built) this.ensureBuilt();
+    if(!this.instances) return;
+    const t=ts/1000; let dt=this.last?t-this.last:0.016; this.last=t; if(dt>0.05) dt=0.05;
+    this.phase+=dt*this.speed(); const P=this.phase;
+    const E={}, k=190, d=22;
+    this.models.forEach(m=>{
+      const tgt=(this.liveAll||this.hover[m]||this.pinned[m])?1:0;
+      const s=this.energy[m];
+      const a=k*(tgt-s.e)-d*s.v; s.v+=a*dt; s.e+=s.v*dt;
+      if(s.e<0){ s.e=0; if(s.v<0) s.v=0; } if(s.e>1.14) s.e=1.14;
+      E[m]=s.e;
+    });
+    if(this.instances) this.instances.forEach(inst=>this.update(inst,E[inst.model],P));
+    const acc=this.accent();
+    this.models.forEach(m=>{
+      const e=E[m], ec=Math.min(1,e);
+      const g=this.glow&&this.glow[m];
+      if(g){ g.style.opacity=(ec*(0.30+0.14*Math.sin(P*1.6))).toFixed(3); g.style.transform='scale('+(0.82+0.4*ec).toFixed(3)+')'; }
+      const live=e>0.5;
+      if(this.pillState[m]!==live){ this.pillState[m]=live; const p=this.pills&&this.pills[m]; if(p){ p.textContent=live?'LIVE':'IDLE'; p.style.color=live?acc:'#6E6E6A'; p.style.borderColor=live?('color-mix(in oklab,'+acc+' 45%, transparent)'):'rgba(255,255,255,0.12)'; } }
+      const hi=live||this.pinned[m];
+      if(this.cardState[m]!==hi){ this.cardState[m]=hi; const c=this.cards&&this.cards[m]; if(c){ c.style.borderColor=hi?'rgba(242,240,236,0.26)':'rgba(255,255,255,0.08)'; c.style.background=hi?'#17171a':'#141416'; } }
+    });
+    this.raf=requestAnimationFrame(this.loop);
+  }
+
+  update(inst,e,P){
+    const m=inst.model, E=Math.max(0,e);
+    if(m==='haiku'){
+      inst.root.setAttribute('transform','rotate('+(E*6*Math.sin(P*0.7)).toFixed(3)+' 50 50)');
+      inst.ticks.forEach((g,i)=>{ const dx=+g.dataset.dx, dy=+g.dataset.dy, osc=0.5+0.5*Math.sin(P*2.3+i*2.094), off=E*3.4*osc; g.setAttribute('transform','translate('+(dx*off).toFixed(3)+' '+(dy*off).toFixed(3)+')'); });
+      const cs=1+E*0.22*Math.sin(P*3.0); inst.core.setAttribute('transform','translate(50 50) scale('+cs.toFixed(4)+') translate(-50 -50)');
+    } else if(m==='sonnet'){
+      const rot=E*(P*16)+E*4*Math.sin(P*1.3), s=1+E*0.05*Math.sin(P*1.3);
+      inst.root.setAttribute('transform','rotate('+rot.toFixed(3)+' 50 50) translate(50 50) scale('+s.toFixed(4)+') translate(-50 -50)');
+    } else if(m==='opus'){
+      const rates=[14,-10,8];
+      inst.rings.forEach((g,i)=>{ const rr=E*(P*rates[i]), s=1+E*0.06*Math.sin(P*1.7-i*0.8); g.setAttribute('transform','rotate('+rr.toFixed(3)+' 50 50) translate(50 50) scale('+s.toFixed(4)+') translate(-50 -50)'); });
+      const cs=1+E*0.18*Math.sin(P*2.1); inst.core.setAttribute('transform','translate(50 50) scale('+cs.toFixed(4)+') translate(-50 -50)');
+    } else {
+      const L=inst.L, prog=(P*0.22)%1, dd=prog*L, ec=Math.min(1,E);
+      inst.hi.style.strokeDashoffset=(-dd).toFixed(2); inst.hi.style.opacity=(ec*0.95).toFixed(3);
+      const pt=inst.base.getPointAtLength(dd);
+      inst.head.setAttribute('cx',pt.x.toFixed(2)); inst.head.setAttribute('cy',pt.y.toFixed(2)); inst.head.style.opacity=ec.toFixed(3);
+      inst.headGlow.setAttribute('cx',pt.x.toFixed(2)); inst.headGlow.setAttribute('cy',pt.y.toFixed(2)); inst.headGlow.style.opacity=(ec*0.26).toFixed(3);
+    }
+  }
+
+  renderVals(){
+    this.startLoop();
+    return {
+      rootRef:(el)=>{ this.rootEl=el; if(el && !this.built){ this.ensureBuilt(); } },
+      onEnter:(ev)=>{ const m=ev.currentTarget.dataset.model; this.hover[m]=true; this.ping(ev.currentTarget); },
+      onLeave:(ev)=>{ this.hover[ev.currentTarget.dataset.model]=false; },
+      onCardClick:(ev)=>{ const m=ev.currentTarget.dataset.model; this.pinned[m]=!this.pinned[m]; },
+      onToggleLive:()=>{ this.liveAll=!this.liveAll; this.applyLive(); },
+      onToggleTheme:()=>{ this.menuTheme=this.menuTheme==='dark'?'light':'dark'; this.applyTheme(); }
+    };
+  }
+}
+</script>
+</body>
+</html>
