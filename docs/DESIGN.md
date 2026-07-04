@@ -38,6 +38,21 @@ a hold, a verify sweep, or a calm scan while agents are working — and freezes
 under Reduce Motion. The same radar anchors the popover header, the empty state,
 and the app icon. Hold/danger tones: amber `#E6A93C`, red `#E5484D`.
 
+### The vigil — keep-awake, worn on the mark
+
+Keep-awake is orthogonal to the guard (the Mac can be held awake in any state),
+so it can't *be* a radar state — it rides one. When the Mac is held awake the
+radar's **core lights**: a soft neutral **lamp** (a bloom + a crisp halo ring),
+deliberately never amber/red so a hold always outranks it and the two facts
+compose in one mark. `AwakeGlow` (`Glyph.swift`) has three looks: **idle** is a
+still lit lamp; **clamshell** (a lid-closed vigil — the deeper commitment)
+breathes slowly; **none** is a plain dark core. Only the vigil with more to say
+(lid-closed) earns motion; Reduce Motion freezes it lit. The same lamp,
+standalone, is the **beacon** (`drawBeacon`) on the keep-awake row and card —
+one glow, one meaning, everywhere. It is *felt* in the menu bar and *legible* in
+the popover, and it is never a number or a badge (the bar never counts running
+agents).
+
 ## Model marks
 
 One **monochrome** mark per Claude model tier — a center and the lines around
@@ -111,7 +126,15 @@ each radar state freezes at a legible still frame.
 
 Popover: 360pt wide, flat rows + dividers (Wi-Fi-menu style, no card chrome).
 Section order = attention order: header (radar + route toggle) → net weather →
-Needs You → collisions → Agents → Resting → location → plan meters → footer.
+Needs You → collisions → Agents → Resting → location → keep-awake → plan meters →
+footer.
 Type scale: header 13 semibold · row title 13 · activity 11 secondary ·
 counters 11 monospaced-digit · section headers 11 semibold secondary.
 Empty state: a still radar and "No agents running." — calm, fully quiet.
+
+The middle sections are **composable** (Settings → Popover): each can be hidden,
+and density set Comfortable/Compact, with a live scaled preview that settles on
+the same spring. The *order is fixed* — it encodes attention — so composition is
+show/hide + density, never reorder. Dividers sit only between visible sections,
+so hiding one never orphans a rule. Defaults reproduce today's full popover, so
+anyone who never opens Settings sees no change.

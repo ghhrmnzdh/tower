@@ -36,8 +36,17 @@ The menu bar is a single mark, the **radar**, whose state *is* the guard
 
 It animates smoothly (~30fps) only while a state has motion to show — a hold, a
 verify sweep, or a calm scan while agents are working — and freezes under Reduce
-Motion. Badge text next to it: the **needs-you count** (red when something
-failed, orange otherwise), then the usage % if that preference is on.
+Motion.
+
+When **keep-awake** is on, the radar's core lights — a soft, neutral **vigil
+lamp** meaning "the tower is holding your Mac awake." It's subliminal and never
+amber/red, so a guard hold always outranks it: the two facts compose in one mark
+instead of colliding. It's a still lit lamp while the lid may stay open, and
+breathes slowly on a lid-closed vigil.
+
+The bar **never counts running agents.** The only number it can show is the
+**needs-you count** (red when something failed, orange otherwise) — and even
+that is switchable off in Settings — then the usage % if that preference is on.
 
 ## The popover (the glance)
 Flat rows, top to bottom: guard status + **route toggle** → net weather (one
@@ -47,15 +56,23 @@ blocked > asking > done; click a row to focus that terminal, or copy the
 resume command for background agents; hover to dismiss) → collision banners →
 **Agents** (each working agent: its model mark, project, live
 activity line, `n ✓` momentum counter) → Resting (collapsed) → location (+
-re-check button) → plan meters → footer (Dashboard / Settings / Quit).
+re-check button) → **keep awake** (the beacon lamp + what it means in plain
+words; tap to cycle Off / lid-open / lid-closed) → plan meters → footer
+(Dashboard / Settings / Quit).
+
+Which sections show, and how tight (Comfortable / Compact), is **yours to
+compose** — Settings → Popover, with a live miniature that settles with the same
+spring as you flip each switch. The order stays fixed (it encodes attention);
+you choose *what shows*, not what outranks what.
 
 ## The dashboard window
-Five tabs: **Overview** (status + all guard controls + counters),
-**Network** (dual-series latency chart, speed test, live traffic feed),
-**Usage** (plan limits + refresh, local cost estimate, per-model breakdown,
-7-day chart), **Tower** (every session in full detail, collisions, "while
-you were away" event history), **Settings** (menu-bar mode, thresholds, live
-plan toggle, country, reset).
+Five tabs: **Overview** (status + all guard controls + a **keep-awake card** +
+counters), **Network** (dual-series latency chart, speed test, live traffic
+feed), **Usage** (plan limits + refresh, local cost estimate, per-model
+breakdown, 7-day chart), **Tower** (every session in full detail, collisions,
+"while you were away" event history), **Settings** (menu-bar mode + needs-you
+badge, thresholds, **Popover composition with a live preview**, live plan
+toggle, country, reset).
 
 ## Notifications
 Fired on agent transitions: →failed / →blocked / →asking always; →done only
