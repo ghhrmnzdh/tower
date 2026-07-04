@@ -949,6 +949,18 @@ def _activity_for(rec, status):
     return _activity_phrase(rec.get("last_tool"))
 
 
+def _norm_effort(v):
+    """Claude Code `effortLevel` → the compact badge label the app renders.
+    None for anything unrecognised so the UI can simply omit the chip."""
+    s = str(v or "").strip().lower()
+    return {"low": "low", "minimal": "low",
+            "medium": "med", "med": "med", "normal": "med",
+            "high": "high",
+            "xhigh": "xhigh", "x-high": "xhigh", "extra-high": "xhigh",
+            "max": "ultra", "maximum": "ultra", "ultra": "ultra",
+            "highest": "ultra"}.get(s)
+
+
 def _git_branch_of(root):
     """Branch from .git/HEAD (worktree .git-file indirection handled)."""
     if not root:
@@ -1333,6 +1345,35 @@ class TranscriptIndex:
             s["api_error_msg"] = None
 
 
+class SettingsCache:
+    """mtime-cached reader for Claude `settings.json` files (user + per-project).
+    Resolves each session's effort level without re-parsing JSON every 2s cycle:
+    a path is only re-read when its mtime changes. Strictly read-only."""
+
+    def __init__(self):
+        self._cache = {}        # path -> (mtime, dict|None)
+
+    def get(self, path):
+        try:
+            mt = os.stat(path).st_mtime
+        except OSError:
+            self._cache.pop(path, None)
+            return None
+        hit = self._cache.get(path)
+        if hit and hit[0] == mt:
+            return hit[1]
+        data = None
+        try:
+            with open(path) as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                data = d
+        except Exception:  # noqa: BLE001
+            data = None
+        self._cache[path] = (mt, data)
+        return data
+
+
 class AgentMonitor:
     """Owns ProcScanner + TranscriptIndex and merges them: status engine,
     2-cycle transition debounce, needs-you queue, collisions, summary counters,
@@ -1355,6 +1396,7 @@ class AgentMonitor:
         self.working_warn_s = float(cfg.get("agent_working_warn_s",
                                             AGENT_WORKING_WARN_S))
         self._track = {}        # sid -> status/since/pending/gone_since/…
+        self._settings = SettingsCache()
         self._dismissed = set()
         self._events = deque(maxlen=50)
         self._done_today = 0
@@ -1618,6 +1660,7 @@ class AgentMonitor:
             "kind": kind,
             "model": model,
             "model_family": _model_family(model),
+            "effort": self._effort_of(cwd, git_root),
             "project_name": os.path.basename(cwd) if cwd else None,
             "cwd": cwd,
             "git_root": git_root,
@@ -1683,6 +1726,23 @@ class AgentMonitor:
                         "level": "file" if shared else "repo",
                         "files": shared})
         return out
+
+    def _effort_of(self, cwd, git_root):
+        """A session's reasoning effort, resolved from the settings cascade
+        rooted at its project: user < project < project-local (later wins),
+        mirroring Claude Code's own precedence. Returns the compact badge label
+        ("high", "xhigh", "ultra", …) or None. Read-only — never writes."""
+        val = None
+        d = self._settings.get(CLAUDE_SETTINGS)
+        if d and d.get("effortLevel"):
+            val = d.get("effortLevel")
+        base = git_root or cwd
+        if base:
+            for name in ("settings.json", "settings.local.json"):
+                d = self._settings.get(os.path.join(base, ".claude", name))
+                if d and d.get("effortLevel"):
+                    val = d.get("effortLevel")
+        return _norm_effort(val)
 
     def _git_root_of(self, cwd):
         if not cwd:
@@ -2001,6 +2061,49 @@ def find_claude():
     return None
 
 
+_RESET_MONTHS = {m: i for i, m in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
+
+
+def _parse_reset_at(s):
+    """Turn a /usage reset stamp — e.g. 'Jul 4 at 11:39pm (Asia/Tehran)' — into
+    an epoch so the front-ends can render a live *relative* time. The year is
+    omitted in the source, so we pick the nearest future one. Returns None if it
+    doesn't parse; callers then fall back to the (timezone-stripped) text."""
+    if not s:
+        return None
+    m = re.match(r"\s*([A-Za-z]{3})\s+(\d{1,2})\s+at\s+"
+                 r"(\d{1,2}):(\d{2})\s*([ap]m)\s*(?:\(([^)]+)\))?", s, re.I)
+    if not m:
+        return None
+    mon = _RESET_MONTHS.get(m.group(1).lower())
+    if not mon:
+        return None
+    day, hour, minute = int(m.group(2)), int(m.group(3)), int(m.group(4))
+    if m.group(5).lower() == "pm" and hour != 12:
+        hour += 12
+    elif m.group(5).lower() == "am" and hour == 12:
+        hour = 0
+    tz = None
+    if m.group(6) and ZoneInfo is not None:
+        try:
+            tz = ZoneInfo(m.group(6).strip())
+        except Exception:  # noqa: BLE001 — unknown tz → treat as local
+            tz = None
+    now = datetime.now(tz)
+    try:
+        dt = datetime(now.year, mon, day, hour, minute, tzinfo=tz)
+    except ValueError:
+        return None
+    if (dt - now).total_seconds() < -86400:   # already well past → next year
+        try:
+            dt = dt.replace(year=now.year + 1)
+        except ValueError:
+            return None
+    return dt.timestamp()
+
+
 def parse_usage(out):
     def pct(label):
         m = re.search(label + r"\s*(\d+)%\s*used(?:\s*·\s*resets\s*([^\n]+))?",
@@ -2014,9 +2117,9 @@ def parse_usage(out):
     if sp is None and wp is None:
         return {"ok": False, "error": "could not parse /usage output"}
     res = {"ok": True, "updated": time.time(),
-           "session": {"pct": sp, "resets": sr},
-           "week": {"pct": wp, "resets": wr},
-           "fable": {"pct": fp, "resets": fr}}
+           "session": {"pct": sp, "resets": sr, "resets_at": _parse_reset_at(sr)},
+           "week": {"pct": wp, "resets": wr, "resets_at": _parse_reset_at(wr)},
+           "fable": {"pct": fp, "resets": fr, "resets_at": _parse_reset_at(fr)}}
     m = re.search(r"Last 24h\s*·\s*(\d+)\s*requests\s*·\s*(\d+)\s*sessions", out)
     if m:
         res["last24h"] = {"requests": int(m.group(1)),
