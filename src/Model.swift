@@ -1,4 +1,4 @@
-// Corral — model layer: paths, state.json decodables, the polling model,
+// Tower — model layer: paths, state.json decodables, the polling model,
 // and small formatting helpers shared by every view.
 
 import AppKit
@@ -6,17 +6,17 @@ import SwiftUI
 import Combine
 
 // --------------------------------------------------------------------------- //
-// Paths (mirror corrald.py)
+// Paths (mirror towerd.py)
 // --------------------------------------------------------------------------- //
 enum Paths {
     static let home = FileManager.default.homeDirectoryForCurrentUser
-    static let dir = home.appendingPathComponent(".corral")
+    static let dir = home.appendingPathComponent(".tower")
     static let state = dir.appendingPathComponent("state.json")
     static let cmd = dir.appendingPathComponent("cmd")
 }
 
 // --------------------------------------------------------------------------- //
-// Decodable model — matches build_state() in corrald.py
+// Decodable model — matches build_state() in towerd.py
 // --------------------------------------------------------------------------- //
 struct GLocation: Decodable {
     var status: String?
@@ -171,7 +171,7 @@ struct GCollision: Decodable, Identifiable {
     var level: String?; var files: [String]?
     var id: String { git_root ?? "?" }
 }
-struct GHerd: Decodable {
+struct GAgentSummary: Decodable {
     var working: Int?; var needs_you: Int?; var done_today: Int?; var top_tier: String?
 }
 struct GAgentEvent: Decodable {
@@ -184,7 +184,7 @@ struct GAgents: Decodable {
     var sessions: [GAgentSession]?
     var needs_you: [GNeedsYou]?
     var collisions: [GCollision]?
-    var herd: GHerd?
+    var summary: GAgentSummary?
     var events: [GAgentEvent]?
     var meta: GAgentsMeta?
 }
@@ -283,7 +283,7 @@ struct DangerRequest: Identifiable {
 // --------------------------------------------------------------------------- //
 // Model: polls state.json, exposes it, sends commands
 // --------------------------------------------------------------------------- //
-final class CorralModel: ObservableObject {
+final class TowerModel: ObservableObject {
     @Published var state: GState?
     @Published var alive = false          // daemon producing fresh state?
 
@@ -372,7 +372,7 @@ final class CorralModel: ObservableObject {
     @Published var danger2: DangerRequest?   // final "are you sure" confirmation
 
     /// Agents actively working right now — an unguarded switch-off hits them.
-    var agentsWorking: Int { herd.count }
+    var agentsWorking: Int { workingAgents.count }
 
     func requestDanger(_ title: String, _ message: String,
                        confirm: String, perform: @escaping () -> Void) {
@@ -387,6 +387,22 @@ final class CorralModel: ObservableObject {
     // ---- Derived agent views (shared by popover, dashboard, icon, notifier) ---- //
 
     var netStatus: NetStatus { NetStatus(raw: state?.net?.status) }
+
+    /// The guard, distilled to a radar look for the menu bar and header.
+    var radarState: RadarState {
+        switch status {
+        case .unrouted: return .off
+        case .blocking: return .holdGeo
+        case .unstable: return .holdNet
+        case .locating, .starting: return .verify
+        case .protected, .monitor:
+            // A live net fault still reads as a held connection.
+            switch netStatus {
+            case .offline, .captive, .apiIssue: return .holdNet
+            default: return .clear
+            }
+        }
+    }
 
     /// Sessions worth showing (daemon already excludes "infra").
     var agentSessions: [GAgentSession] { state?.agents?.sessions ?? [] }
@@ -405,11 +421,11 @@ final class CorralModel: ObservableObject {
             }
     }
 
-    /// The herd: agents at work right now (working / pending grace).
-    var herd: [GAgentSession] {
+    /// Agents at work right now (working / pending grace).
+    var workingAgents: [GAgentSession] {
         agentSessions
             .filter { AgentStatus(raw: $0.status) == .working }
-            .sorted { HorseTier(family: $0.model_family) > HorseTier(family: $1.model_family) }
+            .sorted { ModelTier(family: $0.model_family) > ModelTier(family: $1.model_family) }
     }
 
     /// Resting: idle sessions, collapsed by default.
@@ -422,18 +438,18 @@ final class CorralModel: ObservableObject {
 
     var collisions: [GCollision] { state?.agents?.collisions ?? [] }
 
-    /// Highest-tier model among agents at work — the menu bar horse.
-    var topTierWorking: HorseTier? {
+    /// Highest-tier model among agents at work — the menu bar mark.
+    var topTierWorking: ModelTier? {
         let working = agentSessions.filter {
             let st = AgentStatus(raw: $0.status)
             return st == .working || st == .pendingTool
         }
-        return working.map { HorseTier(family: $0.model_family) }.max()
+        return working.map { ModelTier(family: $0.model_family) }.max()
     }
 
     var needsYouCount: Int { needsYou.count }
     var anyFailed: Bool { needsYou.contains { AgentStatus(raw: $0.status) == .failed } }
-    /// True while at least one agent has a tool call in flight (menubar canter).
+    /// True while at least one agent has a tool call in flight (menu-bar breath).
     var anyTooling: Bool {
         agentSessions.contains {
             AgentStatus(raw: $0.status) == .working && $0.pending_tool != nil

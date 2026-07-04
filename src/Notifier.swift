@@ -1,4 +1,4 @@
-// Corral — notifications. The daemon publishes agent state transitions in
+// Tower — notifications. The daemon publishes agent state transitions in
 // agents.events; the app turns the ones that matter into macOS notifications:
 //   → failed / → pending_tool / → asking: always (that's the product).
 //   → done: only if the popover hasn't been opened in the last 60s — never
@@ -10,14 +10,14 @@ import AppKit
 import UserNotifications
 
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
-    private weak var model: CorralModel?
+    private weak var model: TowerModel?
     private var lastSeenEvent: Double = Date().timeIntervalSince1970
     private var authState: UNAuthorizationStatus = .notDetermined
     private var requested = false
     /// Set by AppDelegate whenever the popover opens.
     var lastPopoverOpen: Date = .distantPast
 
-    init(model: CorralModel) {
+    init(model: TowerModel) {
         self.model = model
         super.init()
         let center = UNUserNotificationCenter.current()
@@ -68,12 +68,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 content.title = "\(project) asked you a question"
                 content.body = session?.title ?? "It's blocked on your answer."
             default:
-                content.title = "🐎 \(project) finished its turn"
+                content.title = "\(project) finished its turn"
                 content.body = session?.title ?? "The result is ready."
             }
             content.userInfo = ["session_id": event.session_id ?? ""]
             let req = UNNotificationRequest(
-                identifier: "corral-\(event.session_id ?? UUID().uuidString)-\(status.rawValue)",
+                identifier: "tower-\(event.session_id ?? UUID().uuidString)-\(status.rawValue)",
                 content: content, trigger: nil)
             UNUserNotificationCenter.current().add(req)
         }

@@ -1,18 +1,18 @@
-// Corral — the dashboard window: everything that doesn't belong in a glance.
+// Tower — the dashboard window: everything that doesn't belong in a glance.
 // Five tabs: Overview (guard + controls), Network (weather), Usage (feed
-// bill), Corral (the herd, full detail), Settings.
+// bill), Agents (every session, full detail), Settings.
 
 import AppKit
 import SwiftUI
 import Charts
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case overview, network, usage, corral, settings
+    case overview, network, usage, agents, settings
     var id: String { rawValue }
     var title: String {
         switch self {
         case .overview: return "Overview"; case .network: return "Network"
-        case .usage: return "Usage"; case .corral: return "Corral"
+        case .usage: return "Usage"; case .agents: return "Agents"
         case .settings: return "Settings"
         }
     }
@@ -21,7 +21,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .overview: return "shield.lefthalf.filled"
         case .network:  return "wifi"
         case .usage:    return "chart.bar.xaxis"
-        case .corral:   return "figure.equestrian.sports"
+        case .agents:   return "dot.radiowaves.left.and.right"
         case .settings: return "gearshape"
         }
     }
@@ -29,10 +29,10 @@ enum DashboardTab: String, CaseIterable, Identifiable {
 
 final class DashboardWindowController {
     private var window: NSWindow?
-    private let model: CorralModel
+    private let model: TowerModel
     private let selected = SelectedTab()
 
-    init(model: CorralModel) { self.model = model }
+    init(model: TowerModel) { self.model = model }
 
     func open(tab: DashboardTab) {
         selected.tab = tab
@@ -41,7 +41,7 @@ final class DashboardWindowController {
                 contentRect: NSRect(x: 0, y: 0, width: 700, height: 470),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered, defer: false)
-            w.title = "Corral"
+            w.title = "Tower"
             w.isReleasedWhenClosed = false
             w.minSize = NSSize(width: 640, height: 420)
             w.center()
@@ -59,7 +59,7 @@ final class SelectedTab: ObservableObject {
 }
 
 struct DashboardView: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     @ObservedObject var selected: SelectedTab
 
     var body: some View {
@@ -77,7 +77,7 @@ struct DashboardView: View {
                     case .overview: OverviewTab(model: model)
                     case .network:  NetworkTab(model: model)
                     case .usage:    UsageTab(model: model)
-                    case .corral:   CorralTab(model: model)
+                    case .agents:   AgentsTab(model: model)
                     case .settings: SettingsTab(model: model)
                     }
                 }
@@ -95,7 +95,7 @@ struct DashboardView: View {
 // Overview
 // --------------------------------------------------------------------------- //
 struct OverviewTab: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     var body: some View {
         let st = model.status
         let loc = model.state?.location
@@ -153,7 +153,7 @@ struct OverviewTab: View {
 
 // Full controls — everything that left the popover lives here.
 struct ControlsPane: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     var body: some View {
         let g = model.state?.guardInfo
         let routed = model.state?.routing?.installed ?? false
@@ -216,7 +216,7 @@ struct ControlsPane: View {
 // Network — the weather station.
 // --------------------------------------------------------------------------- //
 struct NetworkTab: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     var body: some View {
         let net = model.state?.net
         VStack(alignment: .leading, spacing: 14) {
@@ -317,7 +317,7 @@ struct NetworkTab: View {
 // Usage — plan meters + local cost estimate.
 // --------------------------------------------------------------------------- //
 struct UsageTab: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     var body: some View {
         let u = model.state?.usage
         let plan = model.state?.plan
@@ -379,11 +379,11 @@ struct UsageTab: View {
                         Divider()
                         ForEach(bm) { m in
                             HStack(spacing: 7) {
-                                Circle().fill(HorseTier(modelID: m.model).accent)
+                                Circle().fill(ModelTier(modelID: m.model).accent)
                                     .frame(width: 6, height: 6)
                                 Text(modelDisplay(m.model)).font(.system(size: 11, weight: .medium))
                                 Meter(fraction: m.pct / 100.0,
-                                      color: HorseTier(modelID: m.model).accent)
+                                      color: ModelTier(modelID: m.model).accent)
                                     .frame(width: 120, height: 4)
                                 Spacer()
                                 Text(fmtCost(m.cost)).font(.system(size: 11, weight: .semibold))
@@ -441,25 +441,25 @@ struct UsageTab: View {
 }
 
 // --------------------------------------------------------------------------- //
-// Corral — the herd in full: every session, collisions, what happened.
+// Agents — every session in full: collisions, live status, what happened.
 // --------------------------------------------------------------------------- //
-struct CorralTab: View {
-    @ObservedObject var model: CorralModel
+struct AgentsTab: View {
+    @ObservedObject var model: TowerModel
     var body: some View {
         let sessions = model.agentSessions
         let events = Array((model.state?.agents?.events ?? []).suffix(20).reversed())
         VStack(alignment: .leading, spacing: 14) {
             if model.state?.agents == nil {
-                EmptyCorral(anyResting: false)
+                EmptyState(anyResting: false)
             } else {
                 ForEach(model.collisions) { c in CollisionBanner(collision: c) }
 
-                GroupBox("The herd — \(sessions.count) session\(sessions.count == 1 ? "" : "s")") {
+                GroupBox("Agents — \(sessions.count) session\(sessions.count == 1 ? "" : "s")") {
                     if sessions.isEmpty {
-                        EmptyCorral(anyResting: false)
+                        EmptyState(anyResting: false)
                     } else {
                         VStack(spacing: 2) {
-                            ForEach(sessions) { s in CorralTableRow(model: model, session: s) }
+                            ForEach(sessions) { s in AgentTableRow(model: model, session: s) }
                         }
                         .padding(4)
                     }
@@ -500,14 +500,14 @@ struct CorralTab: View {
     }
 }
 
-struct CorralTableRow: View {
-    @ObservedObject var model: CorralModel
+struct AgentTableRow: View {
+    @ObservedObject var model: TowerModel
     let session: GAgentSession
     var body: some View {
         let st = AgentStatus(raw: session.status)
-        let tier = HorseTier(family: session.model_family)
+        let tier = ModelTier(family: session.model_family)
         HStack(spacing: 10) {
-            HorseAvatar(tier: tier, pt: 22)
+            ModelGlyphView(tier: tier, size: 22)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(session.project_name ?? "agent")
@@ -554,7 +554,7 @@ struct CorralTableRow: View {
 // Settings
 // --------------------------------------------------------------------------- //
 struct SettingsTab: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     @AppStorage("menubarMode") var mode = "session"
     @AppStorage("warnAt") var warn = 60
     @AppStorage("dangerAt") var danger = 85
@@ -612,7 +612,7 @@ struct SettingsTab: View {
                         Spacer()
                         Button("Reset to defaults…") {
                             let a = NSAlert()
-                            a.messageText = "Reset Corral to defaults?"
+                            a.messageText = "Reset Tower to defaults?"
                             a.informativeText = "Removes routing from settings.json and disables keep-awake."
                             a.addButton(withTitle: "Reset")
                             a.addButton(withTitle: "Cancel")
@@ -625,7 +625,7 @@ struct SettingsTab: View {
             }
             HStack(spacing: 6) {
                 Image(systemName: "gearshape.2").font(.system(size: 9)).foregroundStyle(.tertiary)
-                Text("Corral \(model.state?.version ?? "—") · guard PID \(model.state?.procs?.daemon_pid.map(String.init) ?? "—")")
+                Text("Tower \(model.state?.version ?? "—") · guard PID \(model.state?.procs?.daemon_pid.map(String.init) ?? "—")")
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
             }
         }

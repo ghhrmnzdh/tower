@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Corral</string>
+	<string>Tower</string>
 	<key>CFBundleDisplayName</key>
-	<string>Corral</string>
+	<string>Tower</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.corral.app</string>
+	<string>com.tower.app</string>
 	<key>CFBundleVersion</key>
 	<string>3.0</string>
 	<key>CFBundleShortVersionString</key>
@@ -15,7 +15,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleExecutable</key>
-	<string>corral</string>
+	<string>tower</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>

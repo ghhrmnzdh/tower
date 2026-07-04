@@ -1,29 +1,27 @@
-// Corral — design system tokens.
+// Tower — design system tokens.
 //
-// Philosophy: "Fine tack, calm hands." A well-run stable is quiet. Motion is
-// information: the herd works in a calm rhythm, and exactly one thing at a
-// time is allowed to call for the rancher.
-//   1. Craft = caliber — the finer the model, the finer the art.
+// Philosophy: "Quiet tower, clear signal." A well-run tower is calm. Motion is
+// information: agents work in a steady rhythm, and exactly one thing at a
+// time is allowed to call for you.
+//   1. The mark is alive only when its model is thinking; still otherwise.
 //   2. Motion = state change — celebration is earned (done), never granted
 //      (failure is sober). Nothing loops at full attention when all is well.
 //   3. One loudest thing — a strict attention hierarchy.
 
 import SwiftUI
 
-enum CorralDesign {
+enum TowerDesign {
     enum Motion {
         /// Any state swap (colors, symbols, toggles).
         static let settle  = Animation.spring(response: 0.45, dampingFraction: 0.85)
-        /// Entrances — rows and horses arriving (slight overshoot).
+        /// Entrances — rows and glyphs arriving (slight overshoot).
         static let arrive  = Animation.spring(response: 0.55, dampingFraction: 0.72)
         /// The done payoff — checkmark pop.
         static let payoff  = Animation.spring(response: 0.35, dampingFraction: 0.60)
         /// Failure — never bounces.
         static let sober   = Animation.easeOut(duration: 0.25)
-        /// Needs-you queue re-ranking / herd reordering.
+        /// Needs-you queue re-ranking / agent list reordering.
         static let reorder = Animation.spring(response: 0.50, dampingFraction: 0.80)
-        /// The working horse breathes.
-        static let breathe = Animation.easeInOut(duration: 2.4).repeatForever(autoreverses: true)
         /// Seconds per shimmer sweep on an in-flight activity line.
         static let shimmerPeriod: Double = 1.8
         /// Stagger per row on multi-row inserts.
@@ -35,7 +33,7 @@ enum CorralDesign {
     enum Size {
         static let popoverWidth: CGFloat = 360
         static let menubarPt: CGFloat = 18
-        static let rowHorse: CGFloat = 28
+        static let rowGlyph: CGFloat = 28
         static let radiusCard: CGFloat = 10
         static let radiusBadge: CGFloat = 6
         static let padH: CGFloat = 14
@@ -63,7 +61,7 @@ struct MotionAware: ViewModifier {
 
 extension Animation {
     /// The token, unless Reduce Motion is on — then a quiet fade.
-    static func corral(_ token: Animation, reduced: Bool) -> Animation {
+    static func tower(_ token: Animation, reduced: Bool) -> Animation {
         reduced ? .easeInOut(duration: 0.2) : token
     }
 }
@@ -84,7 +82,7 @@ enum AgentStatus: String {
         case .pendingTool:  return "hand.raised.fill"
         case .asking:       return "questionmark.bubble.fill"
         case .done, .waitingInput: return "checkmark.circle"
-        case .working:      return "figure.equestrian.sports"
+        case .working:      return "gearshape"
         case .idle, .gone:  return "zzz"
         }
     }
@@ -121,11 +119,11 @@ enum AgentStatus: String {
     }
 }
 
-// Model tier — craft scales with caliber. Order matters (highest first).
-enum HorseTier: String, CaseIterable, Comparable {
+// Model tier — each model has its own living mark. Order matters (highest first).
+enum ModelTier: String, CaseIterable, Comparable {
     case fable, opus, sonnet, haiku, other
 
-    init(family: String?) { self = HorseTier(rawValue: family ?? "") ?? .other }
+    init(family: String?) { self = ModelTier(rawValue: family ?? "") ?? .other }
     init(modelID: String?) {
         let s = (modelID ?? "").lowercased()
         if s.contains("fable") { self = .fable }
@@ -141,16 +139,16 @@ enum HorseTier: String, CaseIterable, Comparable {
         case .sonnet: return 2; case .haiku: return 1; case .other: return 0
         }
     }
-    static func < (a: HorseTier, b: HorseTier) -> Bool { a.rank < b.rank }
+    static func < (a: ModelTier, b: ModelTier) -> Bool { a.rank < b.rank }
 
     var display: String {
         switch self {
         case .fable: return "Fable"; case .opus: return "Opus"
         case .sonnet: return "Sonnet"; case .haiku: return "Haiku"
-        case .other: return "Mustang"
+        case .other: return "Other"
         }
     }
-    /// Tier accent — used in the popover only, never as the sole signal.
+    /// Tier accent — colors the model's mark; never the sole signal.
     var accent: Color {
         switch self {
         case .fable:  return Color(red: 0.788, green: 0.635, blue: 0.153) // #C9A227 gold
