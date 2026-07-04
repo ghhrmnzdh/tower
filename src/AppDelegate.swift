@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         registerBundledFonts()                  // JetBrains Mono, before any UI
+        UserDefaults.standard.register(defaults: PopPref.defaults)
         NSApp.setActivationPolicy(.accessory)   // menubar agent, no dock icon
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -51,6 +52,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// freezes everything). This keeps the menu bar smooth but battery-quiet.
     private var radarShouldAnimate: Bool {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
+        // The lid-closed vigil breathes; idle is a still lit lamp (no clock).
+        if model.awakeGlow == .clamshell { return true }
         switch model.radarState {
         case .verify, .holdNet, .holdGeo: return true
         case .clear: return model.agentsWorking > 0
@@ -105,7 +108,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // usage % if that preference is on.
         var parts: [(String, NSColor)] = []
         let needs = model.needsYouCount
-        if needs > 0 {
+        // The ONLY number the bar may show is the needs-you attention count
+        // (never a running/working count), and even that is user-toggleable.
+        if needs > 0, UserDefaults.standard.bool(forKey: PopPref.needsBadge) {
             parts.append((" \(needs)", model.anyFailed ? .systemRed : .systemOrange))
         }
         let mode = UserDefaults.standard.string(forKey: "menubarMode") ?? "session"
