@@ -421,37 +421,36 @@ struct CheckShape: Shape {
     }
 }
 
-// The model + effort chip: a single tier-tinted capsule carrying the model name
-// and — when known — the reasoning effort in its own compartment. This is where
-// the model's identity color lives, so the project name beside it can stay one
-// neutral color. Two-tone, hairline-bordered: reads as a crafted token, not a
-// label. Effort compartment omitted when effort is unknown.
+// The model + effort chip: a single neutral capsule carrying the model name and
+// — when known — the reasoning effort in its own compartment. Deliberately
+// colorless (the model's color lives in its living mark, not here) and set in
+// JetBrains Mono so the version and effort read as precise, technical tokens.
+// Two-tone by opacity, hairline-bordered. Effort compartment omitted when unknown.
 struct ModelBadge: View {
     let session: GAgentSession
     var body: some View {
-        let accent = session.tier.accent
         HStack(spacing: 0) {
             Text(session.modelDisplay)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(TowerDesign.Font.mono(9.5))
                 .padding(.leading, 6)
                 .padding(.trailing, session.effortLabel == nil ? 6 : 5)
                 .padding(.vertical, 2)
             if let e = session.effortLabel {
                 Text(e)
-                    .font(.system(size: 8.5, weight: .heavy))
+                    .font(TowerDesign.Font.mono(8.5, bold: true))
                     .tracking(0.4)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(accent.opacity(0.16))
+                    .background(Color.primary.opacity(0.07))
                     .overlay(Rectangle().frame(width: 0.6)   // compartment divider
-                        .foregroundStyle(accent.opacity(0.28)), alignment: .leading)
+                        .foregroundStyle(Color.primary.opacity(0.14)), alignment: .leading)
             }
         }
-        .foregroundStyle(accent)
-        .background(accent.opacity(0.10))
+        .foregroundStyle(.secondary)
+        .background(Color.primary.opacity(0.05))
         .clipShape(Capsule(style: .continuous))
         .overlay(Capsule(style: .continuous)
-            .strokeBorder(accent.opacity(0.22), lineWidth: 0.6))
+            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.6))
         .fixedSize()
         .help("\(session.modelDisplay)"
               + (session.effortLabel.map { " · \($0.lowercased()) effort" } ?? ""))
@@ -510,7 +509,7 @@ struct AgentRow: View {
         .padding(.vertical, TowerDesign.Size.rowVPad)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(tier.accent.opacity(hovering ? 0.07 : 0))
+                .fill(Color.primary.opacity(hovering ? 0.05 : 0))
                 .padding(.horizontal, 6)
         )
         .contentShape(Rectangle())
@@ -702,7 +701,7 @@ struct PlanSection: View {
                         .font(.system(size: 13, weight: .bold))
                         .monospacedDigit().foregroundStyle(levelColor(pct))
                         .contentTransition(.numericText())
-                    if let r = b.resets, !r.isEmpty {
+                    if let r = b.resetDisplay {
                         Text("resets \(r)").font(TowerDesign.Font.caption)
                             .foregroundStyle(.tertiary)
                     }
