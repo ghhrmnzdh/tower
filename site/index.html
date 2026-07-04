@@ -1,0 +1,983 @@
+<!-- Tower — showcase site. Static, self-contained (one external dep: Google Fonts).
+     Deploy: GitHub Pages → this folder, or copy index.html to the repo root.
+     The radar + model marks are ported 1:1 from src/Glyph.swift / the Identity Study.
+     Aesthetic: premium Apple glass — black & white, with green (protected/done),
+     blue (interactive) and amber/red reserved strictly for real hold/danger states. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tower — a control tower for your Claude agents</title>
+<meta name="description" content="Tower brings every running Claude Code agent into one glassy view — model, effort, status, momentum — pins Claude to a country, and tells you the truth about your connection. A menubar app and a terminal dashboard over one daemon.">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='33' fill='none' stroke='%23f5f5f7' stroke-width='7'/%3E%3Ccircle cx='50' cy='50' r='5' fill='%23f5f5f7'/%3E%3Ccircle cx='66' cy='40' r='5' fill='%2330d158'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================== tokens ============================== */
+:root{
+  --bg:#000;
+  --ink:#0b0b0d;
+  --white:#f5f5f7;
+  --txt:#e9e9ee;
+  --txt2:#9b9ba3;
+  --txt3:#6a6a72;
+  --line:rgba(255,255,255,.10);
+  --line2:rgba(255,255,255,.06);
+  --glass-a:rgba(255,255,255,.055);
+  --glass-b:rgba(255,255,255,.022);
+  --green:#30d158;   /* protected · done · good */
+  --blue:#0a84ff;    /* interactive · toggle */
+  --amber:#E6A93C;   /* hold — reserved */
+  --red:#ff453a;     /* danger — reserved */
+  --purple:#bf7bff;  /* asking */
+  --gold:#C9A227; --rosso:#c76b72; --steel:#6f9ad6; --crayon:#eda45f;
+  --sans:-apple-system,BlinkMacSystemFont,"Inter","SF Pro Display",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ease:cubic-bezier(.22,.68,.16,1);
+  --maxw:1140px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%; overflow-x:hidden; scroll-behavior:smooth}
+body{margin:0; background:var(--bg); color:var(--txt); font-family:var(--sans);
+  font-size:17px; line-height:1.6; font-weight:400; letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; overflow-x:hidden}
+h1,h2,h3,h4,p,.lede{overflow-wrap:break-word}
+h1,h2,h3{font-weight:600; letter-spacing:-.035em; margin:0; line-height:1.04}
+a{color:inherit; text-decoration:none}
+img,svg{display:block; max-width:100%}
+::selection{background:rgba(255,255,255,.22)}
+
+/* ambient — pure black with faint neutral light so glass has something to blur */
+.sky{position:fixed; inset:0; z-index:-2; pointer-events:none; background:
+  radial-gradient(90% 55% at 50% -12%, rgba(255,255,255,.09), transparent 60%),
+  radial-gradient(55% 45% at 88% 12%, rgba(120,150,200,.06), transparent 62%),
+  radial-gradient(50% 45% at 6% 78%, rgba(255,255,255,.04), transparent 60%),
+  #000;}
+.sky::after{content:""; position:absolute; inset:0; opacity:.35; background-image:
+  radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1px, transparent 0);
+  background-size:44px 44px;
+  -webkit-mask-image:radial-gradient(100% 80% at 50% 0%, #000 20%, transparent 72%);
+          mask-image:radial-gradient(100% 80% at 50% 0%, #000 20%, transparent 72%);}
+
+/* ============================== glass primitive ============================== */
+.glass{background:linear-gradient(180deg,var(--glass-a),var(--glass-b));
+  backdrop-filter:blur(22px) saturate(1.5); -webkit-backdrop-filter:blur(22px) saturate(1.5);
+  border:1px solid var(--line);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07), 0 24px 60px -34px rgba(0,0,0,.95)}
+
+/* ============================== type utils ============================== */
+.mono{font-family:var(--mono)}
+.kick{font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--txt3)}
+.lede{font-size:19px; line-height:1.58; color:var(--txt2); max-width:60ch; font-weight:400}
+.grn{color:var(--green)} .amb{color:var(--amber)} .rd{color:var(--red)} .dim{color:var(--txt2)}
+
+/* ============================== layout ============================== */
+.band{max-width:var(--maxw); margin:0 auto; padding:118px 26px; position:relative}
+.band--tight{padding:82px 26px}
+.rule{height:1px; background:var(--line2); max-width:var(--maxw); margin:0 auto}
+.section-head{max-width:66ch}
+.section-head h2{font-size:clamp(32px,5vw,54px); margin:14px 0 0}
+.section-head .lede{margin-top:20px}
+
+/* ============================== nav ============================== */
+.nav{position:fixed; top:0; left:0; right:0; z-index:60; display:flex; align-items:center; gap:18px;
+  padding:12px clamp(16px,4vw,32px); transition:background .4s,border-color .4s;
+  border-bottom:1px solid transparent; transform:translateY(-100%);
+  animation:navDrop .8s .15s var(--ease) forwards}
+@keyframes navDrop{to{transform:none}}
+.nav.stuck{background:rgba(10,10,12,.6); backdrop-filter:blur(18px) saturate(1.4);
+  -webkit-backdrop-filter:blur(18px) saturate(1.4); border-bottom-color:var(--line2)}
+.nav .brand{display:flex; align-items:center; gap:10px; font-weight:600; font-size:16px; letter-spacing:-.02em}
+.nav .brand svg{width:26px; height:26px}
+.nav .links{display:flex; gap:24px; margin-left:auto; font-size:13.5px; color:var(--txt2); font-weight:500}
+.nav .links a{transition:color .25s} .nav .links a:hover{color:var(--white)}
+.nav .cta{margin-left:22px}
+@media(max-width:860px){.nav .links{display:none} .nav .cta{margin-left:auto}}
+
+/* ============================== buttons ============================== */
+.btn{display:inline-flex; align-items:center; gap:9px; font-family:var(--sans); font-size:14px;
+  font-weight:600; letter-spacing:-.01em; padding:12px 20px; border-radius:13px; cursor:pointer;
+  border:1px solid var(--line); color:var(--white); background:var(--glass-a);
+  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  transition:transform .3s var(--ease),border-color .3s,background .3s,box-shadow .3s; will-change:transform}
+.btn:hover{transform:translateY(-2px); border-color:rgba(255,255,255,.24)}
+.btn svg{width:15px;height:15px}
+.btn--primary{background:var(--white); color:#0a0a0b; border-color:transparent;
+  box-shadow:0 8px 30px -10px rgba(255,255,255,.4)}
+.btn--primary:hover{box-shadow:0 14px 40px -10px rgba(255,255,255,.55)}
+.btn--sm{padding:9px 15px; font-size:13px; border-radius:10px}
+.btn-row{display:flex; flex-wrap:wrap; gap:13px; align-items:center}
+
+/* ============================== hero ============================== */
+.hero{padding-top:150px}
+.hero-grid{display:grid; grid-template-columns:1.02fr .98fr; gap:52px; align-items:center}
+.hero-grid>*{min-width:0}
+.hero h1{font-size:clamp(38px,6.2vw,70px); letter-spacing:-.045em; margin:20px 0 0; font-weight:700}
+.hero h1 .l2{display:block; font-weight:300; color:var(--txt2)}
+.hero .lede{margin-top:24px} .hero .btn-row{margin-top:32px}
+.hero-meta{margin-top:28px; display:flex; gap:24px; flex-wrap:wrap; font-family:var(--mono);
+  font-size:12px; color:var(--txt3)}
+.hero-meta b{color:var(--txt); font-weight:600}
+
+/* the radar console */
+.console{position:relative; border-radius:26px; padding:26px}
+.console-top{display:flex; justify-content:space-between; align-items:center; font-family:var(--mono);
+  font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--txt3); margin-bottom:6px}
+.console-top .live{display:flex; align-items:center; gap:7px; color:var(--txt2)}
+.console-top .live i{width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 0 0 rgba(48,209,88,.6); animation:blip 2.4s infinite}
+@keyframes blip{0%{box-shadow:0 0 0 0 rgba(48,209,88,.5)}70%{box-shadow:0 0 0 8px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+.radar-stage{position:relative; width:100%; max-width:330px; aspect-ratio:1/1; margin:4px auto;
+  display:grid; place-items:center}
+.radar-stage .gridrings{position:absolute; inset:6%; opacity:.5}
+.radar-stage .big{position:relative; width:74%; aspect-ratio:1/1; color:var(--white); z-index:2;
+  filter:drop-shadow(0 0 24px rgba(255,255,255,.06))}
+.radar-caption{min-height:66px; margin-top:4px; text-align:center}
+.radar-caption .st{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.18em;
+  text-transform:uppercase}
+.radar-caption .tx{font-size:14.5px; color:var(--txt2); line-height:1.5; margin-top:6px;
+  max-width:42ch; margin-inline:auto}
+.chips{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:14px}
+.chip{cursor:pointer; border:1px solid var(--line2); border-radius:14px; padding:11px 3px 8px;
+  display:flex; flex-direction:column; align-items:center; gap:6px; background:rgba(255,255,255,.015);
+  transition:border-color .3s,background .3s,transform .3s var(--ease)}
+.chip:hover{transform:translateY(-2px); border-color:var(--line)}
+.chip.on{border-color:rgba(255,255,255,.5); background:rgba(255,255,255,.06)}
+.chip .cg{width:36px; height:36px; color:var(--txt2)}
+.chip.on .cg{color:var(--white)}
+.chip .cl{font-family:var(--mono); font-size:8px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--txt3); text-align:center; line-height:1.3; white-space:pre-line}
+.chip.on .cl{color:var(--white)}
+
+/* ============================== problem ============================== */
+.prob-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-top:52px}
+.prob{border-radius:20px; padding:32px 30px; transition:transform .4s var(--ease),border-color .4s}
+.prob:hover{transform:translateY(-3px); border-color:var(--line)}
+.prob .n{font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--txt3); display:flex; align-items:center; gap:9px}
+.prob .n .dot{width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 10px rgba(255,69,58,.6)}
+.prob h3{font-size:22px; margin:14px 0 10px; font-weight:600}
+.prob p{font-size:15px; color:var(--txt2); line-height:1.6; margin:0}
+.prob p .k{font-family:var(--mono); font-size:.85em; color:var(--txt); background:rgba(255,255,255,.07);
+  padding:1px 6px; border-radius:5px}
+
+/* ============================== jobs ============================== */
+.jobs{display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-top:52px}
+.jobs>*{min-width:0}
+.job{border-radius:22px; padding:30px 28px; display:flex; flex-direction:column;
+  transition:transform .4s var(--ease),border-color .4s}
+.job:hover{transform:translateY(-3px); border-color:var(--line)}
+.job .call{font-family:var(--mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--txt3)}
+.job h3{font-size:25px; margin:14px 0 8px; font-weight:600}
+.job p{font-size:14.5px; color:var(--txt2); line-height:1.6; margin:0}
+.job .demo{margin-top:auto; padding-top:22px}
+/* mini demos */
+.qz{font-family:var(--mono); font-size:12px; display:flex; flex-direction:column; gap:8px}
+.qz .q{display:flex; align-items:center; gap:10px; color:var(--txt)}
+.qz .q .m{width:14px; text-align:center; font-weight:700}
+.q.f .m{color:var(--red)} .q.b .m{color:var(--amber)} .q.a .m{color:var(--purple)} .q.d .m{color:var(--green)}
+.spark{display:flex; align-items:flex-end; gap:5px; height:52px}
+.spark span{width:10px; border-radius:3px; background:linear-gradient(180deg,var(--white),rgba(255,255,255,.18));
+  animation:sparkP 3.2s var(--ease) infinite}
+@keyframes sparkP{0%,100%{opacity:.5}50%{opacity:1}}
+.fencez{display:flex; flex-direction:column; gap:10px; font-family:var(--mono); font-size:12px}
+.fencez .fr{display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:11px;
+  border:1px solid var(--line2)}
+.fencez .fr .fdot{width:7px;height:7px;border-radius:50%}
+.fencez .fr.ok{background:rgba(48,209,88,.06)} .fencez .fr.ok .fdot{background:var(--green)}
+.fencez .fr.hold .fdot{background:var(--amber)} .fencez .fr.hold{background:rgba(230,169,60,.05)}
+.fencez .fr .tag{margin-left:auto; color:var(--txt3)}
+.mz{display:flex; flex-direction:column; gap:14px}
+.mz .m{display:flex; align-items:center; gap:12px; font-family:var(--mono); font-size:12px}
+.mz .m .l{width:56px; color:var(--txt3)}
+.mz .m .v{width:34px; text-align:right; color:var(--txt)}
+.mz .track{flex:1; height:7px; border-radius:5px; background:rgba(255,255,255,.08); overflow:hidden}
+.mz .fill{height:100%; border-radius:5px; background:linear-gradient(90deg,rgba(255,255,255,.5),var(--white));
+  transform-origin:left; transform:scaleX(0); transition:transform 1.3s var(--ease)}
+.reveal.in .mz .fill{transform:scaleX(var(--p))}
+
+/* ============================== showpiece frame ============================== */
+.showpiece{display:grid; grid-template-columns:.92fr 1.08fr; gap:52px; align-items:center; margin-top:44px}
+.showpiece.rev{grid-template-columns:1.08fr .92fr}
+.showpiece>*{min-width:0}
+.showpiece .copy h3{font-size:clamp(26px,3.3vw,38px); font-weight:600}
+.showpiece .copy .lede{margin-top:16px; font-size:16.5px}
+.feat-list{margin-top:24px; display:flex; flex-direction:column; gap:15px}
+.feat{display:flex; gap:13px; align-items:flex-start}
+.feat .fi{flex:none; width:26px; height:26px; border-radius:8px; display:grid; place-items:center;
+  border:1px solid var(--line); color:var(--white); font-size:13px; margin-top:1px}
+.feat b{font-weight:600; color:var(--white); font-size:15px}
+.feat span{color:var(--txt2); font-size:14px; display:block; margin-top:2px}
+
+/* ---------- menu bar + popover (matches the real app) ---------- */
+.stage{display:grid; justify-items:center; padding:30px 24px;
+  background:radial-gradient(110% 80% at 50% 0%, rgba(255,255,255,.05), transparent 62%);
+  border:1px solid var(--line2); border-radius:24px}
+.menubar{width:100%; max-width:360px; display:flex; align-items:center; gap:16px; justify-content:flex-end;
+  padding:6px 14px; border-radius:11px; margin-bottom:2px; font-family:var(--sans);
+  background:rgba(20,20,22,.7); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line2)}
+.menubar .mbi{display:flex; align-items:center; gap:5px; color:var(--txt2); font-size:12.5px; font-weight:600}
+.menubar .mbi svg{width:16px;height:16px}
+.menubar .mbi.active{color:var(--white)}
+.menubar .mbi.active .dotx{position:relative}
+.menubar .clock{color:var(--txt2); font-size:12.5px; font-weight:500; margin-left:2px}
+.notch{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;
+  border-bottom:9px solid rgba(30,30,33,.92); margin-right:150px; margin-bottom:-1px; position:relative; z-index:3}
+.popover{width:360px; border-radius:16px; overflow:hidden; position:relative;
+  background:linear-gradient(180deg,rgba(38,38,41,.94),rgba(24,24,27,.96));
+  backdrop-filter:blur(30px) saturate(1.5); -webkit-backdrop-filter:blur(30px) saturate(1.5);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 50px 120px -40px rgba(0,0,0,.95), inset 0 1px 0 rgba(255,255,255,.08); color:#ececef}
+.ph{display:flex; align-items:center; gap:11px; padding:14px 15px 12px}
+.ph .pr{width:30px;height:30px;color:var(--white)}
+.ph .ttl{font-size:14px; font-weight:700; line-height:1.2; letter-spacing:-.01em}
+.ph .sub{font-size:12px; color:var(--green); font-weight:600}
+.tg{margin-left:auto; width:40px; height:23px; border-radius:12px; position:relative; cursor:pointer;
+  background:var(--blue); transition:background .3s}
+.tg i{position:absolute; top:2px; left:19px; width:19px; height:19px; border-radius:50%; background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.4); transition:left .3s var(--ease)}
+.pdiv{height:1px; background:rgba(255,255,255,.08)}
+.pnet{display:flex; align-items:center; gap:8px; padding:10px 15px; font-size:12.5px; color:var(--txt2)}
+.pnet .g{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(48,209,88,.7)}
+.pnet .r{margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--txt2)}
+.psec{display:flex; align-items:baseline; padding:11px 15px 5px; font-size:11px; font-weight:700;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--txt3)}
+.psec .rt{margin-left:auto; text-transform:none; letter-spacing:0; font-weight:500; color:var(--txt3);
+  font-size:11.5px}
+/* agent row */
+.arow{display:flex; align-items:center; gap:11px; padding:8px 15px; position:relative}
+.arow .am{width:26px;height:26px;flex:none;color:#dcdce2}
+.arow .abody{flex:1; min-width:0}
+.arow .atop{display:flex; align-items:center; gap:7px; min-width:0}
+.arow .aname{font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  max-width:96px; flex:none}
+.pill{font-family:var(--mono); font-size:10px; font-weight:600; color:#d6d6dc; background:rgba(255,255,255,.09);
+  padding:2px 7px; border-radius:6px; white-space:nowrap}
+.pill i{color:var(--txt3); font-style:normal}
+.badge{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.06em; color:#cfcfd6;
+  background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.14); padding:2px 6px; border-radius:5px}
+.arow .aact{font-size:11.5px; color:var(--txt2); margin-top:2px; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; position:relative}
+.aact.work{color:#c4c4cc}
+.aact.work::after{content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent 20%,rgba(255,255,255,.5) 50%,transparent 80%);
+  background-size:180% 100%; -webkit-mask:linear-gradient(#000,#000); animation:shim 1.9s linear infinite; mix-blend-mode:overlay}
+@keyframes shim{0%{background-position:130% 0}100%{background-position:-130% 0}}
+.arow .ameta{flex:none; text-align:right; font-family:var(--mono); font-size:11px; color:var(--txt3);
+  display:flex; flex-direction:column; align-items:flex-end; gap:1px}
+.arow .cnt{color:var(--txt2)} .arow .cnt.done{color:var(--green)}
+.arow.done .am{color:var(--green)}
+.chk{width:22px;height:22px}
+.chk path{stroke:var(--green);stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.needrow{display:flex;align-items:center;gap:11px;padding:8px 15px;background:linear-gradient(90deg,rgba(48,209,88,.09),transparent)}
+.needrow.blk{background:linear-gradient(90deg,rgba(230,169,60,.09),transparent)}
+.needrow .ni{width:22px;text-align:center;font-weight:700}
+.needrow .nt{font-size:13px;font-weight:600} .needrow .ns{font-size:11.5px;color:var(--txt2)}
+.resting{display:flex;align-items:center;gap:8px;padding:9px 15px;font-size:12.5px;color:var(--txt2);cursor:pointer}
+.resting .cv{transition:transform .3s} .resting svg{width:12px;height:12px}
+.ploc{display:flex;align-items:center;gap:8px;padding:10px 15px;font-size:12.5px;color:var(--txt)}
+.ploc .flag{font-size:14px} .ploc .rc{margin-left:auto;color:var(--txt3)} .ploc .rc svg{width:14px;height:14px}
+.pusage{padding:9px 15px 12px}
+.pu{margin:7px 0}
+.pu .puh{display:flex;align-items:baseline;gap:8px;font-size:13px}
+.pu .pn{font-weight:600} .pu .pp{margin-left:auto;font-weight:700;font-size:13px}
+.pu .prs{font-family:var(--mono);font-size:10.5px;color:var(--txt3);width:78px;text-align:right}
+.pu .ptr{height:4px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:5px}
+.pu .pf{height:100%;border-radius:3px;background:var(--white);transform-origin:left;transform:scaleX(0);
+  transition:transform 1.2s var(--ease)}
+.reveal.in .pu .pf{transform:scaleX(var(--p))}
+.pfoot{border-top:1px solid rgba(255,255,255,.08);padding:6px 0}
+.pfoot a{display:flex;align-items:center;gap:11px;padding:8px 15px;font-size:13px;color:var(--txt);transition:background .2s}
+.pfoot a:hover{background:rgba(255,255,255,.05)} .pfoot a svg{width:15px;height:15px;color:var(--txt2)}
+.pfoot a.q svg,.pfoot a.q{color:#ff6b62}
+
+/* ---------- TUI ---------- */
+.term{border-radius:14px; overflow:hidden; border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 50px 120px -45px rgba(0,0,0,.95); background:#0a0a0c;
+  font-family:var(--mono); font-size:12.5px; line-height:1.7}
+.term-bar{display:flex; align-items:center; gap:8px; padding:11px 14px; background:rgba(255,255,255,.03);
+  border-bottom:1px solid rgba(255,255,255,.06)}
+.term-bar .tl{display:flex; gap:7px}
+.term-bar .tl i{width:11px;height:11px;border-radius:50%}
+.term-bar .tl i:nth-child(1){background:#ff5f57}.term-bar .tl i:nth-child(2){background:#febc2e}.term-bar .tl i:nth-child(3){background:#28c840}
+.term-bar .nm{margin-left:6px;color:var(--txt3);font-size:11.5px}
+.term-body{padding:16px 18px 18px; overflow-x:auto; color:#cdcdd3; white-space:normal}
+.term-body .t{color:var(--white)} .term-body .g{color:var(--green)} .term-body .w{color:var(--amber)}
+.term-body .c{color:var(--txt3)} .term-body .a{color:var(--purple)} .term-body .r{color:#ff6b62}
+.term-body .b{font-weight:700}
+.tl{white-space:pre; line-height:1.75}
+.trow{display:flex; justify-content:space-between; gap:20px; white-space:normal; align-items:baseline}
+.trule{border-top:1px solid rgba(255,255,255,.09); margin:11px 0}
+.tsp{height:11px}
+.tcols{display:grid; grid-template-columns:1fr 1fr; gap:1px 28px; margin:2px 0 4px}
+.tbox{position:relative; border:1px solid rgba(255,255,255,.13); border-radius:6px; margin:16px 0; padding:14px 15px 12px}
+.tbox::before{content:attr(data-label); position:absolute; top:-8px; left:13px; background:#0a0a0c;
+  padding:0 7px; color:var(--txt3); font-size:10.5px; letter-spacing:.14em; font-weight:600}
+.cursor{display:inline-block; width:8px; height:15px; background:var(--green); vertical-align:-2px;
+  animation:curs 1.1s steps(1) infinite}
+@keyframes curs{50%{opacity:0}}
+
+/* ============================== marks ============================== */
+.marks{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:50px}
+.marks>*{min-width:0}
+.mark{border-radius:20px; padding:28px 16px 22px; display:flex; flex-direction:column; align-items:center;
+  gap:15px; transition:transform .4s var(--ease),border-color .4s}
+.mark:hover{transform:translateY(-4px); border-color:var(--line)}
+.mark .mg{width:88px; height:88px; color:var(--white)}
+.mark .nm{font-size:19px; font-weight:600}
+.mark .ac{font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; font-weight:600}
+.mark .ds{font-family:var(--mono); font-size:9.5px; letter-spacing:.04em; color:var(--txt3);
+  text-align:center; text-transform:uppercase; line-height:1.5}
+
+/* ============================== honest ============================== */
+.rules{display:grid; grid-template-columns:1.12fr .88fr; gap:44px; margin-top:44px; align-items:start}
+.rules>*{min-width:0}
+.pull{font-size:clamp(22px,3vw,32px); line-height:1.34; font-weight:300; color:var(--txt); letter-spacing:-.02em}
+.pull b{font-weight:600; color:var(--white)}
+.rulecard{border-radius:18px; padding:26px}
+.rulecard h4{font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--txt3); margin:0 0 14px; font-weight:600}
+.flow{display:flex; flex-direction:column; font-family:var(--mono); font-size:12.5px}
+.flow .step{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line2)}
+.flow .step:last-child{border-bottom:0}
+.flow .num{width:22px;height:22px;flex:none;border-radius:6px;display:grid;place-items:center;
+  border:1px solid var(--line);color:var(--txt3);font-size:11px}
+.flow .step b{color:var(--white);font-weight:600} .flow .step span{color:var(--txt2)}
+.flow .step.bad .num{border-color:rgba(255,69,58,.5);color:#ff6b62}
+.flow .step.ok .num{border-color:rgba(48,209,88,.5);color:var(--green)}
+
+/* ============================== roadmap ============================== */
+.road{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:50px}
+.road>*{min-width:0}
+.rc{border-radius:18px; padding:26px 24px; position:relative; overflow:hidden;
+  transition:transform .4s var(--ease),border-color .4s}
+.rc:hover{transform:translateY(-3px); border-color:var(--line)}
+.rc .tag{font-family:var(--mono); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
+  padding:4px 9px; border-radius:20px; display:inline-block; border:1px solid var(--line); color:var(--txt2)}
+.rc.next .tag{border-color:rgba(48,209,88,.4); color:var(--green)}
+.rc h4{font-size:20px; margin:16px 0 8px; font-weight:600}
+.rc p{font-size:14px; color:var(--txt2); line-height:1.55; margin:0}
+.rc .arc{position:absolute; right:-28px; top:-28px; width:104px; height:104px; opacity:.05; color:var(--white)}
+.rc p .k{font-family:var(--mono);font-size:.85em;background:rgba(255,255,255,.07);padding:1px 5px;border-radius:4px;color:var(--txt)}
+
+/* ============================== get ============================== */
+.get{border-radius:26px; padding:56px 46px; text-align:center; position:relative; overflow:hidden;
+  background:radial-gradient(120% 130% at 50% -20%, rgba(255,255,255,.09), transparent 56%),
+  linear-gradient(180deg,var(--glass-a),var(--glass-b))}
+.get h2{font-size:clamp(30px,4.4vw,46px)}
+.get .lede{margin:16px auto 0} .get .btn-row{justify-content:center; margin-top:30px}
+.getcode{margin-top:24px; display:inline-flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;
+  max-width:100%; font-family:var(--mono); font-size:13px; color:var(--txt); background:rgba(0,0,0,.4);
+  border:1px solid var(--line); border-radius:11px; padding:11px 16px}
+.getcode span{overflow-wrap:anywhere} .getcode .p{color:var(--green)}
+.getcode button{background:none;border:0;color:var(--txt3);cursor:pointer;font-family:var(--mono);font-size:11px;transition:color .2s}
+.getcode button:hover{color:var(--white)}
+.reqs{margin-top:32px; display:flex; flex-wrap:wrap; gap:11px; justify-content:center; font-family:var(--mono);
+  font-size:11.5px; color:var(--txt3)}
+.reqs span{border:1px solid var(--line2); border-radius:20px; padding:6px 14px} .reqs b{color:var(--txt);font-weight:600}
+
+/* ============================== footer ============================== */
+.foot{border-top:1px solid var(--line2); margin-top:36px}
+.foot-in{max-width:var(--maxw); margin:0 auto; padding:50px 26px; display:grid; grid-template-columns:1.5fr 1fr 1fr; gap:30px}
+.foot .brand{display:flex;align-items:center;gap:11px;font-weight:600;font-size:17px}
+.foot .brand svg{width:32px;height:32px}
+.foot p{font-size:14px;color:var(--txt2);max-width:38ch;margin:13px 0 0}
+.foot .lineage{font-family:var(--mono);font-size:11px;color:var(--txt3);margin-top:13px}
+.foot h5{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt3);margin:0 0 13px;font-weight:600}
+.foot .col a{display:block;font-size:13.5px;color:var(--txt2);padding:5px 0;transition:color .2s}
+.foot .col a:hover{color:var(--white)}
+.foot-bot{border-top:1px solid var(--line2);text-align:center;padding:22px;font-family:var(--mono);font-size:11px;color:var(--txt3)}
+
+/* ============================== reveal ============================== */
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+.stagger>*{opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.stagger.in>*{opacity:1;transform:none}
+.stagger.in>*:nth-child(2){transition-delay:.07s}
+.stagger.in>*:nth-child(3){transition-delay:.14s}
+.stagger.in>*:nth-child(4){transition-delay:.21s}
+.stagger.in>*:nth-child(5){transition-delay:.28s}
+.stagger.in>*:nth-child(6){transition-delay:.35s}
+
+/* ============================== responsive ============================== */
+@media(max-width:940px){
+  .hero-grid{grid-template-columns:1fr;gap:40px} .console{order:-1}
+  .showpiece,.showpiece.rev{grid-template-columns:1fr;gap:34px}
+  .rules{grid-template-columns:1fr;gap:28px} .foot-in{grid-template-columns:1fr 1fr}
+}
+@media(max-width:680px){
+  .band{padding:78px 18px} .hero{padding-top:116px}
+  .prob-grid,.jobs,.marks,.road{grid-template-columns:1fr}
+  .get{padding:38px 20px} .foot-in{grid-template-columns:1fr}
+  .notch{margin-right:120px} .term-body{font-size:10.8px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  .reveal,.stagger>*{opacity:1;transform:none} .nav{transform:none;animation:none}
+}
+</style>
+
+<div class="sky"></div>
+
+<!-- ============================== NAV ============================== -->
+<nav class="nav" id="nav">
+  <a class="brand" href="#top"><svg viewBox="0 0 100 100" id="navradar"></svg> Tower</a>
+  <div class="links">
+    <a href="#problem">Problem</a><a href="#does">What it does</a>
+    <a href="#live">Live</a><a href="#terminal">Terminal</a><a href="#roadmap">Roadmap</a>
+  </div>
+  <a class="btn btn--primary btn--sm cta" href="https://github.com/ghhrmnzdh/tower/releases/latest">Download</a>
+</nav>
+<span id="top"></span>
+
+<!-- ============================== HERO ============================== -->
+<header class="band hero">
+  <div class="hero-grid">
+    <div class="reveal in">
+      <div class="kick">Tower · macOS menubar + terminal</div>
+      <h1>You are the control tower.<span class="l2">This is your radar.</span></h1>
+      <p class="lede">Run a dozen Claude Code agents across a dozen terminals and you lose the thread — which one needs you, which one quietly failed, which two are editing the same file. Tower brings every agent into one glassy view — model, effort, status, momentum — pins Claude to a country, and tells you the truth about your connection.</p>
+      <div class="btn-row">
+        <a class="btn btn--primary" href="https://github.com/ghhrmnzdh/tower/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
+        <a class="btn" href="https://github.com/ghhrmnzdh/tower">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>View source</a>
+      </div>
+      <div class="hero-meta">
+        <span><b>One daemon</b> · stdlib Python</span>
+        <span><b>Two front-ends</b> · menubar + curses</span>
+        <span><b>Zero</b> · third-party deps</span>
+      </div>
+    </div>
+    <div class="console glass reveal in" style="transition-delay:.12s">
+      <div class="console-top"><span>Guard radar</span><span class="live"><i></i> live</span></div>
+      <div class="radar-stage">
+        <svg class="gridrings" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,.08)"/>
+          <circle cx="50" cy="50" r="32" fill="none" stroke="rgba(255,255,255,.06)"/>
+          <circle cx="50" cy="50" r="18" fill="none" stroke="rgba(255,255,255,.05)"/>
+          <line x1="4" y1="50" x2="96" y2="50" stroke="rgba(255,255,255,.05)"/>
+          <line x1="50" y1="4" x2="50" y2="96" stroke="rgba(255,255,255,.05)"/>
+        </svg>
+        <svg class="big" id="heroRadar" viewBox="0 0 100 100"></svg>
+      </div>
+      <div class="radar-caption">
+        <div class="st" id="capState">CLEARED</div>
+        <div class="tx" id="capText">Guarding. You're in-country and the path to Anthropic is open.</div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+</header>
+
+<div class="rule"></div>
+
+<!-- ============================== PROBLEM ============================== -->
+<section class="band" id="problem">
+  <div class="section-head reveal">
+    <div class="kick">The problem</div>
+    <h2>A tower with no radar.</h2>
+    <p class="lede">Claude Code is easy to run — and easy to run <em>a lot</em>. The trouble isn't any one agent. It's the loss of the room: no single place that answers who needs you, why something stopped, and where you actually are.</p>
+  </div>
+  <div class="prob-grid reveal stagger">
+    <article class="prob glass"><div class="n"><span class="dot"></span>Lost in the tabs</div>
+      <h3>You can't see who needs you</h3>
+      <p>Six terminals, six agents. One has been waiting on an approval you never saw. One failed twenty minutes ago. Two are editing the same file. You <em>are</em> the control tower — but you're flying blind.</p></article>
+    <article class="prob glass"><div class="n"><span class="dot"></span>Is it me or Anthropic?</div>
+      <h3>An error, and no way to place it</h3>
+      <p>Claude stops mid-turn. Your Wi-Fi? A slow hotel network? Or Anthropic having a moment? You alt-tab to a speed test and <em>guess</em> — and guessing wrong wastes the next ten minutes.</p></article>
+    <article class="prob glass"><div class="n"><span class="dot"></span>The silent VPN hop</div>
+      <h3>Location drifts, and the turn dies</h3>
+      <p>You pin Claude to a country. Your VPN silently hops. Now a request fails with a confusing <span class="k">Please run /login</span>-looking error instead of simply <em>waiting</em> for you to come back on-country.</p></article>
+    <article class="prob glass"><div class="n"><span class="dot"></span>Blind to the meter</div>
+      <h3>You don't know your real usage</h3>
+      <p>"How much of my plan is left?" You don't actually know until you hit the wall mid-task. Local token math is a guess; the real number lives behind <span class="k">claude /usage</span>.</p></article>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== WHAT IT DOES ============================== -->
+<section class="band" id="does">
+  <div class="section-head reveal">
+    <div class="kick">What Tower does</div>
+    <h2>Four jobs, one&nbsp;daemon.</h2>
+    <p class="lede">One background process holds all the logic and state. Everything you see — in the menu bar or the terminal — is a thin, honest view over it.</p>
+  </div>
+  <div class="jobs reveal stagger">
+    <article class="job glass"><div class="call">Traffic</div><h3>The agents</h3>
+      <p>Every running Claude agent, live: model, effort, status, and momentum. A ranked <b>needs-you queue</b> — failed &gt; blocked &gt; asking &gt; done — with notifications, and click-to-focus that jumps to the agent's terminal.</p>
+      <div class="demo"><div class="qz">
+        <div class="q f"><span class="m">✗</span> auth-service — failed</div>
+        <div class="q b"><span class="m">⛔︎</span> api — waiting for approval</div>
+        <div class="q a"><span class="m">?</span> web — asked you a question</div>
+        <div class="q d"><span class="m">✓</span> docs — done · your turn</div>
+      </div></div></article>
+
+    <article class="job glass"><div class="call">Weather</div><h3>The weather</h3>
+      <p>When Claude errors mid-session, Tower answers the only question that matters — <em>is it my internet, is it just slow, or is it Anthropic?</em> — from passive latency probes, plus an on-demand speed test.</p>
+      <div class="demo"><div class="spark" id="jobspark"></div></div></article>
+
+    <article class="job glass"><div class="call">Fence</div><h3>The fence</h3>
+      <p>Pin Claude Code to one country. A tiny local proxy holds Claude's requests when you're <b>confirmed outside</b> it — <em>fail-closed</em>. A held request is pending, not failed.</p>
+      <div class="demo"><div class="fencez">
+        <div class="fr ok"><span class="fdot"></span> inside 🇨🇦 CA · allowed<span class="tag">✓ pass</span></div>
+        <div class="fr hold"><span class="fdot"></span> VPN → 🇳🇱 · off-country<span class="tag">held</span></div>
+      </div></div></article>
+
+    <article class="job glass"><div class="call">Usage</div><h3>Real usage</h3>
+      <p>Your true plan limits, mirrored from <span class="mono" style="font-size:.85em">claude -p /usage</span> — Claude does its own auth, Tower never reads a token — beside a clearly-labeled local estimate.</p>
+      <div class="demo"><div class="mz">
+        <div class="m"><span class="l">Session</span><span class="track"><span class="fill" style="--p:.03"></span></span><span class="v">3%</span></div>
+        <div class="m"><span class="l">Weekly</span><span class="track"><span class="fill" style="--p:.33"></span></span><span class="v">33%</span></div>
+        <div class="m"><span class="l">Fable</span><span class="track"><span class="fill" style="--p:.31"></span></span><span class="v">31%</span></div>
+      </div></div></article>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== LIVE — the menu bar ============================== -->
+<section class="band" id="live">
+  <div class="section-head reveal">
+    <div class="kick">The menu bar · live</div>
+    <h2>Every agent, at a&nbsp;glance.</h2>
+    <p class="lede">A native menubar agent — Swift, AppKit + SwiftUI. Click the radar in the bar and the whole tower drops down: who's working, on which model and effort, what they're doing right now, and who needs you.</p>
+  </div>
+  <div class="showpiece">
+    <div class="copy reveal">
+      <h3>The popover reads like the app itself.</h3>
+      <p class="lede">Flat glass rows in strict attention order. Each working agent shows its <b>model &amp; effort</b> (Opus 4.8 · 1M · MAX), a live activity line that <b>shimmers while it thinks</b>, a <b>✓ momentum counter</b>, and its age.</p>
+      <div class="feat-list">
+        <div class="feat"><span class="fi">◉</span><div><b>Model &amp; effort, per agent.</b><span>Opus / Sonnet / Haiku, at MAX · HIGH · MEDIUM · LOW — the pill is the model, the badge is the effort.</span></div></div>
+        <div class="feat"><span class="fi">✦</span><div><b>Ranked needs-you.</b><span>failed &gt; blocked &gt; asking &gt; done. The done payoff is earned; failure never bounces.</span></div></div>
+        <div class="feat"><span class="fi">◐</span><div><b>The mark is the state.</b><span>The bar's radar is the guard itself — full color only for a hold or danger; calm white when protected.</span></div></div>
+      </div>
+    </div>
+
+    <div class="stage reveal" style="transition-delay:.1s">
+      <div class="menubar">
+        <span class="mbi active"><svg id="mbRadar" viewBox="0 0 100 100" style="width:16px;height:16px"></svg> 33%</span>
+        <span class="mbi">⌥</span><span class="mbi">☰</span><span class="mbi">🔋</span>
+        <span class="clock">Fri 9:41</span>
+      </div>
+      <div class="notch"></div>
+      <div class="popover" id="popover">
+        <div class="ph">
+          <svg class="pr" id="popRadar" viewBox="0 0 100 100"></svg>
+          <div><div class="ttl">Tower</div><div class="sub">Protected</div></div>
+          <div class="tg" title="Routing on"><i></i></div>
+        </div>
+        <div class="pdiv"></div>
+        <div class="pnet"><span class="g"></span> Internet · API <span class="r">8 ms · 214 ms</span></div>
+        <div class="pdiv"></div>
+
+        <div class="psec">Needs you</div>
+        <div class="needrow"><svg class="chk" id="doneChk" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6" pathLength="100"/></svg>
+          <div><div class="nt">payments-api</div><div class="ns">done — your turn</div></div></div>
+
+        <div class="psec">Agents <span class="rt" id="agSummary">3 at work · <span id="doneCount">41</span> done today</span></div>
+        <div id="agentList"></div>
+        <div class="resting" id="restToggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="cv"><path d="M9 6l6 6-6 6"/></svg> Resting · 4</div>
+
+        <div class="pdiv"></div>
+        <div class="ploc"><span class="flag">🇨🇦</span> Toronto, CA — inside <span class="flag">🇨🇦</span> CA
+          <span class="rc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></span></div>
+        <div class="pdiv"></div>
+
+        <div class="pusage">
+          <div class="psec" style="padding:2px 0 8px">Plan usage <span class="rt">updated 2m ago</span></div>
+          <div class="pu"><div class="puh"><span class="pn">Session</span><span class="pp">3%</span><span class="prs">resets in 4h</span></div><div class="ptr"><span class="pf" style="--p:.03"></span></div></div>
+          <div class="pu"><div class="puh"><span class="pn">Weekly</span><span class="pp">33%</span><span class="prs">resets in 2d</span></div><div class="ptr"><span class="pf" style="--p:.33"></span></div></div>
+          <div class="pu"><div class="puh"><span class="pn">Fable</span><span class="pp">31%</span><span class="prs">resets in 2d</span></div><div class="ptr"><span class="pf" style="--p:.31"></span></div></div>
+        </div>
+        <div class="pfoot">
+          <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg> Open Dashboard…</a>
+          <a><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5L4 10a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5c.1-.3.1-.7.1-1z" stroke-linecap="round" stroke-linejoin="round"/></svg> Settings…</a>
+          <a class="q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9M6 6a9 9 0 1 0 12 0"/></svg> Quit &amp; Stop Guard…</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== TERMINAL ============================== -->
+<section class="band" id="terminal">
+  <div class="section-head reveal">
+    <div class="kick">The terminal dashboard</div>
+    <h2>The same tower, in the&nbsp;shell.</h2>
+  </div>
+  <div class="showpiece rev">
+    <div class="stage reveal" style="background:radial-gradient(110% 80% at 50% 0%, rgba(255,255,255,.04), transparent 62%)">
+      <div class="term" id="term">
+        <div class="term-bar"><div class="tl"><i></i><i></i><i></i></div><div class="nm">python3 tower-tui.py</div></div>
+        <div class="term-body">
+          <div class="tl trow"><span class="t b">TOWER</span><span class="g b">Protected · target: Canada</span></div>
+          <div class="trule"></div>
+          <div class="tcols">
+            <div class="tcol">
+              <div class="tl c b">NETWORK LOCATION</div>
+              <div class="tl"><span class="g b">✔ inside target</span></div>
+              <div class="tl"><span class="c">IP       </span> 142.114.9.2</div>
+              <div class="tl"><span class="c">Country  </span> Canada (CA)</div>
+              <div class="tl"><span class="c">Location </span> Toronto, ON</div>
+              <div class="tl"><span class="c">ISP      </span> Rogers</div>
+            </div>
+            <div class="tcol">
+              <div class="tl c b">GUARD</div>
+              <div class="tl"><span class="c">Route Claude </span> <span class="g">on</span></div>
+              <div class="tl"><span class="c">Enforce      </span> <span class="g">on</span></div>
+              <div class="tl"><span class="c">Scope        </span> <span class="t">Claude only</span></div>
+              <div class="tl"><span class="c">Allowed      </span> <span class="g">1284</span></div>
+              <div class="tl"><span class="c">Blocked      </span> <span class="w">3</span></div>
+              <div class="tl"><span class="c">Proxy        </span> <span class="g">:8888 up</span></div>
+            </div>
+          </div>
+          <div class="tbox" data-label="AGENTS">
+            <div class="tl trow"><span class="t b">3 at work · 41 done today</span><span class="c">· 1 needs you</span></div>
+            <div class="tl"><span class="g b">✓</span> <span class="t">payments-api</span>    <span class="c">opus·MAX</span>   <span class="g">done · your turn</span>    <span class="c">8✓ 1m</span></div>
+            <div class="tl"><span class="t b">◉</span> <span class="t">khamzadeh_flow</span>  <span class="c">opus·MAX</span>   <span class="t">running cd</span>          <span class="c">17✓ 2m</span></div>
+            <div class="tl"><span class="t b">◉</span> <span class="t">tower</span>           <span class="c">opus·HIGH</span>  <span class="t">using SendUserFile</span>  <span class="c">56✓ 2m</span></div>
+            <div class="tl"><span class="t b">◉</span> <span class="t">web-ui</span>          <span class="c">sonnet·MED</span> <span class="t">running tests</span>       <span class="c">12✓ 5m</span></div>
+            <div class="tl"><span class="w">⚠︎ 2 agents in tower — both touching towerd.py</span></div>
+            <div class="tl"><span class="c">› resting · 4</span></div>
+          </div>
+          <div class="tbox" data-label="NETWORK">
+            <div class="tl"><span class="g b">● online · net 8 ms · api 214 ms</span></div>
+            <div class="tl trow"><span><span class="c">api</span> <span class="g" id="tuiSpark">▂▃▂▅▃▂▄▆▃▂▅▃</span></span><span class="c">↓ 412 Mbps (2m ago) · speed test</span></div>
+          </div>
+          <div class="trule"></div>
+          <div class="tl trow"><span class="t b">PLAN USAGE</span><span class="c">updated 2m ago</span></div>
+          <div class="tl"><span class="t b">Session </span> <span class="t">█░░░░░░░░░░░░░░░░░░░</span>   <span class="c">3% · resets in 4h</span></div>
+          <div class="tl"><span class="t b">Weekly  </span> <span class="t">███████░░░░░░░░░░░░░</span>  <span class="c">33% · resets in 2d</span></div>
+          <div class="tl"><span class="t b">Fable   </span> <span class="t">██████░░░░░░░░░░░░░░</span>  <span class="c">31% · resets in 2d</span></div>
+          <div class="trule"></div>
+          <div class="tl trow"><span class="t b">LIVE TRAFFIC</span><span><span class="g">1284 allowed</span> · <span class="w">3 blocked</span></span></div>
+          <div id="tuiTraffic">
+            <div class="tl trow traffic-row"><span><span class="c">09:41:22</span> <span class="g">✓ api.anthropic.com</span></span><span class="g">allowed</span></div>
+            <div class="tl trow traffic-row"><span><span class="c">09:41:08</span> <span class="g">✓ api.anthropic.com</span></span><span class="g">allowed</span></div>
+          </div>
+          <div class="tl"><span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="copy reveal">
+      <h3>Zero-dependency curses. Now with a mouse.</h3>
+      <p class="lede">Pure Python stdlib — the same <span class="mono" style="font-size:.9em">state.json</span> and command files as the app. Deliberately non-reactive so you never fat-finger routing off, but everything's clickable: toggle the guard, pick a country, run a speed test, focus an agent's terminal.</p>
+      <div class="feat-list">
+        <div class="feat"><span class="fi">↺</span><div><b>Same brain, other face.</b><span>Change a setting in one, the other reflects it in about a second.</span></div></div>
+        <div class="feat"><span class="fi">⌕</span><div><b>Answers on sight.</b><span>A red header — INTERNET DOWN, WI-FI LOGIN REQUIRED, ANTHROPIC API ISSUE — means stop and look here.</span></div></div>
+        <div class="feat"><span class="fi">◱</span><div><b>Only repaints on change.</b><span>~80 ms input, ~60 ms daemon confirms, no idle cost.</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== MARKS ============================== -->
+<section class="band" id="marks">
+  <div class="section-head reveal">
+    <div class="kick">The marks</div>
+    <h2>One living glyph per&nbsp;model.</h2>
+    <p class="lede">Deliberately monochrome and minimal — still at rest, and while its agent works, each comes alive in its own way. The tier's color appears only in the small label beside it, never on the mark itself.</p>
+  </div>
+  <div class="marks reveal stagger" id="marks-grid"></div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== HONEST ============================== -->
+<section class="band" id="honest">
+  <div class="section-head reveal"><div class="kick">The philosophy</div><h2>An honest status&nbsp;layer.</h2></div>
+  <div class="rules">
+    <div class="reveal">
+      <p class="pull">If something looks wrong — off-country, an unstable net, a blocked request — that is the app <b>doing its job</b> and reporting the truth. Not the app being broken. There's nothing to quit; leave it running and it clears itself when your location or connection recovers.</p>
+      <div style="margin-top:26px" class="feat-list">
+        <div class="feat"><span class="fi">⛔</span><div><b>Fail-closed, never fail-confusing.</b><span>Claude is allowed only when confirmed in-country <em>and</em> the network has a usable path to Anthropic. Anything uncertain is held.</span></div></div>
+        <div class="feat"><span class="fi">↩</span><div><b>It always un-routes on shutdown.</b><span>Quitting removes the proxy from settings.json first, so Claude returns to a direct connection. A crashed UI can't break Claude.</span></div></div>
+        <div class="feat"><span class="fi">◐</span><div><b>Never through the shell.</b><span>Routing edits <span class="mono" style="font-size:.9em">settings.json</span> only — passive, reversible, backed up before the first edit.</span></div></div>
+      </div>
+    </div>
+    <div class="rulecard glass reveal" style="transition-delay:.1s">
+      <h4>Flight rule · a block is pending, not failed</h4>
+      <div class="flow">
+        <div class="step bad"><span class="num">✗</span><div><b>403 would kill the turn.</b> <span>Claude reads it as broken auth → "run /login".</span></div></div>
+        <div class="step ok"><span class="num">✓</span><div><b>So Tower answers 503 + Retry-After.</b> <span>Held a few seconds, re-checking, so a blip clears with no visible retry.</span></div></div>
+        <div class="step ok"><span class="num">↻</span><div><b>Claude shows its own spinner.</b> <span>"Retrying · attempt x/y" — the durable pending UX.</span></div></div>
+        <div class="step ok"><span class="num">▲</span><div><b>It resumes on its own.</b> <span>The moment the guard clears — no lost work, no confusing error.</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- ============================== ROADMAP ============================== -->
+<section class="band" id="roadmap">
+  <div class="section-head reveal"><div class="kick">Inbound</div><h2>On the radar.</h2>
+    <p class="lede">Tower is open source — use it, fork it, port it. Here's what's approaching. One portable Python daemon with thin front-ends is what makes each of these tractable.</p></div>
+  <div class="road reveal stagger">
+    <article class="rc glass next"><svg class="arc" viewBox="0 0 100 100"><circle cx="50" cy="50" r="33" fill="none" stroke="currentColor" stroke-width="6"/><circle cx="50" cy="50" r="5" fill="currentColor"/></svg>
+      <span class="tag">Next · planned</span><h4>Windows tray app</h4>
+      <p>~80% of the code — the daemon — is already portable Python. A C#/.NET <span class="k">NotifyIcon</span> tray plus an ANSI terminal UI, driven by the same JSON. Routing ports for free: Claude Code reads the same settings.json everywhere.</p></article>
+    <article class="rc glass"><svg class="arc" viewBox="0 0 100 100"><circle cx="50" cy="50" r="33" fill="none" stroke="currentColor" stroke-width="6" stroke-dasharray="5 6"/><circle cx="50" cy="50" r="5" fill="currentColor"/></svg>
+      <span class="tag">Planned</span><h4>Linux front-end</h4>
+      <p>The daemon is already stdlib-portable. A tray via <span class="k">AppIndicator</span> and the existing curses dashboard bring the same control tower to a third platform.</p></article>
+    <article class="rc glass"><span class="tag">Idea</span><h4>Deeper collisions</h4>
+      <p>Beyond same-repo and same-file: surface the exact lines two agents are about to fight over, and a one-tap "pause the other" so a merge conflict never happens.</p></article>
+    <article class="rc glass"><span class="tag">Idea</span><h4>Usage history &amp; forecasts</h4>
+      <p>A longer memory for plan usage — weekly burn-down, a forecast of when you'll hit a limit at your current pace, and a gentle heads-up before you do.</p></article>
+    <article class="rc glass"><span class="tag">Idea</span><h4>More fences</h4>
+      <p>Beyond country: time-of-day windows, per-project rules, and allowlists — the same fail-closed proxy, more ways to draw the fence.</p></article>
+    <article class="rc glass"><span class="tag">Contribute</span><h4>Your idea here</h4>
+      <p>The codebase is small and the invariants are documented in <span class="k">CLAUDE.md</span>. Open an issue, take a card, or bring the tower somewhere new.</p></article>
+  </div>
+</section>
+
+<!-- ============================== GET ============================== -->
+<section class="band band--tight" id="get">
+  <div class="get glass reveal">
+    <div class="kick" style="color:var(--txt2)">Get Tower</div>
+    <h2 style="margin-top:14px">Give your agents a tower.</h2>
+    <p class="lede">Grab the signed app, or build it from source in about twenty seconds. Either front-end starts the daemon for you — you never have to arm the guard by hand.</p>
+    <div class="btn-row">
+      <a class="btn btn--primary" href="https://github.com/ghhrmnzdh/tower/releases/latest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
+      <a class="btn" href="https://github.com/ghhrmnzdh/tower">View on GitHub</a>
+    </div>
+    <div class="getcode"><span><span class="p">$</span> git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh</span>
+      <button id="copyBtn">copy</button></div>
+    <div class="reqs"><span><b>macOS 14+</b> · Apple Silicon</span><span><b>Python 3.8+</b> at runtime</span>
+      <span><b>Xcode CLT</b> to build</span><span><b>Claude Code</b> installed</span></div>
+  </div>
+</section>
+
+<!-- ============================== FOOTER ============================== -->
+<footer class="foot">
+  <div class="foot-in">
+    <div class="reveal"><div class="brand"><svg id="footRadar" viewBox="0 0 100 100"></svg> Tower</div>
+      <p>A control tower for your Claude agents. One daemon, two front-ends, one source of truth — and a single living mark whose state is the guard.</p>
+      <div class="lineage">formerly Geo Guard → Corral → Tower</div></div>
+    <div class="col reveal"><h5>Docs</h5>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/DESIGN.md">Design system</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/APP.md">The menubar app</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/TUI.md">The terminal UI</a></div>
+    <div class="col reveal"><h5>Project</h5>
+      <a href="https://github.com/ghhrmnzdh/tower">Source on GitHub</a>
+      <a href="https://github.com/ghhrmnzdh/tower/releases">Releases</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/windows_plan.md">Windows plan</a>
+      <a href="https://github.com/ghhrmnzdh/tower/issues">Issues</a></div>
+  </div>
+  <div class="foot-bot">Open source · macOS · stdlib Python + SwiftUI · quiet tower, clear signal.</div>
+</footer>
+
+<script>
+/* ==================================================================== *
+ *  Marks — ported 1:1 from the Identity Study / Glyph.swift.
+ * ==================================================================== */
+const AMBER='#E6A93C', RED='#ff453a', GREEN='#30d158';
+const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const A=REDUCE?0:1;
+
+function buildRadar(){
+  return '<g>'
+   +'<circle data-p="ring" cx="50" cy="50" r="33" stroke="currentColor" stroke-width="6" fill="none"/>'
+   +'<circle data-p="pulse" cx="50" cy="50" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0"/>'
+   +'<circle data-p="ping" cx="50" cy="50" r="8" stroke="currentColor" stroke-width="3.5" fill="none" opacity="0"/>'
+   +'<circle data-p="ping" cx="50" cy="50" r="8" stroke="currentColor" stroke-width="3.5" fill="none" opacity="0"/>'
+   +'<g data-p="sweep" opacity="0"><path d="M50 50 L50 17 A 33 33 0 0 0 21 34 Z" fill="currentColor" fill-opacity="0.16"/><line x1="50" y1="50" x2="50" y2="17" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></g>'
+   +'<circle data-p="blip" cx="64" cy="41" r="3.6" fill="currentColor"/>'
+   +'<circle data-p="blip" cx="38" cy="58" r="3.6" fill="currentColor"/>'
+   +'<circle data-p="blip" cx="58" cy="66" r="3.6" fill="currentColor"/>'
+   +'<g data-p="geo" opacity="0"><circle data-p="fence" cx="50" cy="50" r="15" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="4 5"/><line x1="50" y1="50" x2="72" y2="32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 4"/><circle data-p="offHalo" cx="72" cy="32" r="5" stroke="currentColor" stroke-width="2.5" fill="none" opacity="0"/><g data-p="offMark"><circle cx="72" cy="32" r="5" fill="currentColor"/></g></g>'
+   +'<circle data-p="center" cx="50" cy="50" r="4.5" fill="currentColor"/>'
+   +'<circle data-p="centerRing" cx="50" cy="50" r="5.5" fill="none" stroke="'+RED+'" stroke-width="4" opacity="0"/>'
+   +'</g>';
+}
+function cacheRadar(el){const m={pings:[],blips:[]};
+  el.querySelectorAll('[data-p]').forEach(n=>{const k=n.getAttribute('data-p');
+    if(k==='ping')m.pings.push(n);else if(k==='blip')m.blips.push(n);else m[k]=n;});return m;}
+function updateRadar(p,sk,P){
+  const off=sk==='off'; let rc='currentColor',rd='none';
+  if(off){rc=RED;rd='5 7';}else if(sk==='holdNet'){rc=AMBER;rd='5 6';}else if(sk==='holdGeo')rc=AMBER;
+  p.ring.setAttribute('stroke',rc);p.ring.setAttribute('stroke-dasharray',rd);
+  p.center.style.opacity=off?0:1;p.centerRing.style.opacity=off?1:0;
+  p.center.setAttribute('fill',sk==='holdNet'?AMBER:'currentColor');
+  p.sweep.style.opacity=sk==='verify'?1:0;
+  if(sk==='verify')p.sweep.setAttribute('transform','rotate('+((P*150)%360).toFixed(2)+' 50 50)');
+  if(sk==='clear'){const pr=(P*0.42)%1;p.pulse.setAttribute('r',A?(8+pr*26).toFixed(2):'22');p.pulse.style.opacity=A?((1-pr)*0.5).toFixed(3):'0.3';}else p.pulse.style.opacity=0;
+  if(sk==='holdNet'){p.pings.forEach((pg,i)=>{pg.setAttribute('stroke',AMBER);if(A){const pr=((P*0.7)+i*0.5)%1;pg.setAttribute('r',(7+pr*15).toFixed(2));pg.style.opacity=(Math.max(0,1-pr)*0.7).toFixed(3);}else{pg.setAttribute('r',(11+i*7).toFixed(1));pg.style.opacity=(0.55-i*0.25).toFixed(2);}});}else p.pings.forEach(pg=>pg.style.opacity=0);
+  p.blips.forEach((b,i)=>{b.style.opacity=sk==='clear'?(0.8+0.2*Math.sin(P*1.6+i*1.3)*A).toFixed(3):(sk==='verify'?(0.3+0.12*Math.sin(P*2.2+i)*A).toFixed(3):(off?0.22:0));});
+  p.geo.style.opacity=sk==='holdGeo'?1:0;
+  if(sk==='holdGeo'){p.fence.setAttribute('stroke',AMBER);p.offHalo.setAttribute('stroke',AMBER);
+    p.fence.setAttribute('transform','rotate('+((P*45)%360).toFixed(2)+' 50 50)');
+    const dx=-0.773,dy=0.634,lunge=A*6*(0.5+0.5*Math.sin(P*2.2)),s=1+0.16*Math.sin(P*3.0)*A;
+    p.offMark.setAttribute('transform','translate('+(dx*lunge).toFixed(2)+' '+(dy*lunge).toFixed(2)+') translate(72 32) scale('+s.toFixed(3)+') translate(-72 -32)');
+    p.offMark.querySelector('circle').setAttribute('fill',AMBER);
+    if(A){const hp=(P*1.1)%1;p.offHalo.setAttribute('r',(5+hp*9).toFixed(2));p.offHalo.style.opacity=((1-hp)*0.8).toFixed(3);p.offHalo.setAttribute('cx',(72+dx*lunge).toFixed(2));p.offHalo.setAttribute('cy',(32+dy*lunge).toFixed(2));}else{p.offHalo.setAttribute('r','10');p.offHalo.style.opacity='0.5';}
+  }else p.offHalo.style.opacity=0;
+}
+/* model marks */
+function buildModel(g,m){
+  let s='';
+  if(m==='haiku'){for(let k=0;k<3;k++){const a=(-90+k*120)*Math.PI/180,dx=Math.cos(a),dy=Math.sin(a);
+    s+='<line data-tick data-dx="'+dx.toFixed(4)+'" data-dy="'+dy.toFixed(4)+'" x1="'+(50+dx*16).toFixed(1)+'" y1="'+(50+dy*16).toFixed(1)+'" x2="'+(50+dx*34).toFixed(1)+'" y2="'+(50+dy*34).toFixed(1)+'" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>';}
+    s+='<circle data-core cx="50" cy="50" r="7" fill="currentColor"/>';}
+  else if(m==='sonnet'){s='<g data-spin><path d="M50 25 A12.5 12.5 0 0 1 50 50 A12.5 12.5 0 0 0 50 75" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/></g>';}
+  else if(m==='opus'){const arc=(r,gg)=>{const a0=(gg+30)*Math.PI/180,a1=(gg+330)*Math.PI/180;return 'M '+(50+r*Math.cos(a0)).toFixed(1)+' '+(50+r*Math.sin(a0)).toFixed(1)+' A '+r+' '+r+' 0 1 1 '+(50+r*Math.cos(a1)).toFixed(1)+' '+(50+r*Math.sin(a1)).toFixed(1);};
+    [[16,90],[27,210],[38,330]].forEach((rg,i)=>{s+='<path data-ring d="'+arc(rg[0],rg[1])+'" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>';});
+    s+='<circle data-core cx="50" cy="50" r="5" fill="currentColor"/>';}
+  else{let d='';const steps=120;for(let i=0;i<=steps;i++){const f=i/steps,ang=f*2.35*2*Math.PI-Math.PI/2,rr=2.5+(35-2.5)*f;d+=(i?' L ':'M ')+(50+rr*Math.cos(ang)).toFixed(1)+' '+(50+rr*Math.sin(ang)).toFixed(1);}
+    s='<path d="'+d+'" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/><path data-wind d="'+d+'" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" pathLength="100" stroke-dasharray="16 84"/><circle data-core cx="50" cy="50" r="4" fill="currentColor"/>';}
+  g.innerHTML='<svg viewBox="0 0 100 100" width="100%" height="100%" fill="none" style="overflow:visible;display:block">'+s+'</svg>';
+  return {model:m,ticks:[...g.querySelectorAll('[data-tick]')],core:g.querySelector('[data-core]'),
+    spin:g.querySelector('[data-spin]'),rings:[...g.querySelectorAll('[data-ring]')],wind:g.querySelector('[data-wind]')};
+}
+function updateModel(inst,P){const m=inst.model;
+  if(inst.core){const base=m==='haiku'?7:(m==='opus'?5:4);inst.core.setAttribute('r',(base+0.6*Math.sin(P*1.6)*A).toFixed(2));}
+  if(m==='haiku')inst.ticks.forEach((ln,i)=>{const dx=+ln.getAttribute('data-dx'),dy=+ln.getAttribute('data-dy');const o=34+A*3*Math.sin(P*1.4+i*2.0);ln.setAttribute('x2',(50+dx*o).toFixed(2));ln.setAttribute('y2',(50+dy*o).toFixed(2));});
+  else if(m==='sonnet'&&inst.spin)inst.spin.setAttribute('transform','rotate('+((P*26)%360).toFixed(2)+' 50 50)');
+  else if(m==='opus'){const sp=[24,-18,14];inst.rings.forEach((r,i)=>r.setAttribute('transform','rotate('+((P*sp[i])%360).toFixed(2)+' 50 50)'));}
+  else if(m==='fable'&&inst.wind)inst.wind.setAttribute('stroke-dashoffset',(-(P*34)%100).toFixed(2));
+}
+/* mount a radar into an <svg> OR a container div (creates the svg — fixes chip icons) */
+const radarInsts=[], modelInsts=[];
+function mountRadar(el,stateOrFn){
+  let svg=el;
+  if(el.tagName.toLowerCase()!=='svg'){
+    svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 100 100');svg.setAttribute('width','100%');svg.setAttribute('height','100%');
+    svg.style.overflow='visible';svg.style.display='block';el.appendChild(svg);
+  }
+  svg.innerHTML=buildRadar();
+  radarInsts.push({parts:cacheRadar(svg),gs:typeof stateOrFn==='function'?stateOrFn:()=>stateOrFn});
+}
+
+/* hero state machine */
+const STATES=[
+  ['clear','CLEARED','var(--white)',"Guarding. You're in-country and the path to Anthropic is open."],
+  ['verify','VERIFYING','var(--white)',"Confirming your location. The guard is held until it's sure."],
+  ['holdNet','HOLD · CONNECTION',AMBER,"No usable path to Anthropic. Requests wait — pending — and self-clear."],
+  ['holdGeo','HOLD · LOCATION',AMBER,"Off-country, or a VPN hop. Requests are held, not failed."],
+  ['off','UNGUARDED',RED,"Routing off — Claude connects directly. This is the danger state."],
+];
+let heroIdx=0,userTouched=false;
+mountRadar(document.getElementById('heroRadar'),()=>STATES[heroIdx][0]);
+const capState=document.getElementById('capState'),capText=document.getElementById('capText');
+function setHero(i){heroIdx=i;const[,st,col,tx]=STATES[i];capState.textContent=st;capState.style.color=col;capText.textContent=tx;
+  document.querySelectorAll('#chips .chip').forEach((c,k)=>c.classList.toggle('on',k===i));}
+const chipsEl=document.getElementById('chips');
+STATES.forEach(([sk,label],i)=>{const c=document.createElement('div');c.className='chip'+(i===0?' on':'');
+  const g=document.createElement('div');g.className='cg';const l=document.createElement('div');l.className='cl';
+  l.textContent=label.replace(' · ','\n');c.append(g,l);chipsEl.appendChild(c);
+  mountRadar(g,sk);c.addEventListener('click',()=>{userTouched=true;setHero(i);});});
+setHero(0);
+let advTimer=setInterval(()=>{if(userTouched){clearInterval(advTimer);return;}setHero((heroIdx+1)%STATES.length);},4200);
+
+mountRadar(document.getElementById('navradar'),'clear');
+mountRadar(document.getElementById('popRadar'),'clear');
+mountRadar(document.getElementById('mbRadar'),'clear');
+mountRadar(document.getElementById('footRadar'),'clear');
+
+/* marks gallery — monochrome (per design), tier color only on the label */
+const MODELS=[['haiku','Haiku','var(--crayon)','three ticks · fast &amp; spare'],
+  ['sonnet','Sonnet','var(--steel)','one stroke · balanced'],
+  ['opus','Opus','var(--rosso)','three rings · deep'],
+  ['fable','Fable','var(--gold)','a spiral · mythic']];
+const mg=document.getElementById('marks-grid');
+MODELS.forEach(([m,name,ac,ds])=>{const card=document.createElement('div');card.className='mark glass';
+  const g=document.createElement('div');g.className='mg';
+  const nm=document.createElement('div');nm.className='nm';nm.textContent=name;
+  const acc=document.createElement('div');acc.className='ac';acc.style.color=ac;acc.textContent=m;
+  const dd=document.createElement('div');dd.className='ds';dd.innerHTML=ds;
+  card.append(g,nm,acc,dd);mg.appendChild(card);modelInsts.push(buildModel(g,m));});
+
+/* ==================================================================== *
+ *  Live agents — the popover roster (varied model / effort / status).
+ * ==================================================================== */
+const AGENTS=[
+  {name:'khamzadeh_flow',model:'Opus 4.8',ctx:'1M',effort:'MAX',mark:'opus',act:'running cd',cnt:17,age:'2m'},
+  {name:'tower',model:'Opus 4.8',ctx:'1M',effort:'HIGH',mark:'opus',act:'using SendUserFile',cnt:56,age:'2m'},
+  {name:'web-ui',model:'Sonnet 4.8',ctx:'',effort:'MEDIUM',mark:'sonnet',act:'running tests · 214 passed',cnt:12,age:'5m'},
+];
+const agentList=document.getElementById('agentList');
+AGENTS.forEach((a,i)=>{
+  const row=document.createElement('div');row.className='arow';
+  row.innerHTML=
+    '<svg class="am" viewBox="0 0 100 100"></svg>'
+   +'<div class="abody"><div class="atop">'
+   +'<span class="aname">'+a.name+'</span>'
+   +'<span class="pill">'+a.model+(a.ctx?' <i>· '+a.ctx+'</i>':'')+'</span>'
+   +'<span class="badge">'+a.effort+'</span></div>'
+   +'<div class="aact work">'+a.act+'</div></div>'
+   +'<div class="ameta"><span class="cnt" data-cnt>'+a.cnt+' ✓</span><span class="age">'+a.age+'</span></div>';
+  agentList.appendChild(row);
+  modelInsts.push(buildModel(row.querySelector('.am'),a.mark));
+});
+
+/* jobs spark */
+const js=document.getElementById('jobspark');
+[12,18,13,28,20,15,24,34,19,14,26,21].forEach((h,i)=>{const s=document.createElement('span');s.style.height=h+'px';s.style.animationDelay=(i*0.11)+'s';js.appendChild(s);});
+
+/* one animation loop */
+let phase=0,last=0;
+function frame(ts){const t=ts/1000;let dt=last?t-last:.016;last=t;if(dt>.05)dt=.05;phase+=dt*A;const P=phase;
+  radarInsts.forEach(i=>updateRadar(i.parts,i.gs(),P));modelInsts.forEach(i=>updateModel(i,P));requestAnimationFrame(frame);}
+if(A)requestAnimationFrame(frame);else{radarInsts.forEach(i=>updateRadar(i.parts,i.gs(),0));modelInsts.forEach(i=>updateModel(i,0));}
+
+/* ==================================================================== *
+ *  Popover life: done payoff + momentum counters (the dopamine layer).
+ * ==================================================================== */
+const chk=document.getElementById('doneChk').querySelector('path');
+const doneRow=document.querySelector('.needrow');
+function playDone(){
+  if(REDUCE){chk.style.strokeDashoffset=0;return;}
+  chk.style.transition='none';chk.style.strokeDasharray='100';chk.style.strokeDashoffset='100';
+  doneRow.style.transition='none';doneRow.style.background='linear-gradient(90deg,rgba(48,209,88,.3),transparent)';
+  requestAnimationFrame(()=>{chk.style.transition='stroke-dashoffset .5s var(--ease) .1s';chk.style.strokeDashoffset='0';
+    doneRow.style.transition='background 1.1s ease';doneRow.style.background='linear-gradient(90deg,rgba(48,209,88,.09),transparent)';});
+}
+let doneN=41;
+function tickCounters(){if(REDUCE)return;
+  document.querySelectorAll('.cnt[data-cnt]').forEach(el=>{if(Math.random()<0.55){const n=parseInt(el.textContent)+1;el.textContent=n+' ✓';
+    el.animate([{transform:'translateY(-2px)',opacity:.6},{transform:'none',opacity:1}],{duration:400,easing:'cubic-bezier(.2,.7,.2,1)'});}});
+  document.getElementById('doneCount').textContent=(++doneN);}
+
+/* Resting toggle */
+document.getElementById('restToggle').addEventListener('click',function(){const cv=this.querySelector('.cv');
+  cv.style.transform=cv.style.transform?'':'rotate(90deg)';});
+
+/* ==================================================================== *
+ *  TUI life: streaming traffic + jittering sparkline.
+ * ==================================================================== */
+const spChars='▁▂▃▄▅▆▇█',tuiSpark=document.getElementById('tuiSpark');
+function jitterSpark(){if(REDUCE)return;let s='';for(let i=0;i<12;i++){let v=Math.floor(2+Math.random()*4);if(Math.random()<0.12)v=7;s+=spChars[v];}tuiSpark.textContent=s;}
+const tuiTraffic=document.getElementById('tuiTraffic');let clock=[9,41,25];
+function pushTraffic(){if(REDUCE)return;
+  clock[2]+=Math.floor(3+Math.random()*20);while(clock[2]>=60){clock[2]-=60;clock[1]++;}while(clock[1]>=60){clock[1]-=60;clock[0]++;}
+  const t=String(clock[0]).padStart(2,'0')+':'+String(clock[1]).padStart(2,'0')+':'+String(clock[2]).padStart(2,'0');
+  const blk=Math.random()<0.14;const row=document.createElement('div');row.className='tl trow traffic-row';
+  row.innerHTML=blk?'<span><span class="c">'+t+'</span> <span class="w">⛔︎ api.anthropic.com</span></span><span class="w">blocked · off-country</span>'
+    :'<span><span class="c">'+t+'</span> <span class="g">✓ api.anthropic.com</span></span><span class="g">allowed</span>';
+  row.style.opacity='0';row.style.transition='opacity .5s';tuiTraffic.insertBefore(row,tuiTraffic.firstChild);
+  requestAnimationFrame(()=>row.style.opacity='1');while(tuiTraffic.children.length>4)tuiTraffic.removeChild(tuiTraffic.lastChild);}
+
+let beat=0;
+setInterval(()=>{beat++;if(document.hidden)return;pushTraffic();if(beat%2===0)jitterSpark();if(beat%3===0)tickCounters();if(beat%3===0)playDone();},1900);
+playDone();
+
+/* ==================================================================== *
+ *  Reveal + nav + copy.
+ * ==================================================================== */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}}),{threshold:.14,rootMargin:'0px 0px -8% 0px'});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+const nav=document.getElementById('nav');addEventListener('scroll',()=>nav.classList.toggle('stuck',scrollY>24),{passive:true});
+document.getElementById('copyBtn').addEventListener('click',async function(){try{await navigator.clipboard.writeText('git clone https://github.com/ghhrmnzdh/tower && cd tower && ./build.sh');this.textContent='copied';setTimeout(()=>this.textContent='copy',1600);}catch(e){this.textContent='⌘C';}});
+</script>
