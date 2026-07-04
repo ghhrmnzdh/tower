@@ -74,6 +74,17 @@ condition (your location or your connection) recovers.
   *working right now* (they'd immediately send unguarded requests). Turning
   the guard *on* stays one tap; only the off-direction is gated. App:
   `TowerModel.requestDanger` + `DangerAlerts`; TUI: `danger_confirm`.
+- **Never trip a macOS permission prompt.** Tower must never make macOS ask for
+  Photos / Music / Contacts / Desktop / Documents / Downloads. Two rules keep it
+  hermetic: (1) the daemon NEVER opens or enumerates anything under a
+  TCC-protected folder — guard every filesystem read with `_is_protected()`
+  (`_PROTECTED_ROOTS`); an agent working there still gets a row, but derive its
+  fields from the path string, not I/O (no git-root/branch/collision reads).
+  (2) Every `claude -p /usage` runs sandboxed — empty `ZDOTDIR` (no shell rc is
+  sourced), `--strict-mcp-config` + empty `--mcp-config` (no MCP servers spawn),
+  and a neutral `cwd=CONFIG_DIR`. The only prompts Tower may ever cause are
+  Notifications (lazy, first real alert), Terminal/iTerm control (only on a
+  user-initiated focus), and the keep-awake admin password (opt-in, pre-explained).
 - **Read-only toward Claude Code sessions:** the agent monitor never writes
   into `~/.claude` and never injects input into a session.
 - **Daemon is single-instance** (`flock` on `~/.tower/daemon.lock`).
