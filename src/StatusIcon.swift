@@ -20,9 +20,15 @@ struct MenubarIcon {
 @MainActor
 func menubarIcon(for model: TowerModel, phase: Double) -> MenubarIcon {
     let state = model.radarState
+    let awake = model.awakeGlow
     let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let image = Glyph.radar(state, phase: phase, neutral: Glyph.menubarNeutral(), reduce: reduce)
+    let image = Glyph.radar(state, phase: phase, neutral: Glyph.menubarNeutral(),
+                            awake: awake, reduce: reduce)
         ?? NSImage(systemSymbolName: "dot.radiowaves.left.and.right",
                    accessibilityDescription: nil)
-    return MenubarIcon(image: image, describe: model.status.title)
+    // The lamp is the only awake signal in the bar — no number, no badge. The
+    // tooltip still says it plainly for VoiceOver and on hover.
+    let awakeSuffix = awake == .clamshell ? " · staying awake (lid closed)"
+                    : awake == .idle ? " · staying awake" : ""
+    return MenubarIcon(image: image, describe: model.status.title + awakeSuffix)
 }
