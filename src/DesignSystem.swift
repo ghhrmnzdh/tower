@@ -8,6 +8,7 @@
 //      (failure is sober). Nothing loops at full attention when all is well.
 //   3. One loudest thing — a strict attention hierarchy.
 
+import AppKit
 import SwiftUI
 
 enum TowerDesign {
@@ -49,6 +50,17 @@ enum TowerDesign {
         static let counter = SwiftUI.Font.system(size: 11).monospacedDigit()
         static let section = SwiftUI.Font.system(size: 11, weight: .semibold)
         static let caption = SwiftUI.Font.system(size: 9)
+
+        /// JetBrains Mono — bundled in Resources/Fonts and registered at launch
+        /// (see AppDelegate.registerBundledFonts). Referenced by PostScript name;
+        /// falls back to the system monospaced face if registration ever fails,
+        /// so text is never lost. Used for the technical model/effort tokens.
+        static func mono(_ size: CGFloat, bold: Bool = false) -> SwiftUI.Font {
+            let name = bold ? "JetBrainsMono-Bold" : "JetBrainsMono-Medium"
+            return NSFont(name: name, size: size) != nil
+                ? .custom(name, size: size)
+                : .system(size: size, weight: bold ? .bold : .medium, design: .monospaced)
+        }
     }
 }
 
