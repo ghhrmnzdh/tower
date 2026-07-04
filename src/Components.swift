@@ -1,4 +1,4 @@
-// Corral — shared SwiftUI components: cards, meters, shimmer, small controls.
+// Tower — shared SwiftUI components: cards, meters, shimmer, small controls.
 
 import SwiftUI
 
@@ -65,7 +65,7 @@ struct Meter: View {
 // the guard (route off, enforce off, quit). Wording escalates when agents are
 // working right now. Attach once to a view root; the model drives both stages.
 struct DangerAlerts: ViewModifier {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     func body(content: Content) -> some View {
         content
             .alert(model.danger1?.title ?? "",
@@ -107,13 +107,13 @@ struct DangerAlerts: ViewModifier {
     }
 }
 extension View {
-    func dangerAlerts(_ model: CorralModel) -> some View {
+    func dangerAlerts(_ model: TowerModel) -> some View {
         modifier(DangerAlerts(model: model))
     }
 }
 
 struct KeepAwakeMenu: View {
-    @ObservedObject var model: CorralModel
+    @ObservedObject var model: TowerModel
     var body: some View {
         let mode = model.state?.keepawake?.mode ?? "off"
         let label = ["idle": "Lid open", "clamshell": "Lid closed"][mode] ?? "Off"
