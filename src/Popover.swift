@@ -402,7 +402,7 @@ struct AgentRow: View {
         let tier = ModelTier(family: session.model_family)
         let tooling = session.pending_tool != nil
         HStack(spacing: 9) {
-            ModelGlyphView(tier: tier)
+            ModelGlyphView(tier: tier, working: true)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(session.project_name ?? "agent")
