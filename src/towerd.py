@@ -1632,17 +1632,30 @@ class AgentMonitor:
         if rec.get("api_retrying") or rec.get("api_error_msg"):
             return "failed", None
         age = now - rec["mtime"]
+        open_tools = rec.get("open_tools") or {}
+        # A COMPLETED turn is terminal REGARDLESS of freshness — the same reason
+        # the API-error check above pre-empts the gate. The final assistant
+        # message refreshes the transcript mtime, so a turn that JUST ended still
+        # reads as < working_s old; the freshness gate below would then keep
+        # mislabelling it "working" for the first ~10s after it actually
+        # finished — the "still shows running when it's already done" lag. An
+        # end_turn with no tool left open IS the completion signal: classify it
+        # now (done / failed / asking), only aging to "idle" once it has been
+        # quiet past idle_s. The next real user prompt resets last_stop to None,
+        # so a new turn correctly reads as working again.
+        if rec.get("last_stop") == "end_turn" and not open_tools:
+            return ("idle", None) if age > self.idle_s \
+                else self._finished_status(rec)
         if age < self.working_s:
             return "working", None
         if age > self.idle_s:
             return "idle", None
-        # stalled between 10s and 5min. "pending_tool" means a tool call is
-        # genuinely OPEN — a tool_use with no matching tool_result yet — i.e.
+        # stalled between working_s and idle_s. "pending_tool" means a tool call
+        # is genuinely OPEN — a tool_use with no matching tool_result yet — i.e.
         # actually awaiting approval or a slow run. Do NOT infer it from
         # last_stop=="tool_use": that stays set through the think-gap AFTER a
         # tool's result comes back, so on auto-accept it produced a phantom
         # "waiting to edit X" from the stale last_tool. Require an open tool.
-        open_tools = rec.get("open_tools") or {}
         if open_tools:
             tool = max(open_tools.values(),
                        key=lambda t: t.get("since") or 0)
@@ -1655,17 +1668,22 @@ class AgentMonitor:
                     now - (pt["since"] or now) < self.tool_grace_s:
                 return "working", None  # slow tool, still within grace
             return "pending_tool", pt
-        if rec.get("last_stop") == "end_turn":
-            if rec.get("trailing_error") or rec.get("last_synth"):
-                return "failed", None
-            lines = [ln.strip().lower()
-                     for ln in (rec.get("last_text") or "").splitlines()]
-            if any(ln.startswith("failed:") for ln in lines):
-                return "failed", None
-            if any(ln.startswith("needs input:") for ln in lines):
-                return "asking", None
-            return "done", None         # "result:" and everything else
         return "working", None          # prompt sent, reply not started
+
+    def _finished_status(self, rec):
+        """Classify a turn that has ENDED (stop_reason end_turn, no tool still
+        open): "done" normally, or failed/asking when the final assistant text
+        says so. Split out of _raw_status so the completion signal can pre-empt
+        the freshness gate there instead of trailing it."""
+        if rec.get("trailing_error") or rec.get("last_synth"):
+            return "failed", None
+        lines = [ln.strip().lower()
+                 for ln in (rec.get("last_text") or "").splitlines()]
+        if any(ln.startswith("failed:") for ln in lines):
+            return "failed", None
+        if any(ln.startswith("needs input:") for ln in lines):
+            return "asking", None
+        return "done", None             # "result:" and everything else
 
     def _debounce(self, sid, tr, raw, now):
         """Publish a transition only after 2 scan cycles agree."""
