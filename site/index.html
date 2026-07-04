@@ -1,8 +1,8 @@
-<!-- Tower — showcase site. Static, self-contained (one external dep: Google Fonts).
-     Deploy: GitHub Pages → this folder, or copy index.html to the repo root.
-     The radar + model marks are ported 1:1 from src/Glyph.swift / the Identity Study.
-     Aesthetic: premium Apple glass — black & white, with green (protected/done),
-     blue (interactive) and amber/red reserved strictly for real hold/danger states. -->
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Tower — self-contained static site (one external dep: Google Fonts).
+     Radar + model marks ported 1:1 from src/Glyph.swift / the Identity Study. -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tower — a control tower for your Claude agents</title>
@@ -434,6 +434,8 @@ img,svg{display:block; max-width:100%}
   .reveal,.stagger>*{opacity:1;transform:none} .nav{transform:none;animation:none}
 }
 </style>
+</head>
+<body>
 
 <div class="sky"></div>
 
@@ -996,3 +998,5 @@ document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
 const nav=document.getElementById('nav');addEventListener('scroll',()=>nav.classList.toggle('stuck',scrollY>24),{passive:true});
 document.getElementById('copyBtn').addEventListener('click',async function(){try{await navigator.clipboard.writeText('git clone https://github.com/ghhrmnzdh/tower && cd tower && ./build.sh');this.textContent='copied';setTimeout(()=>this.textContent='copy',1600);}catch(e){this.textContent='⌘C';}});
 </script>
+</body>
+</html>
