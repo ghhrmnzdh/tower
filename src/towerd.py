@@ -903,6 +903,12 @@ _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 _RE_SESSION_ID = re.compile(r"--session-id[= ](" + _UUID + r")")
 _RE_RESUME_PATH = re.compile(r"--resume[= ](\S+\.jsonl)")
 _RE_RESUME_ID = re.compile(r"--resume[= ](" + _UUID + r")(?:\s|$)")
+# `/effort` echoes its result into the transcript as a user message, e.g.
+# "<local-command-stdout>Set effort level to max (this session only): …". This
+# is the ONLY per-session record of the live effort — settings.json holds only
+# the startup default — so we parse it to show each agent's true value.
+_RE_EFFORT_CMD = re.compile(
+    r"[Ss]et effort level to (\w+)|[Rr]eset effort.*?to (default|\w+)")
 
 
 def _model_family(model):
@@ -973,12 +979,12 @@ def _activity_for(rec, status):
 
 
 def _norm_effort(v):
-    """Claude Code `effortLevel` → the compact badge label the app renders,
-    using Claude Code's own vocabulary (…, high, xhigh, max). None for anything
-    unrecognised so the UI can simply omit the chip."""
+    """Normalise an effort value to Claude Code's own canonical name — low,
+    medium, high, xhigh, max (NOT abbreviated). Aliases fold in; None for
+    anything unrecognised so the UI can simply omit the chip."""
     s = str(v or "").strip().lower()
     return {"low": "low", "minimal": "low",
-            "medium": "med", "med": "med", "normal": "med",
+            "medium": "medium", "med": "medium", "normal": "medium",
             "high": "high",
             "xhigh": "xhigh", "x-high": "xhigh", "extra-high": "xhigh",
             "max": "max", "maximum": "max", "ultra": "max",
@@ -1189,6 +1195,7 @@ class TranscriptIndex:
                 "last_stop": None, "last_text": None, "last_synth": False,
                 "trailing_error": False, "turn_done_ts": None,
                 "api_retrying": False, "api_error_msg": None,
+                "effort_cmd": None,     # per-session /effort override (or None)
                 "open_tools": {}, "last_tool": None,
                 "err_ring": deque(maxlen=10), "tools_done": 0, "errors": 0,
                 "subagents": 0, "files": set(),
@@ -1344,6 +1351,17 @@ class TranscriptIndex:
     def _user(self, s, o, ts):
         m = o.get("message")
         content = m.get("content") if isinstance(m, dict) else None
+        # `/effort` result echo: capture the live per-session effort. This is a
+        # command stdout, not a real turn — record it and return so it doesn't
+        # reset turn state below.
+        if isinstance(content, str) and "effort level to" in content.lower():
+            mm = _RE_EFFORT_CMD.search(content)
+            if mm:
+                lvl = mm.group(1) or mm.group(2)
+                # "reset to default" clears the override → fall back to settings
+                s["effort_cmd"] = None if (lvl or "").lower() == "default" \
+                    else _norm_effort(lvl)
+            return
         handled = False
         if isinstance(content, list):
             for b in content:
@@ -1472,6 +1490,12 @@ class AgentMonitor:
                     continue
                 sess["activity"] = _activity_for(rec, sess["status"])
                 sess["last_activity"] = rec.get("mtime")
+                # Live per-session effort: a `/effort` change lands in the
+                # transcript and is picked up here within ~0.5s (settings default
+                # otherwise), so the badge tracks the true value in near-realtime.
+                sess["effort"] = (rec.get("effort_cmd")
+                                  or self._effort_of(sess.get("cwd"),
+                                                     sess.get("git_root")))
                 sess["ticks"] = {"tools_done": rec.get("tools_done", 0),
                                  "files": len(rec.get("files") or ()),
                                  "errors": rec.get("errors", 0),
@@ -1684,7 +1708,7 @@ class AgentMonitor:
             "kind": kind,
             "model": model,
             "model_family": _model_family(model),
-            "effort": self._effort_of(cwd, git_root),
+            "effort": rec.get("effort_cmd") or self._effort_of(cwd, git_root),
             "context": self._ctx_tag_of(cwd, git_root, _model_family(model)),
             "project_name": os.path.basename(cwd) if cwd else None,
             "cwd": cwd,
