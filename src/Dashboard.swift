@@ -125,6 +125,8 @@ struct OverviewTab: View {
                 ControlsPane(model: model).padding(6)
             }
 
+            KeepAwakeCard(model: model)
+
             GroupBox("Counters") {
                 HStack(spacing: 18) {
                     counter("Allowed", g?.allowed)
@@ -200,7 +202,6 @@ struct ControlsPane: View {
                 } label: { Text("\(flag(g?.target_cc)) \(g?.target_cc ?? "US")") }
                     .fixedSize()
             }
-            row("Keep awake") { KeepAwakeMenu(model: model) }
         }
     }
     @ViewBuilder func row<T: View>(_ t: String, @ViewBuilder _ trailing: () -> T) -> some View {
@@ -558,6 +559,15 @@ struct SettingsTab: View {
     @AppStorage("menubarMode") var mode = "session"
     @AppStorage("warnAt") var warn = 60
     @AppStorage("dangerAt") var danger = 85
+    @AppStorage(PopPref.needsBadge) var needsBadge = true
+    // Popover composition (read by PopoverView + its live preview here).
+    @AppStorage(PopPref.net) var showNet = true
+    @AppStorage(PopPref.agents) var showAgents = true
+    @AppStorage(PopPref.location) var showLocation = true
+    @AppStorage(PopPref.keepawake) var showKeepAwake = true
+    @AppStorage(PopPref.plan) var showPlan = true
+    @AppStorage(PopPref.resting) var showResting = true
+    @AppStorage(PopPref.density) var density = "comfy"
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             GroupBox("Menu bar") {
@@ -579,7 +589,44 @@ struct SettingsTab: View {
                         Stepper("\(danger)%", value: $danger, in: 20...100, step: 5).fixedSize()
                             .onChange(of: danger) { (NSApp.delegate as? AppDelegate)?.updateIcon() }
                     }
+                    row("Needs-you count") {
+                        Toggle("", isOn: $needsBadge)
+                            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                            .onChange(of: needsBadge) { (NSApp.delegate as? AppDelegate)?.updateIcon() }
+                    }
+                    Text("The bar never counts running agents — the only number it can show is the needs-you total, and only while this is on.")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(6)
+            }
+            GroupBox("Popover") {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("What shows when you click the menu-bar tower. The header and footer always stay; the order is fixed.")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        toggleRow("Network weather", $showNet)
+                        toggleRow("Agents", $showAgents)
+                        toggleRow("Location", $showLocation)
+                        toggleRow("Keep awake", $showKeepAwake)
+                        toggleRow("Plan usage", $showPlan)
+                        Divider()
+                        row("Density") {
+                            Picker("", selection: $density) {
+                                Text("Comfortable").tag("comfy")
+                                Text("Compact").tag("compact")
+                            }
+                            .pickerStyle(.segmented).labelsHidden().fixedSize()
+                        }
+                        toggleRow("Resting agents", $showResting)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 6) {
+                        PopoverPreview(model: model)
+                        Text("live preview").font(.system(size: 9)).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(6)
             }
             GroupBox("Plan") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -636,5 +683,42 @@ struct SettingsTab: View {
             Spacer()
             trailing()
         }
+    }
+    @ViewBuilder func toggleRow(_ t: String, _ isOn: Binding<Bool>) -> some View {
+        HStack {
+            Text(t).font(.system(size: 12)).foregroundStyle(.secondary)
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
+        }
+    }
+}
+
+// A live, inert miniature of the popover, driven by the very same PopPref keys
+// the switches write — so composing the popover is immediate and visible even
+// though the real one lives up in the menu bar. Scaled from the top-left and
+// clipped to a card; the bottom edge fades to read as "more below". Section
+// show/hide rides the popover's own settle spring, so a flip animates here too.
+struct PopoverPreview: View {
+    @ObservedObject var model: TowerModel
+    private let scale: CGFloat = 0.6
+    var body: some View {
+        PopoverView(model: model, isPreview: true)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: TowerDesign.Size.popoverWidth * scale, height: 300,
+                   alignment: .topLeading)
+            .clipped()
+            .allowsHitTesting(false)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, Color(nsColor: .windowBackgroundColor)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 22).allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12))
+            )
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
     }
 }
