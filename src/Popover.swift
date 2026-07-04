@@ -41,25 +41,31 @@ struct PopoverView: View {
                         PlanSection(model: model)
                     }
                     // WHY the popover used to lurch left after a status/agent
-                    // update (the recurring clipped-label bug): SwiftUI's ScrollView
-                    // *horizontally centers* content that is even momentarily
-                    // wider than its viewport. A refresh reflows this section
-                    // (matchedGeometryEffect + numericText + the reorder spring),
-                    // and mid-animation a row can measure > popoverWidth for a
-                    // frame. ScrollView centers that oversized content, shoving
-                    // its leading edge off-screen — and the offset STICKS until
-                    // the popover is reopened. Header/footer live outside the
-                    // ScrollView, which is why only the middle column shifted.
+                    // update (the recurring clipped-label bug): a vertical
+                    // ScrollView *horizontally centers* any content wider than
+                    // its content viewport, and that offset STICKS until reopen.
+                    // Header/footer live outside the ScrollView, so only the
+                    // middle column drifts.
                     //
-                    // The cure is structural, not per-label: lock the content to
-                    // exactly the viewport width and the leading edge so it can
-                    // never read as oversized (→ never centered). Any transient
-                    // row overflow is trimmed at the trailing edge by .clipped()
-                    // below instead of disturbing the column's origin. The width
-                    // is never animated (the outer frame is a constant
-                    // popoverWidth; only height reflows), so this pin holds for
-                    // every frame of every update.
-                    .frame(width: TowerDesign.Size.popoverWidth, alignment: .leading)
+                    // The subtlety that kept this "fixed but not fixed": pinning
+                    // the content to the *constant* popoverWidth does NOT match
+                    // it to the viewport. The ScrollView's real content width
+                    // can differ from popoverWidth by a hair (safe-area / inset
+                    // / a reflow frame), and the instant the fixed-360 column is
+                    // even 1pt wider than the viewport it sits in, it gets
+                    // centered → leading edge goes negative → "AGENTS"→"GENTS"
+                    // and the radar marks clip off the left edge.
+                    //
+                    // The real cure is to let the column *track the viewport*
+                    // (maxWidth: .infinity) rather than assert a constant width:
+                    // content then equals the viewport by construction, so there
+                    // is never any overflow for the ScrollView to center. Leading
+                    // alignment keeps the origin fixed, and .clipped() trims any
+                    // transient per-row overflow (a numericText digit tick, a
+                    // matchedGeometry reorder frame) inside the column instead of
+                    // letting it disturb the origin or escape the popover.
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
                 }
                 .frame(width: TowerDesign.Size.popoverWidth)
                 .frame(maxHeight: 460)
@@ -336,6 +342,13 @@ struct NeedsYouRow: View {
     }
 
     func rowSubtitle(_ s: GAgentSession, _ st: AgentStatus) -> String {
+        // A failed agent carries the *reason* in `activity` (e.g. "API error —
+        // retrying 3/10" or "API Error: Connection closed"). Surface that
+        // instead of the generic "failed · <old prompt>" — the reason is the
+        // whole point of the alert.
+        if st == .failed, let a = s.activity, !a.isEmpty {
+            return a
+        }
         var out = st.phrase
         if let t = s.title ?? s.last_prompt, !t.isEmpty {
             out += " · \(t)"
