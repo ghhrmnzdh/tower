@@ -1,8 +1,12 @@
-## Publishes site/ to GitHub Pages. Pages is enabled automatically on the first
-## run (configure-pages `enablement: true` + the `pages: write` permission
-## below) — no manual Settings step needed. If an org policy blocks programmatic
-## enablement, set it once: Settings → Pages → Source: GitHub Actions.
-name: Deploy site to GitHub Pages
+## Publishes the site/ folder to the gh-pages branch, which GitHub Pages serves
+## (Settings → Pages → Source: Deploy from a branch → gh-pages / root — already set).
+##
+## Uses a plain git push, NOT actions/deploy-pages: that action kept failing on
+## this repo with "Deployment failed, try again later" even though GitHub Pages
+## was operational. Pushing site/ straight to gh-pages triggers Pages' own
+## (rock-solid) static build. No third-party actions. Every push touching site/
+## republishes; run it by hand from the Actions tab via "Run workflow".
+name: Publish site to gh-pages
 
 on:
   push:
@@ -13,27 +17,30 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: publish-site
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true      # enable Pages (build_type=workflow) if not already
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Push site/ to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp -R site/. "$work"/
+          rm -f "$work/README.md"          # dev notes, not part of the public site
+          touch "$work/.nojekyll"          # serve files verbatim, skip Jekyll
+          cd "$work"
+          git init -q -b gh-pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish site @ ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
