@@ -30,6 +30,22 @@ struct PopoverView: View {
                 // Cap the scrollable middle so the popover can never grow taller
                 // than the screen — an oversized popover gets shoved off-anchor
                 // and clipped by the menu bar. Header + footer stay pinned.
+                //
+                // .defaultScrollAnchor(.topLeading) is load-bearing, not
+                // cosmetic: the middle reorders under an animation
+                // (matchedGeometry + the reorder spring) whenever an agent moves
+                // section (working → done → resting). Mid-animation the column's
+                // height briefly overshoots the 460 cap, which hands the
+                // ScrollView a transient scroll range; without a pinned anchor it
+                // lands at a NON-zero content offset and STICKS there after the
+                // content settles back under the cap — with no scrollable range
+                // left to correct it. That is the recurring "UI shifted out of
+                // view" bug: horizontally it centered an over-wide frame (fixed
+                // by the leading pin below), vertically it stranded the top rows
+                // (NetRow + the AGENTS header) above the fold. Anchoring
+                // top-leading forces the resting position back to the origin on
+                // every content-size change, on both axes, so no reflow can leave
+                // a stuck offset.
                 ScrollView {
                     VStack(spacing: 0) {
                         NetRow(model: model)
@@ -70,6 +86,7 @@ struct PopoverView: View {
                 .frame(width: TowerDesign.Size.popoverWidth)
                 .frame(maxHeight: 460)
                 .clipped()
+                .defaultScrollAnchor(.topLeading)
                 .scrollBounceBehavior(.basedOnSize)
             }
             Divider()
@@ -302,12 +319,12 @@ struct NeedsYouRow: View {
                     .transition(.opacity)   // sober: no bounce for bad news
             }
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Text(session.project_name ?? "agent")
                         .font(TowerDesign.Font.rowTitle.weight(.medium))
-                    Text(ModelTier(family: session.model_family).display)
-                        .font(TowerDesign.Font.caption)
-                        .foregroundStyle(ModelTier(family: session.model_family).accent)
+                        .foregroundStyle(.primary)      // the name: one color
+                        .lineLimit(1)
+                    ModelBadge(session: session)
                 }
                 Text(copied ? "resume command copied — paste in any terminal"
                             : rowSubtitle(session, st))
@@ -404,12 +421,50 @@ struct CheckShape: Shape {
     }
 }
 
+// The model + effort chip: a single tier-tinted capsule carrying the model name
+// and — when known — the reasoning effort in its own compartment. This is where
+// the model's identity color lives, so the project name beside it can stay one
+// neutral color. Two-tone, hairline-bordered: reads as a crafted token, not a
+// label. Effort compartment omitted when effort is unknown.
+struct ModelBadge: View {
+    let session: GAgentSession
+    var body: some View {
+        let accent = session.tier.accent
+        HStack(spacing: 0) {
+            Text(session.modelDisplay)
+                .font(.system(size: 9.5, weight: .semibold))
+                .padding(.leading, 6)
+                .padding(.trailing, session.effortLabel == nil ? 6 : 5)
+                .padding(.vertical, 2)
+            if let e = session.effortLabel {
+                Text(e)
+                    .font(.system(size: 8.5, weight: .heavy))
+                    .tracking(0.4)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(accent.opacity(0.16))
+                    .overlay(Rectangle().frame(width: 0.6)   // compartment divider
+                        .foregroundStyle(accent.opacity(0.28)), alignment: .leading)
+            }
+        }
+        .foregroundStyle(accent)
+        .background(accent.opacity(0.10))
+        .clipShape(Capsule(style: .continuous))
+        .overlay(Capsule(style: .continuous)
+            .strokeBorder(accent.opacity(0.22), lineWidth: 0.6))
+        .fixedSize()
+        .help("\(session.modelDisplay)"
+              + (session.effortLabel.map { " · \($0.lowercased()) effort" } ?? ""))
+    }
+}
+
 // A working row: the model's mark is alive; the activity line shimmers only
 // while a tool call is actually in flight. Momentum counter ticks up.
 struct AgentRow: View {
     @ObservedObject var model: TowerModel
     let session: GAgentSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     var body: some View {
         let tier = ModelTier(family: session.model_family)
@@ -417,12 +472,12 @@ struct AgentRow: View {
         HStack(spacing: 9) {
             ModelGlyphView(tier: tier, working: true)
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Text(session.project_name ?? "agent")
                         .font(TowerDesign.Font.rowTitle.weight(.medium))
-                    Text(tier.display)
-                        .font(TowerDesign.Font.caption)
-                        .foregroundStyle(tier.accent)
+                        .foregroundStyle(.primary)      // the name: one color
+                        .lineLimit(1)
+                    ModelBadge(session: session)
                     if session.health?.level == "warn" {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 9))
@@ -453,7 +508,15 @@ struct AgentRow: View {
         }
         .padding(.horizontal, TowerDesign.Size.padH)
         .padding(.vertical, TowerDesign.Size.rowVPad)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tier.accent.opacity(hovering ? 0.07 : 0))
+                .padding(.horizontal, 6)
+        )
         .contentShape(Rectangle())
+        .onHover { h in
+            withAnimation(.easeOut(duration: 0.15)) { hovering = h }
+        }
         .onTapGesture {
             if session.focusable == true {
                 model.send(["cmd": "focus", "session_id": session.id])
