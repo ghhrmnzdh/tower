@@ -589,7 +589,7 @@ struct SettingsTab: View {
                             set: { model.send(["cmd": "planfetch", "on": $0]) }))
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
-                    Text("Off = never runs Claude, so macOS won't prompt for Photos/Music. You keep the local estimate.")
+                    Text("On reads real limits via a sandboxed `claude -p /usage` — no shell profile, no MCP, so it can't trigger Photos/Music prompts. Off keeps just the local estimate.")
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }.padding(6)
             }
