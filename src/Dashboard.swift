@@ -424,7 +424,7 @@ struct UsageTab: View {
                     Text("\(pct)%").font(.system(size: 13, weight: .bold))
                         .monospacedDigit().foregroundStyle(levelColor(pct))
                         .contentTransition(.numericText())
-                    if let r = b.resets { Text("resets \(r)").font(.system(size: 9))
+                    if let r = b.resetDisplay { Text("resets \(r)").font(.system(size: 9))
                         .foregroundStyle(.tertiary) }
                 }
                 Meter(fraction: Double(pct) / 100.0, color: levelColor(pct))
