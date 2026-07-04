@@ -35,6 +35,13 @@ enum RadarState {
     case clear, verify, holdNet, holdGeo, off
 }
 
+/// Keep-awake, as a soft "vigil" the radar wears on top of any state — the
+/// tower's lamp. Dark when sleep is allowed, lit while the Mac is held awake,
+/// breathing slowly on a lid-closed vigil. Deliberately NEUTRAL (never amber /
+/// red) so a guard hold or an unguarded state always outranks it: the two facts
+/// compose in one mark instead of fighting for the same colour.
+enum AwakeGlow { case none, idle, clamshell }
+
 // --------------------------------------------------------------------------- //
 // Radar geometry — one function, drawn into a context pre-scaled to the 0…100 box.
 // --------------------------------------------------------------------------- //
@@ -44,7 +51,8 @@ private func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
 private let hub = CGPoint(x: 50, y: 50)
 
 func drawRadar(_ ctx: GraphicsContext, size: CGFloat, state: RadarState,
-               phase P: Double, color: Color, reduce: Bool) {
+               phase P: Double, color: Color, awake: AwakeGlow = .none,
+               reduce: Bool) {
     let sc = size / 100
     var g0 = ctx
     g0.scaleBy(x: sc, y: sc)            // everything below is in 0…100 units
@@ -144,11 +152,30 @@ func drawRadar(_ ctx: GraphicsContext, size: CGFloat, state: RadarState,
                   with: .color(towerAmber.opacity(hop)), style: StrokeStyle(lineWidth: 2.5))
     }
 
+    // ---- keep-awake "vigil": the tower's lamp, layered under the core. off =
+    // a plain dark dot; on = a bright core + a breathing neutral halo ring (the
+    // readable tell). clamshell breathes deeper so lid-closed reads as "more".
+    // Neutral by design — never amber/red — so a guard hold always outranks it.
+    if awake != .none {
+        let live: Double = reduce ? 0 : 1
+        let amp = awake == .clamshell ? 1.0 : 0.6
+        let per = awake == .clamshell ? 2.4 : 2.9
+        let br  = live > 0 ? (0.5 + 0.5 * sin(P * 2 * .pi / per)) : 0.7
+        for (r, op) in [(CGFloat(15), 0.09), (CGFloat(11), 0.15), (CGFloat(7.5), 0.22)] {
+            g0.fill(circle(hub, r), with: .color(color.opacity(op * (0.75 + 0.35 * br * amp))))
+        }
+        let haloR = 9.5 + (live > 0 ? 1.7 * br * amp : 0.9)
+        g0.stroke(circle(hub, CGFloat(haloR)),
+                  with: .color(color.opacity(0.44 + 0.30 * br * amp)),
+                  style: StrokeStyle(lineWidth: 2.2))
+    }
+
     // ---- the core -----------------------------------------------------------
     if state == .off {
         g0.stroke(circle(hub, 5.5), with: .color(towerRed), style: StrokeStyle(lineWidth: 4))
     } else {
-        g0.fill(circle(hub, 4.5), with: .color(state == .holdNet ? towerAmber : color))
+        g0.fill(circle(hub, awake == .none ? 4.5 : 5.6),
+                with: .color(state == .holdNet ? towerAmber : color))
     }
 }
 
@@ -247,6 +274,39 @@ func drawModelMark(_ ctx: GraphicsContext, size: CGFloat, tier: ModelTier,
 }
 
 // --------------------------------------------------------------------------- //
+// Beacon — the keep-awake mark for the popover row and the dashboard card. The
+// tower's lamp, standalone (no radar ring): a hollow, dim lamp when sleep is
+// allowed; a lit lamp with a breathing halo while the Mac is held awake. Same
+// neutral vigil language as the radar core, so one glow reads the same
+// everywhere. Drawn in the shared 0…100 box.
+// --------------------------------------------------------------------------- //
+func drawBeacon(_ ctx: GraphicsContext, size: CGFloat, mode: AwakeGlow,
+                phase P: Double, color: Color, reduce: Bool) {
+    let sc = size / 100
+    var g0 = ctx
+    g0.scaleBy(x: sc, y: sc)
+    let on = mode != .none
+    let live: Double = reduce ? 0 : 1
+    let amp = mode == .clamshell ? 1.0 : 0.6
+    let per = mode == .clamshell ? 2.4 : 2.9
+    let br  = live > 0 ? (0.5 + 0.5 * sin(P * 2 * .pi / per)) : 0.7
+    if on {
+        for (r, op) in [(CGFloat(30), 0.10), (CGFloat(21), 0.17), (CGFloat(13), 0.26)] {
+            g0.fill(circle(hub, r), with: .color(color.opacity(op * (0.75 + 0.35 * br * amp))))
+        }
+        let ringR = 17 + (live > 0 ? 2 * br * amp : 1)
+        g0.stroke(circle(hub, CGFloat(ringR)),
+                  with: .color(color.opacity(0.30 + 0.25 * br * amp)),
+                  style: StrokeStyle(lineWidth: 4.5))
+        g0.fill(circle(hub, 11), with: .color(color))
+    } else {
+        g0.stroke(circle(hub, 15), with: .color(color.opacity(0.34)),
+                  style: StrokeStyle(lineWidth: 4.5))
+        g0.fill(circle(hub, 6), with: .color(color.opacity(0.30)))
+    }
+}
+
+// --------------------------------------------------------------------------- //
 // Live SwiftUI views.
 // --------------------------------------------------------------------------- //
 
@@ -255,16 +315,20 @@ struct TowerRadar: View {
     var state: RadarState
     var size: CGFloat = 22
     var color: Color = .primary
+    var awake: AwakeGlow = .none
     var animated: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let live = animated && !reduceMotion
+        // Animate while the state has motion to spend frames on, OR while the
+        // Mac is on a lid-closed vigil (the lamp breathes). A still context
+        // (animated:false) still shows a static *lit* lamp when awake.
+        let live = (animated || awake == .clamshell) && !reduceMotion
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
             Canvas { ctx, sz in
                 drawRadar(ctx, size: sz.width, state: state,
                           phase: live ? tl.date.timeIntervalSinceReferenceDate : 0,
-                          color: color, reduce: reduceMotion)
+                          color: color, awake: awake, reduce: reduceMotion)
             }
             .frame(width: size, height: size)
         }
@@ -292,6 +356,28 @@ struct ModelGlyphView: View {
     }
 }
 
+/// The keep-awake lamp as a live view. Breathes only while the Mac is held
+/// awake (idle or clamshell); a still, dim ring when sleep is allowed. Reduce
+/// Motion freezes it at a legible lit frame.
+struct BeaconView: View {
+    var mode: AwakeGlow
+    var size: CGFloat = 26
+    var color: Color = .primary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let live = mode != .none && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
+            Canvas { ctx, sz in
+                drawBeacon(ctx, size: sz.width, mode: mode,
+                           phase: live ? tl.date.timeIntervalSinceReferenceDate : 0,
+                           color: color, reduce: reduceMotion)
+            }
+            .frame(width: size, height: size)
+        }
+    }
+}
+
 // --------------------------------------------------------------------------- //
 // Menu-bar radar — baked to a full-color NSImage per frame so it reads exactly
 // like the popover: brand amber/red for the state, a neutral (resolved from the
@@ -300,10 +386,12 @@ struct ModelGlyphView: View {
 // --------------------------------------------------------------------------- //
 enum Glyph {
     @MainActor static func radar(_ state: RadarState, phase: Double,
-                                 neutral: Color, reduce: Bool) -> NSImage? {
+                                 neutral: Color, awake: AwakeGlow = .none,
+                                 reduce: Bool) -> NSImage? {
         let pt = TowerDesign.Size.menubarPt
         let view = Canvas { ctx, sz in
-            drawRadar(ctx, size: sz.width, state: state, phase: phase, color: neutral, reduce: reduce)
+            drawRadar(ctx, size: sz.width, state: state, phase: phase,
+                      color: neutral, awake: awake, reduce: reduce)
         }
         .frame(width: pt, height: pt)
         let r = ImageRenderer(content: view)
