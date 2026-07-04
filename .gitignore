@@ -6,9 +6,7 @@ __pycache__/
 *.pyc
 
 # Built product — regenerate with ./build.sh
-Geo Guard.app/
-Corral.app/
+Tower.app/
 
-# Local runtime state (created at ~/.corral, never in-repo, but just in case)
-.corral/
-.geo-guard/
+# Local runtime state (created at ~/.tower, never in-repo, but just in case)
+.tower/
