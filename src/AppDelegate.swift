@@ -77,14 +77,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // ---- Menubar icon ---- //
     // The Tower radar (see StatusIcon.swift), refreshed at the current phase.
-    // Badge text: needs-you count, then optional usage %. Tint only ever means
-    // alert.
+    // Badge text: needs-you count, then optional usage %.
     func updateIcon() {
         guard let button = statusItem.button else { return }
         let phase = Date().timeIntervalSinceReferenceDate
         let icon = menubarIcon(for: model, phase: phase)
         button.image = icon.image
-        button.contentTintColor = icon.tint
+        button.contentTintColor = nil   // the radar image carries its own colors
         button.image?.accessibilityDescription = icon.describe
 
         // Badge: "⚡N" needs-you count (red when something failed), then the
