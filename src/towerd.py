@@ -183,6 +183,12 @@ class State:
         self.country_name = self.country_cc = None
         self.last_error = None
         self._recheck = False
+        # Egress IP the current reading was taken on, and the monotonic clock of
+        # the last confirmed-OK reading. Together they let the gate notice a VPN
+        # drop the instant it happens (egress changed) and refuse to trust a
+        # reading that's gone stale (a hung geo thread) — both fail CLOSED.
+        self._egress = None
+        self._geo_ok_mono = None
         # Show the last known location instantly on launch (status CACHED means
         # "displaying last known, re-verifying"). CACHED is NOT "OK", so under
         # the fail-closed guard it does NOT allow Claude through — it is display
@@ -229,7 +235,15 @@ class State:
         geo), not letting unconfirmed traffic through."""
         if not self.net_ok:
             return False
-        return self.status == "OK" and self.country_cc == self.target_cc
+        if not (self.status == "OK" and self.country_cc == self.target_cc):
+            return False
+        # Backstop: never keep the gate open on a confirmation we haven't
+        # refreshed within GEO_MAX_AGE. A healthy geo loop refreshes every cycle
+        # (or flips to ERROR, which the check above already blocks); only a hung
+        # or dead loop lets an "OK" reading go stale — and then we fail closed
+        # rather than trust a frozen "in-country" answer.
+        m = self._geo_ok_mono
+        return m is not None and (time.monotonic() - m) <= GEO_MAX_AGE
 
     def should_block(self, claude):
         if not self.enforce:
@@ -293,6 +307,33 @@ def _geo_opener():
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+# The gate must never keep trusting a confirmation it hasn't refreshed within
+# this long: a geo thread that hangs or dies must fail CLOSED, not leave the
+# door open on a frozen "in-country" reading. Comfortably larger than one full
+# geo cycle (interval + worst-case lookup) so a healthy loop never trips it.
+GEO_MAX_AGE = 60.0
+
+
+def _egress_ip():
+    """The local source IP the kernel would use to reach the public internet.
+    On a VPN this is the tunnel's local address; the instant the VPN drops (or
+    the primary interface changes) it flips to the real interface IP. A UDP
+    'connect' only sets the socket's default peer — NO packet is sent — so this
+    is a local, sub-millisecond call with no network dependency. Returns None
+    when there's no route out at all (itself a change worth reacting to)."""
+    for ref in ("1.1.1.1", "8.8.8.8"):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect((ref, 80))
+                return s.getsockname()[0]
+            finally:
+                s.close()
+        except OSError:
+            continue
+    return None
+
+
 def _geo_ipapi(opener):
     fields = "status,country,countryCode,city,regionName,isp,query,message"
     with opener.open(f"http://ip-api.com/json/?fields={fields}", timeout=8) as r:
@@ -338,6 +379,7 @@ GEO_PROVIDERS = (("ip-api", _geo_ipapi), ("ipwho.is", _geo_ipwho),
 def geo_loop(state, interval=15):
     opener = _geo_opener()
     while not state.stop.is_set():
+        egress = _egress_ip()          # the network this reading is taken on
         loc, err = None, None
         for name, fn in GEO_PROVIDERS:
             try:
@@ -358,6 +400,8 @@ def geo_loop(state, interval=15):
                 state.country_name = loc.get("country_name")
                 state.country_cc = loc.get("country_cc")
                 state.last_error = None
+                state._egress = egress
+                state._geo_ok_mono = time.monotonic()
             state.cfg["last_location"] = {
                 "ip": state.ip, "city": state.city, "region": state.region,
                 "isp": state.isp, "country_name": state.country_name,
@@ -368,10 +412,22 @@ def geo_loop(state, interval=15):
                 state.status = "ERROR"
                 state.last_error = (_humanize(err) if err
                                     else "the location lookup failed")
+                state._egress = egress
+        # Wait out the interval — but the MOMENT the egress IP changes (VPN
+        # dropped / reconnected / interface switched) we can no longer claim to
+        # be in-country, so fail closed on the spot and re-verify immediately
+        # instead of trusting the now-stale reading for up to a full interval.
+        # _egress_ip() is a local, sub-ms call, so polling it every 0.25s is
+        # free and bounds the off-country exposure window to ~a quarter second.
         waited = 0.0
         while waited < interval and not state.stop.is_set():
             if state._recheck:
                 state._recheck = False
+                break
+            if _egress_ip() != state._egress:
+                with state.lock:
+                    if state.status == "OK":
+                        state.status = "CHECKING"   # unconfirmed → gate closes
                 break
             time.sleep(0.25)
             waited += 0.25
