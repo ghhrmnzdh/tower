@@ -963,6 +963,14 @@ AGENT_GONE_KEEP_S = 60.0      # agent_gone_keep_s: keep gone rows, then drop
 AGENT_TOOL_GRACE_S = 180.0    # agent_tool_grace_s: slow-tool grace period
 AGENT_PENDING_WARN_S = 600.0  # agent_pending_warn_s: pending_tool → warn
 AGENT_WORKING_WARN_S = 1200.0  # agent_working_warn_s: no completed turn → warn
+# Mid-turn dead silence past this = the signature of an in-progress API error /
+# retry storm. Claude Code writes NOTHING to the transcript while it retries an
+# overloaded / 500 / connection error (only the final outcome — a real reply, or
+# a terminal "API Error:" synthetic line — is written), so the turn just goes
+# quiet and the status engine would otherwise keep reading it as "working". This
+# is the only signal we have for a live API stall; kept well above a normal
+# think/first-token gap so a healthy turn never trips it. (agent_api_stall_s)
+AGENT_API_STALL_S = 90.0
 AGENT_EDIT_WINDOW_S = 900.0   # recent-edit window for file-level collisions
 GRACE_TOOLS = ("Bash", "Task", "Agent", "Workflow")    # legitimately slow
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
@@ -1039,12 +1047,38 @@ def _activity_phrase(tool):
     return f"using {name}"
 
 
-def _activity_for(rec, status):
+def _stall_secs(rec, threshold):
+    """Seconds a *working* turn has been silent MID-turn with nothing pending —
+    or None if it isn't stalled. This is Tower's only handle on an in-progress
+    API error / retry storm, which Claude Code doesn't record in the transcript
+    (see AGENT_API_STALL_S). Mid-turn = the last stop wasn't an end_turn (the
+    turn hasn't completed); nothing pending = no open tool (an open tool is the
+    legitimate 'pending_tool' wait, not a stall). Anything past `threshold` of
+    dead air here is abnormal — a healthy first-token / think gap is far shorter."""
+    if rec.get("last_stop") == "end_turn":
+        return None                     # turn completed — not mid-flight
+    if rec.get("open_tools"):
+        return None                     # a tool is genuinely pending, not a stall
+    mtime = rec.get("mtime")
+    if not mtime:
+        return None
+    age = time.time() - mtime
+    return int(age) if age > threshold else None
+
+
+def _activity_for(rec, status, stall_s=AGENT_API_STALL_S):
     """The live description line for a session: the API-error reason when the
-    turn has failed, otherwise the phrase for its latest tool_use. Shared by the
-    full-refresh row builder and the between-refresh fast tick so both agree."""
+    turn has failed, an honest 'no response — possible API error' when a working
+    turn has gone silent mid-flight, otherwise the phrase for its latest
+    tool_use. Shared by the full-refresh row builder and the between-refresh fast
+    tick so both agree."""
     if status == "failed" and rec.get("api_error_msg"):
         return rec.get("api_error_msg")
+    if status == "working":
+        stalled = _stall_secs(rec, stall_s)
+        if stalled is not None:
+            return (f"no response for {stalled}s — "
+                    "possible API error or network stall")
     return _activity_phrase(rec.get("last_tool"))
 
 
@@ -1515,6 +1549,8 @@ class AgentMonitor:
                                             AGENT_PENDING_WARN_S))
         self.working_warn_s = float(cfg.get("agent_working_warn_s",
                                             AGENT_WORKING_WARN_S))
+        self.api_stall_s = float(cfg.get("agent_api_stall_s",
+                                         AGENT_API_STALL_S))
         self._track = {}        # sid -> status/since/pending/gone_since/…
         self._settings = SettingsCache()
         self._dismissed = set()
@@ -1566,7 +1602,8 @@ class AgentMonitor:
                 rec = by_sid.get(sess["session_id"])
                 if rec is None:
                     continue
-                sess["activity"] = _activity_for(rec, sess["status"])
+                sess["activity"] = _activity_for(rec, sess["status"],
+                                                 self.api_stall_s)
                 sess["last_activity"] = rec.get("mtime")
                 # Live per-session effort: a `/effort` change lands in the
                 # transcript and is picked up here within ~0.5s (settings default
@@ -1819,7 +1856,7 @@ class AgentMonitor:
             "last_prompt": rec.get("last_prompt"),
             "status": status,
             "status_since": tr["since"],
-            "activity": _activity_for(rec, status),
+            "activity": _activity_for(rec, status, self.api_stall_s),
             "pending_tool": pt if status in ("pending_tool", "asking")
             else None,
             "tty": tty,
@@ -1846,6 +1883,10 @@ class AgentMonitor:
             reasons.append(
                 f"tool pending over {int(self.pending_warn_s // 60)} min")
         if status == "working":
+            stalled = _stall_secs(rec, self.api_stall_s)
+            if stalled is not None:
+                reasons.append(f"no model response for {stalled}s — "
+                               "possible API error or network stall")
             base = max(rec.get("turn_done_ts") or 0,
                        rec.get("last_user_ts") or 0,
                        rec.get("started") or 0) or tr["since"]
