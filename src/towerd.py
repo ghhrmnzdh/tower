@@ -595,7 +595,7 @@ def proxy_is_up(port):
 # message ("your internet is fine; the problem is on Anthropic's side").
 # --------------------------------------------------------------------------- #
 NET_TIMEOUT = 3.0
-NET_INTERVAL_OK = 10.0
+NET_INTERVAL_OK = 5.0
 NET_INTERVAL_BAD = 3.0
 DEGRADED_INTERNET_MS = 300
 DEGRADED_API_MS = 1000            # TLS ≈ 2×RTT + crypto, hence the higher bar
@@ -884,8 +884,22 @@ class NetMonitor:
 # READ-ONLY toward ~/.claude: never writes there, never injects input.
 # The snapshot's field names are a contract with the Swift app — don't rename.
 # --------------------------------------------------------------------------- #
-AGENT_INTERVAL = 2.0
+AGENT_INTERVAL = 1.0          # full merge + status engine cadence
 AGENT_FAST_INTERVAL = 0.5     # between full refreshes: cheap activity-only tick
+# The `ps` table scan is the one costly part of a full refresh (~60ms); the
+# transcript tail + status engine are cheap (~20ms). So we run the whole refresh
+# every 1s (halving the 2-cycle status-transition debounce from ~4s to ~2s so an
+# agent flipping working↔idle/done surfaces fast) but reuse the last `ps` result
+# for up to this long — process presence changes rarely, and a ~2s lag on
+# detecting a *dead* process is fine. This keeps status near-realtime without
+# doubling the `ps` cost.
+PROC_RESCAN_S = 1.8
+# retail_known() (the 0.5s hot path) only re-tails transcripts touched within
+# this window. An agent that's actually producing activity has a sub-second
+# mtime, so bounding here keeps the hot path O(active-sessions) instead of
+# O(every-transcript-ever-seen) — the full scan() still tails everything each
+# cycle, so long-idle rows stay correct, just refreshed at 1s not 0.5s.
+RETAIL_ACTIVE_S = 90.0
 # Thresholds; each overridable via the same-named key in ~/.tower/config.json
 AGENT_WORKING_S = 10.0        # agent_working_s: fresher mtime = working
 AGENT_IDLE_S = 300.0          # agent_idle_s: staler (process alive) = idle
@@ -1166,8 +1180,14 @@ class TranscriptIndex:
         Stats each known transcript and parses any newly-appended lines. Skips
         discovery of new files and shrink/compaction resets (the full scan()
         handles those); this exists so the fast tick can refresh live activity
-        every ~0.5s at a fraction of scan()'s cost."""
+        every ~0.5s at a fraction of scan()'s cost. Only recently-touched files
+        are re-tailed: a session producing activity has a sub-second mtime, so
+        this bounds the hot path to O(active) even when tens of thousands of old
+        transcripts have accumulated — full scan() still tails the rest at 1s."""
+        cutoff = time.time() - RETAIL_ACTIVE_S
         for path, rec in list(self._files.items()):
+            if rec["mtime"] < cutoff:
+                continue
             try:
                 st = os.stat(path)
             except OSError:
@@ -1425,6 +1445,8 @@ class AgentMonitor:
         self.state = state
         self.lock = threading.Lock()
         self.procs = ProcScanner()
+        self._procs_cache = None     # last ps scan, reused between PROC_RESCAN_S
+        self._procs_ts = 0.0
         self.transcripts = TranscriptIndex()
         cfg = state.cfg
         self.working_s = float(cfg.get("agent_working_s", AGENT_WORKING_S))
@@ -1508,7 +1530,12 @@ class AgentMonitor:
         if day != self._done_day:       # done_today counts since local midnight
             self._done_day = day
             self._done_today = 0
-        procs = self.procs.scan()
+        # The `ps` scan is the costly part; reuse it across sub-PROC_RESCAN_S
+        # refreshes so the 1s status cadence doesn't pay for a `ps` every cycle.
+        if self._procs_cache is None or now - self._procs_ts >= PROC_RESCAN_S:
+            self._procs_cache = self.procs.scan()
+            self._procs_ts = now
+        procs = self._procs_cache
         self.transcripts.scan()
         by_sid = {}
         for rec in self.transcripts.summaries().values():
