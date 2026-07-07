@@ -210,6 +210,7 @@ AGENT_PHRASE = {
     "working": "working", "pending_tool": "waiting on a tool",
     "waiting_input": "waiting for you", "asking": "has a question",
     "done": "done", "failed": "failed", "idle": "idle", "gone": "gone",
+    "paused": "paused",
 }
 
 
@@ -559,9 +560,16 @@ def draw(win, s):
         for x in (ag.get("sessions") or []):
             if not isinstance(x, dict) or x.get("dismissed"):
                 continue
-            if x.get("status") == "working" and x.get("session_id") not in listed:
+            sid = x.get("session_id")
+            if sid in listed:
+                continue
+            st = x.get("status")
+            if st == "working":
                 arow.append(("●", C_DIM, agent_row(x, "working", None),
-                             x.get("session_id"), True))
+                             sid, True))
+            elif st == "paused":       # user-suspended: still on the board,
+                arow.append(("⏸", C_DIM, agent_row(x, "paused", None),
+                             sid, False))    # calm — no shimmer, no alarm
         coll = None
         for c in (ag.get("collisions") or []):
             if not isinstance(c, dict):
