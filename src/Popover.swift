@@ -205,9 +205,23 @@ struct NetRow: View {
             .padding(.horizontal, TowerDesign.Size.padH)
             .padding(.vertical, 6)
         case .degraded:
-            banner(icon: "wifi.exclamationmark", color: .orange,
-                   title: net?.reason == "dns" ? "DNS problem" : "Internet is slow",
-                   sub: "ping \(fmtMs(net?.internet_ms)) — expect Claude timeouts")
+            switch net?.reason {
+            case "dns":
+                banner(icon: "wifi.exclamationmark", color: .orange,
+                       title: "DNS problem",
+                       sub: "Your resolver is failing — not Anthropic")
+            case "api_slow":
+                // Link is fine; only the path to Anthropic is slow. Show the
+                // handshake time (not the spoofable local ping) and don't cry
+                // "timeout" — degraded still lets traffic through.
+                banner(icon: "clock.badge.exclamationmark", color: .orange,
+                       title: "Slow path to Anthropic",
+                       sub: "handshake \(fmtMs(net?.api_ms)) — link is fine, replies may lag")
+            default:   // "link_slow" or a generic degraded (e.g. NAT64)
+                banner(icon: "wifi.exclamationmark", color: .orange,
+                       title: "Internet is slow",
+                       sub: "ping \(fmtMs(net?.internet_ms)) — expect Claude timeouts")
+            }
         case .offline:
             banner(icon: "wifi.slash", color: .red,
                    title: "Your internet is offline",
