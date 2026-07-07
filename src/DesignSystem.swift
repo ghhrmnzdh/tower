@@ -84,7 +84,7 @@ extension Animation {
 // --------------------------------------------------------------------------- //
 enum AgentStatus: String {
     case working, pendingTool = "pending_tool", waitingInput = "waiting_input"
-    case asking, done, failed, idle, gone
+    case asking, done, failed, idle, gone, paused
 
     init(raw: String?) { self = AgentStatus(rawValue: raw ?? "") ?? .idle }
 
@@ -95,6 +95,7 @@ enum AgentStatus: String {
         case .asking:       return "questionmark.bubble.fill"
         case .done, .waitingInput: return "checkmark.circle"
         case .working:      return "gearshape"
+        case .paused:       return "pause.circle"
         case .idle, .gone:  return "zzz"
         }
     }
@@ -105,7 +106,7 @@ enum AgentStatus: String {
         case .asking:       return Color(nsColor: .systemIndigo)
         case .done, .waitingInput: return Color(nsColor: .systemGreen)
         case .working:      return .primary
-        case .idle, .gone:  return Color(nsColor: .tertiaryLabelColor)
+        case .paused, .idle, .gone: return Color(nsColor: .tertiaryLabelColor)
         }
     }
     var phrase: String {
@@ -115,6 +116,7 @@ enum AgentStatus: String {
         case .asking:       return "asked you a question"
         case .done, .waitingInput: return "done — your turn"
         case .failed:       return "failed"
+        case .paused:       return "paused"
         case .idle:         return "resting"
         case .gone:         return "gone"
         }
