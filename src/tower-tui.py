@@ -501,8 +501,9 @@ def draw(win, s):
             line1 = (f"● {nst} · net {fmt_ms(net.get('internet_ms'))}"
                      f" · api {fmt_ms(net.get('api_ms'))}")
             if nst == "degraded":
-                line1 += (" · DNS problem" if net.get("reason") == "dns"
-                          else " · slow link")
+                line1 += {"dns": " · DNS problem",
+                          "api_slow": " · slow path to Anthropic (link ok)",
+                          }.get(net.get("reason"), " · slow link")
         safe_addstr(win, y + 1, 4, line1[:max(0, cardw - 4)],
                     cp(ncol) | curses.A_BOLD)
         # latency sparkline — failed samples peg at 3000 so outages read high
