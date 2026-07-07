@@ -448,7 +448,21 @@ def _humanize(exc):
 # --------------------------------------------------------------------------- #
 # Proxy
 # --------------------------------------------------------------------------- #
+TUNNEL_DRAIN_S = 5.0    # bound the wait for the second half to see EOF, no leak
+
 def _pipe(src, dst):
+    """Copy src→dst until src EOF, then half-close dst's WRITE side only, so the
+    peer sees a graceful FIN — never a reset.
+
+    A CONNECT tunnel is full-duplex: two _pipe threads run, one per direction.
+    The old code's `finally` did shutdown(SHUT_RDWR) on BOTH sockets, so whichever
+    direction finished first abortively tore down the other. shutdown(SHUT_RDWR)
+    (and close) on a socket that still holds unread inbound data makes the kernel
+    send a TCP RST, which Claude Code surfaces as `ECONNRESET`. A large request
+    body keeps the UPLOAD half busy far longer, widening the window where the
+    DOWNLOAD half returns first and RSTs a still-live upload — so big-payload
+    turns died while tiny diffs sailed through. Half-closing WRITE-only lets each
+    direction finish on its own; the caller closes both once both halves return."""
     try:
         while True:
             data = src.recv(65536)
@@ -457,12 +471,10 @@ def _pipe(src, dst):
             dst.sendall(data)
     except OSError:
         pass
-    finally:
-        for s in (src, dst):
-            try:
-                s.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
+    try:
+        dst.shutdown(socket.SHUT_WR)   # propagate EOF as a FIN, not a RST
+    except OSError:
+        pass
 
 
 def _recv_headers(conn):
@@ -558,8 +570,14 @@ def _tunnel(conn, state, host, port):
     t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
     t.start()
     _pipe(up, conn)
-    t.join(timeout=1)
-    up.close()
+    # Both halves half-close their write side on EOF (see _pipe); wait for the
+    # upload half to drain rather than guillotining it, then close both.
+    t.join(TUNNEL_DRAIN_S)
+    for s in (up, conn):
+        try:
+            s.close()
+        except OSError:
+            pass
 
 
 def _plain(conn, state, method, target, raw):
@@ -587,8 +605,12 @@ def _plain(conn, state, method, target, raw):
     t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
     t.start()
     _pipe(up, conn)
-    t.join(timeout=1)
-    up.close()
+    t.join(TUNNEL_DRAIN_S)
+    for s in (up, conn):
+        try:
+            s.close()
+        except OSError:
+            pass
 
 
 def _handle_proxy_client(conn, state):
@@ -842,9 +864,15 @@ class NetMonitor:
         """Classification matrix → (raw_status, reason)."""
         if internet_ms is not None:
             if api_ms is not None:
-                if (internet_ms >= DEGRADED_INTERNET_MS
-                        or api_ms >= DEGRADED_API_MS):
-                    return "degraded", None            # slow link / slow path
+                # internet_ms is a bare TCP connect to an IP literal — a VPN
+                # gateway / transparent proxy / captive appliance can answer it
+                # locally and read ~0ms while the real Anthropic path is slow.
+                # api_ms (full TLS to a named host) can't be spoofed that way,
+                # so when only it is slow, say so — don't blame "the internet".
+                if internet_ms >= DEGRADED_INTERNET_MS:
+                    return "degraded", "link_slow"     # local link genuinely slow
+                if api_ms >= DEGRADED_API_MS:
+                    return "degraded", "api_slow"      # link fine, path slow
                 return "online", None
             if api_err == "dns":
                 return "degraded", "dns"    # resolver broken, not Anthropic
