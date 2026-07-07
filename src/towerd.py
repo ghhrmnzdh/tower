@@ -1072,6 +1072,8 @@ def _activity_for(rec, status, stall_s=AGENT_API_STALL_S):
     turn has gone silent mid-flight, otherwise the phrase for its latest
     tool_use. Shared by the full-refresh row builder and the between-refresh fast
     tick so both agree."""
+    if status == "paused":
+        return "paused — process suspended"
     if status == "failed" and rec.get("api_error_msg"):
         return rec.get("api_error_msg")
     if status == "working":
@@ -1129,18 +1131,19 @@ class ProcScanner:
         """{pid: {pid, ppid, tty, lstart, kind, session_id, transcript}} for
         claude processes; bg-pty-host parents are dropped (child kept)."""
         try:
-            r = subprocess.run(["ps", "-axo", "pid=,ppid=,tty=,lstart=,args="],
-                               capture_output=True, text=True, timeout=10)
+            r = subprocess.run(
+                ["ps", "-axo", "pid=,ppid=,tty=,state=,lstart=,args="],
+                capture_output=True, text=True, timeout=10)
             lines = r.stdout.splitlines()
         except Exception as e:  # noqa: BLE001
             log(f"ps scan error: {e}")
             return {}
         rows, hosts = {}, set()
         for line in lines:
-            parts = line.split(None, 8)
-            if len(parts) < 9:
+            parts = line.split(None, 9)
+            if len(parts) < 10:
                 continue
-            args = parts[8]
+            args = parts[9]
             exe = args.split(None, 1)[0]
             if os.path.basename(exe) not in ("claude", "claude.exe"):
                 continue
@@ -1149,9 +1152,14 @@ class ProcScanner:
             except ValueError:
                 continue
             tty = parts[2] if parts[2] not in ("??", "-") else None
+            # ps STAT: a leading 'T' (or 't', traced) is a SIGSTOP-suspended
+            # process. It writes nothing while frozen, so the transcript goes
+            # silent exactly like an API stall — distinguish the two here so a
+            # deliberately-paused agent is reported as paused, not "erroring".
+            stopped = parts[3][:1] in ("T", "t")
             try:
                 lstart = time.mktime(time.strptime(
-                    " ".join(parts[3:8]), "%a %b %d %H:%M:%S %Y"))
+                    " ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
             except Exception:  # noqa: BLE001
                 lstart = None
             if "--bg-pty-host" in args:
@@ -1175,7 +1183,7 @@ class ProcScanner:
                     sid = m.group(1).lower()
             rows[pid] = {"pid": pid, "ppid": ppid, "tty": tty,
                          "lstart": lstart, "kind": kind, "session_id": sid,
-                         "transcript": transcript}
+                         "transcript": transcript, "stopped": stopped}
         for p in rows.values():
             if p["kind"]:
                 continue
@@ -1743,6 +1751,12 @@ class AgentMonitor:
             if prev == "failed":
                 return "failed", None   # stays failed for its keep window
             return "gone", None
+        if p.get("stopped"):
+            # SIGSTOP-suspended: the process is frozen, not working and not
+            # erroring. Report it honestly as paused BEFORE the stall/api-error
+            # inference below — a frozen turn writes nothing, which would
+            # otherwise read as "no response — possible API error".
+            return "paused", None
         if rec is None:
             return "working", None      # process up, transcript not seen yet
         # A trailing API error surfaces IMMEDIATELY — before the freshness gate
@@ -1872,6 +1886,8 @@ class AgentMonitor:
         }
 
     def _health(self, rec, status, tr, now):
+        if status == "paused":
+            return {"level": "ok", "reasons": []}   # user-suspended, not a fault
         reasons = []
         ring = list(rec.get("err_ring") or ())
         errs = sum(1 for e in ring if e)
