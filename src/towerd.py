@@ -13,6 +13,7 @@ One background process that:
 stdlib only. Single instance (flock). Proxy fixed on :8888 so settings stay stable.
 """
 
+import atexit
 import errno
 import fcntl
 import json
@@ -158,6 +159,40 @@ def bind_free(preferred, host="127.0.0.1", span=20):
     raise last or OSError("no free port")
 
 
+STICKY_PORT_RETRY_S = 3.0   # wait this long for a dying predecessor to release the
+                            # sticky port before drifting to a fresh one
+
+
+def bind_proxy(cfg, host="127.0.0.1"):
+    """Bind the proxy listener, preferring the SAME port as last run
+    (cfg['proxy_port']) so a Claude session pinned to that port survives a daemon
+    restart. A predecessor that's shutting down may hold the port for a moment
+    (single-instance flock means it's the only other holder), so retry briefly
+    before drifting via bind_free. The brief connect-refused gap during a restart
+    is absorbed by Claude's native retries once the same port comes back. Persists
+    the port whenever it changes."""
+    sticky = cfg.get("proxy_port")
+    if isinstance(sticky, int) and 0 < sticky < 65536:
+        deadline = time.monotonic() + STICKY_PORT_RETRY_S
+        while True:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, sticky))
+                s.listen(128)
+                return s, sticky
+            except OSError:
+                s.close()
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.2)
+    sock, port = bind_free(PROXY_PORT, host=host)
+    if port != cfg.get("proxy_port"):
+        cfg["proxy_port"] = port
+        save_config(cfg)
+    return sock, port
+
+
 # --------------------------------------------------------------------------- #
 # State
 # --------------------------------------------------------------------------- #
@@ -174,6 +209,18 @@ class State:
         self.proxy_port = PROXY_PORT
         self.enforce = True
         self.block_all = False
+        # The user's routing INTENT, mirrored from cfg so the proxy honors it live.
+        # The listener outlives routing, so sessions started while routed keep their
+        # HTTPS_PROXY env pointed here even after a double-confirmed route-off. When
+        # routed is False we pass those pinned tunnels straight through UNGATED —
+        # matching the direct connection new sessions get — instead of gating (or
+        # breaking) them. Set ONLY by the double-confirmed route cmd or startup cfg;
+        # never fail-open on its own. See should_block().
+        self.routed = bool(cfg.get("routed", True))
+        # Last-known settings.json file truth (is the proxy env installed?), kept
+        # fresh by note_route_change each build_state cycle so the agent monitor can
+        # classify per-session guard state without its own settings read.
+        self.routing_now = None
         # Usable path to Anthropic, published by NetMonitor each sample.
         # None = not yet known (treated as unstable → fail-closed).
         self.net_ok = None
@@ -220,6 +267,15 @@ class State:
         self.stop = threading.Event()
         self.lock = threading.Lock()
 
+        # Ground-truth path health: monotonic timestamps of recent Claude tunnels
+        # the UPSTREAM reset mid-flight. The synthetic net probe (a tiny TLS
+        # handshake) can't predict a large-body reset; real tunnel outcomes can.
+        # A burst here flips the gate closed so the next reconnect is held as a
+        # calm 503-pending instead of a raw ECONNRESET in Claude's escalating
+        # backoff. Own lock so it never contends with self.lock.
+        self._tfails = deque(maxlen=64)
+        self._tfail_lock = threading.Lock()
+
     @property
     def in_target(self):
         return self.status == "OK" and self.country_cc == self.target_cc
@@ -235,6 +291,12 @@ class State:
         geo), not letting unconfirmed traffic through."""
         if not self.net_ok:
             return False
+        # Real requests are the truest probe: if live Claude tunnels are being
+        # reset upstream faster than chance, the path is not usable right now —
+        # fail closed so the reconnect is held (calm 503) rather than admitted
+        # into another raw ECONNRESET.
+        if self.path_unstable():
+            return False
         if not (self.status == "OK" and self.country_cc == self.target_cc):
             return False
         # Backstop: never keep the gate open on a confirmation we haven't
@@ -246,7 +308,10 @@ class State:
         return m is not None and (time.monotonic() - m) <= GEO_MAX_AGE
 
     def should_block(self, claude):
-        if not self.enforce:
+        # enforce off, or the user turned routing off: the proxy is a pass-through.
+        # A pinned session (still holding our HTTPS_PROXY env) then behaves exactly
+        # like a direct, unrouted connection — off means off, not stuck-gated.
+        if not self.enforce or not self.routed:
             return False
         # Non-Claude traffic passes untouched unless block_all is set — we only
         # ever police Claude Code's own requests.
@@ -268,6 +333,25 @@ class State:
                 "kind": "claude" if claude else "other",
                 "action": "blocked" if blocked else "allowed"})
 
+    def record_tunnel_fail(self):
+        """An established Claude tunnel was reset by the UPSTREAM side mid-flight
+        — the ECONNRESET the client would otherwise surface. Timestamp it so
+        path_unstable() can hold the next reconnect instead of re-admitting a
+        doomed tunnel."""
+        with self._tfail_lock:
+            self._tfails.append(time.monotonic())
+
+    def path_unstable(self):
+        """True when real Claude tunnels are resetting upstream faster than
+        chance — TUNNEL_FAIL_BURST resets within TUNNEL_FAIL_WINDOW_S. Self-
+        clearing: once the gate holds, no new tunnels reach upstream, the window
+        empties, and traffic is admitted again to re-test the path."""
+        cutoff = time.monotonic() - TUNNEL_FAIL_WINDOW_S
+        with self._tfail_lock:
+            while self._tfails and self._tfails[0] < cutoff:
+                self._tfails.popleft()
+            return len(self._tfails) >= TUNNEL_FAIL_BURST
+
     def note_hold(self, delta):
         """Track Claude requests currently parked in the pre-CONNECT hold, so the
         front-ends can shimmer a 'reconnecting' indicator while any are waiting."""
@@ -279,7 +363,7 @@ class State:
         in-proxy right now, or blocked within the last few seconds while Claude
         Code retries. Flips False the instant the guard passes again, so the
         shimmer clears exactly when Claude is about to resume."""
-        if not self.enforce or self.claude_allowed():
+        if not self.enforce or not self.routed or self.claude_allowed():
             return False
         if self.holding > 0:
             return True
@@ -462,19 +546,25 @@ def _pipe(src, dst):
     body keeps the UPLOAD half busy far longer, widening the window where the
     DOWNLOAD half returns first and RSTs a still-live upload — so big-payload
     turns died while tiny diffs sailed through. Half-closing WRITE-only lets each
-    direction finish on its own; the caller closes both once both halves return."""
+    direction finish on its own; the caller closes both once both halves return.
+
+    Returns True if this half died on a reset (RST/broken pipe) rather than a
+    clean EOF — the caller uses that on the upstream-read half to tell a genuine
+    mid-flight upstream drop from a normal close."""
+    reset = False
     try:
         while True:
             data = src.recv(65536)
             if not data:
                 break
             dst.sendall(data)
-    except OSError:
-        pass
+    except OSError as e:
+        reset = e.errno in (errno.ECONNRESET, errno.EPIPE, errno.ETIMEDOUT)
     try:
         dst.shutdown(socket.SHUT_WR)   # propagate EOF as a FIN, not a RST
     except OSError:
         pass
+    return reset
 
 
 def _recv_headers(conn):
@@ -512,8 +602,25 @@ def _recv_headers(conn):
 # never pass unconfirmed traffic, we just make the block wait-able.
 BLOCK_HOLD_S = 5.0          # short pre-CONNECT hold to absorb sub-second blips
 BLOCK_POLL_S = 0.5          # re-check the block predicate this often while holding
+TUNNEL_FAIL_WINDOW_S = 20.0  # window for counting upstream mid-tunnel resets
+TUNNEL_FAIL_BURST = 2       # this many resets in-window → path unstable, hold next
 BLOCK_RETRY_AFTER = 2       # Retry-After seconds — retry soon (Claude also backs off)
 RETRY_PENDING_WINDOW_S = 20.0  # after a block, keep the 'pending' UI lit this long
+UPSTREAM_CONNECT_S = 5.0    # TCP connect to upstream (the net probe proves TCP+TLS
+                            # reachable in <=3s, so a slower connect means a bad path
+                            # — fail fast to a retryable 502, don't hang the turn)
+TUNNEL_IDLE_S = 600.0       # relay I/O timeout on an ESTABLISHED tunnel. create_
+                            # connection's timeout stays ON the socket, so this was
+                            # an accidental 10s that guillotined slow-first-byte turns
+                            # and idle keep-alive sockets mid-session. Long-but-bounded:
+                            # never kills a live turn, but a vanished peer (sleep/wake,
+                            # NAT drop) can't leak the relay thread + fds forever.
+HEADER_TIMEOUT_S = 10.0     # a client must present its request headers within this,
+                            # else the accept thread + fd is pinned forever on a silent
+                            # socket (accepted sockets don't inherit the listener timeout)
+BLOCK_POLL_RAMP = (0.05, 0.1, 0.2, 0.4)  # first re-checks during a hold, then fall
+                            # back to BLOCK_POLL_S — a sub-100ms blip clears almost
+                            # instantly instead of rounding up to the 0.5s poll
 
 
 def _decide_block(conn, state, host):
@@ -529,10 +636,11 @@ def _decide_block(conn, state, host):
     if claude:
         state.note_hold(1)          # light the 'reconnecting' shimmer in the UIs
         try:
-            waited = 0.0
+            waited, ramp = 0.0, iter(BLOCK_POLL_RAMP)
             while waited < BLOCK_HOLD_S and not state.stop.is_set():
-                state.stop.wait(BLOCK_POLL_S)
-                waited += BLOCK_POLL_S
+                step = next(ramp, BLOCK_POLL_S)
+                state.stop.wait(step)
+                waited += step
                 if not state.should_block(claude):
                     state.record(host, claude, blocked=False)
                     return False
@@ -542,7 +650,9 @@ def _decide_block(conn, state, host):
     # Still blocked. Report it as a *retryable* condition, not a 403, so Claude
     # backs off and waits for a usable path instead of tearing down the session.
     state.record(host, claude, blocked=True)
-    if not state.net_ok:
+    if state.path_unstable():
+        reason = b"connection to Anthropic keeps dropping"
+    elif not state.net_ok:
         reason = b"no stable connection to Anthropic"
     elif state.status != "OK":
         reason = b"location not confirmed"
@@ -558,26 +668,56 @@ def _decide_block(conn, state, host):
     return True
 
 
+def _upstream_connect(host, port):
+    """Open the upstream leg of a tunnel. create_connection applies its timeout to
+    the CONNECT only in spirit but leaves it ON the returned socket, so we reset it
+    to a long-but-bounded idle timeout (TUNNEL_IDLE_S) — otherwise every relay recv
+    inherits the short connect deadline and a slow-first-byte or idle keep-alive
+    tunnel dies mid-session. TCP_NODELAY kills Nagle so streamed SSE token frames
+    and small request bodies aren't batched behind delayed ACKs."""
+    up = socket.create_connection((host, port), timeout=UPSTREAM_CONNECT_S)
+    up.settimeout(TUNNEL_IDLE_S)
+    try:
+        up.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError:
+        pass
+    return up
+
+
 def _tunnel(conn, state, host, port):
     if _decide_block(conn, state, host):
         return
     try:
-        up = socket.create_connection((host, port), timeout=10)
+        up = _upstream_connect(host, port)
     except OSError:
         conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+        # A burst of upstream connect failures on a Claude host means the path is
+        # down right now — feed the gate so the next reconnect is held as a calm
+        # 503-pending instead of serial 5s connect-hangs + raw 502s.
+        if is_claude_host(host):
+            state.record_tunnel_fail()
         return
+    conn.settimeout(None)   # tunnel relay must block indefinitely, not carry the
+                            # header-read deadline set on conn in _handle_proxy_client
     conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
     t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
     t.start()
-    _pipe(up, conn)
-    # Both halves half-close their write side on EOF (see _pipe); wait for the
-    # upload half to drain rather than guillotining it, then close both.
+    # Main thread reads the UPSTREAM half: a reset here is a genuine mid-flight
+    # drop from Anthropic/the VPN (not a client abort, which resets `conn` in the
+    # upload thread). Both halves half-close on EOF; wait for the upload half to
+    # drain rather than guillotining it, then close both.
+    upstream_reset = _pipe(up, conn)
     t.join(TUNNEL_DRAIN_S)
     for s in (up, conn):
         try:
             s.close()
         except OSError:
             pass
+    # Feed the real outcome back to the guard: a burst of upstream resets means
+    # the path is unusable right now, so the next reconnect is held (calm 503)
+    # instead of admitted into another raw ECONNRESET.
+    if upstream_reset and is_claude_host(host):
+        state.record_tunnel_fail()
 
 
 def _plain(conn, state, method, target, raw):
@@ -597,10 +737,11 @@ def _plain(conn, state, method, target, raw):
     except IndexError:
         blob = b"\r\n"
     try:
-        up = socket.create_connection((host, port), timeout=10)
+        up = _upstream_connect(host, port)
     except OSError:
         conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
         return
+    conn.settimeout(None)   # done reading headers; relay blocks indefinitely
     up.sendall(f"{method} {path} HTTP/1.1\r\n".encode() + blob)
     t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
     t.start()
@@ -615,6 +756,12 @@ def _plain(conn, state, method, target, raw):
 
 def _handle_proxy_client(conn, state):
     try:
+        try:
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        conn.settimeout(HEADER_TIMEOUT_S)   # bound the header read; _tunnel/_plain
+                                            # clear it (settimeout(None)) before relay
         raw = _recv_headers(conn)
         if not raw:
             return
@@ -978,6 +1125,11 @@ AGENT_FAST_INTERVAL = 0.5     # between full refreshes: cheap activity-only tick
 # detecting a *dead* process is fine. This keeps status near-realtime without
 # doubling the `ps` cost.
 PROC_RESCAN_S = 1.8
+# How often to latch which agents have a live TCP connection to the proxy — proof
+# they're actually routed. One lsof call (~50ms) on its own cadence, off the ps
+# path; positive-proof only (an idle agent shows nothing between keep-alives), so
+# the latch upgrades the routing-timeline presumption, never contradicts it.
+PROXY_CLIENT_RESCAN_S = 5.0
 # retail_known() (the 0.5s hot path) only re-tails transcripts touched within
 # this window. An agent that's actually producing activity has a sub-second
 # mtime, so bounding here keeps the hot path O(active-sessions) instead of
@@ -1573,6 +1725,8 @@ class AgentMonitor:
         self.procs = ProcScanner()
         self._procs_cache = None     # last ps scan, reused between PROC_RESCAN_S
         self._procs_ts = 0.0
+        self._proxy_seen = {}        # pid -> wall ts of last observed live proxy conn
+        self._proxy_scan_ts = 0.0
         self.transcripts = TranscriptIndex()
         cfg = state.cfg
         self.working_s = float(cfg.get("agent_working_s", AGENT_WORKING_S))
@@ -1596,7 +1750,8 @@ class AgentMonitor:
         self._git_cache = {}
         self._snap = {"sessions": [], "needs_you": [], "collisions": [],
                       "summary": {"working": 0, "needs_you": 0,
-                               "done_today": 0, "top_tier": None},
+                               "done_today": 0, "top_tier": None,
+                               "unguarded": 0, "pinned": 0},
                       "events": [],
                       "meta": {"lsof_ok": True, "parse_errors": 0,
                                "claude_versions": []}}
@@ -1665,6 +1820,13 @@ class AgentMonitor:
             self._procs_cache = self.procs.scan()
             self._procs_ts = now
         procs = self._procs_cache
+        # Latch live proxy connections on their own (slower) cadence, then forget
+        # pids that are no longer running so the guard-proof map can't go stale.
+        if now - self._proxy_scan_ts >= PROXY_CLIENT_RESCAN_S:
+            self._scan_proxy_clients(now)
+            self._proxy_scan_ts = now
+            self._proxy_seen = {pid: t for pid, t in self._proxy_seen.items()
+                                if pid in procs}
         self.transcripts.scan()
         by_sid = {}
         for rec in self.transcripts.summaries().values():
@@ -1756,9 +1918,22 @@ class AgentMonitor:
                    if r["status"] in ("working", "pending_tool")]
         tiers = [MODEL_TIERS.index(r["model_family"]) for r in working
                  if r["model_family"] in MODEL_TIERS]
+        # Guard-coverage counts. routed_now = the user wants routing AND it's
+        # installed on disk this cycle. Only definite verdicts count (unknown never
+        # does): unguarded = live agents started before the guard while routing is
+        # on (restart them to protect them); pinned = live agents still guarded by a
+        # proxy the user has since turned off (they stay protected until restarted).
+        routed_now = bool(self.state.routed and self.state.routing_now)
+        live = [r for r in rows if r.get("pid") and r.get("kind") != "infra"
+                and r["status"] != "gone"]
+        unguarded = sum(1 for r in live if r.get("guarded") is False) \
+            if routed_now else 0
+        pinned = sum(1 for r in live if r.get("guarded") is True) \
+            if not routed_now else 0
         summary = {"working": len(working), "needs_you": len(needs),
                 "done_today": self._done_today,
-                "top_tier": MODEL_TIERS[max(tiers)] if tiers else None}
+                "top_tier": MODEL_TIERS[max(tiers)] if tiers else None,
+                "unguarded": unguarded, "pinned": pinned}
 
         versions = sorted({(by_sid.get(r["session_id"]) or {}).get("version")
                            for r in rows} - {None})
@@ -1869,6 +2044,45 @@ class AgentMonitor:
         self._dismissed.discard(sid)    # dismissal lasts until a transition
         return raw
 
+    def _scan_proxy_clients(self, now):
+        """Latch which pids currently hold an ESTABLISHED TCP connection to the
+        proxy port — hard proof they're routed through the guard. One lsof over
+        network fds (no TCC: these are sockets, not files). A client's `n` line
+        ends `->127.0.0.1:<port>`; the daemon's own accept-side fds point the other
+        way and are naturally excluded. Positive-proof only: absence never means
+        unguarded (an idle agent has no live connection between keep-alives)."""
+        port = self.state.proxy_port
+        try:
+            r = subprocess.run(
+                ["lsof", "-nP", f"-iTCP@127.0.0.1:{port}",
+                 "-sTCP:ESTABLISHED", "-Fpn"],
+                capture_output=True, text=True, timeout=10)
+        except Exception as e:  # noqa: BLE001
+            log(f"lsof proxy-client scan error: {e}")
+            return
+        pid = None
+        suffix = f"->127.0.0.1:{port}"
+        for ln in r.stdout.splitlines():
+            if ln.startswith("p"):
+                try:
+                    pid = int(ln[1:])
+                except ValueError:
+                    pid = None
+            elif ln.startswith("n") and pid is not None and \
+                    ln.rstrip().endswith(suffix):
+                self._proxy_seen[pid] = now
+
+    def _guarded_of(self, p):
+        """Per-agent guard truth: True (proven or presumed routed), False (started
+        before the guard), or None (unknown — no proc, or launch too close to a
+        route flip to call). A live proxy connection is proof; otherwise fall back
+        to whether routing was installed at the process's launch time."""
+        if not p or not p.get("pid"):
+            return None
+        if p["pid"] in self._proxy_seen:
+            return True
+        return guarded_at(self.state.cfg, p.get("lstart"))
+
     def _row(self, sid, rec, p, tr, status, pt, now):
         rec = rec or {}
         cwd = rec.get("cwd")
@@ -1903,6 +2117,7 @@ class AgentMonitor:
             else None,
             "tty": tty,
             "focusable": bool(p and p["kind"] == "interactive" and tty),
+            "guarded": self._guarded_of(p),
             "last_activity": rec.get("mtime"),
             "started": (p.get("lstart") if p else None) or rec.get("started"),
             "ticks": {"tools_done": rec.get("tools_done", 0),
@@ -2562,6 +2777,55 @@ def routing_installed():
     return "127.0.0.1" in v
 
 
+# Routing timeline: a small persisted history of on/off transitions (wall-clock),
+# so we can later ask "was the guard installed when THIS Claude process launched?"
+# and honestly badge sessions started before the guard as unguarded. ps `lstart`
+# resolves to ~1s, so a launch within ROUTE_EDGE_TOLERANCE_S of a flip is 'unknown',
+# never guessed.
+ROUTE_LOG_MAX = 40
+ROUTE_EDGE_TOLERANCE_S = 5.0
+
+
+def note_route_change(state, installed, now=None):
+    """Record a routing transition when the installed state actually changes.
+    Called from the route command, startup, shutdown, and build_state — the
+    build_state hook self-corrects the record after an external settings edit or a
+    kill -9 (a stranded proxy env is honestly logged as still-installed, which is
+    exactly what those sessions captured). Cheap in steady state: no change → no
+    write. Also refreshes state.routing_now (the file-truth the agent monitor reads
+    without its own settings read)."""
+    installed = bool(installed)
+    now = time.time() if now is None else now
+    with state.lock:
+        state.routing_now = installed
+        rlog = state.cfg.setdefault("route_log", [])
+        if rlog and bool(rlog[-1].get("installed")) == installed:
+            return
+        rlog.append({"t": now, "installed": installed})
+        del rlog[:-ROUTE_LOG_MAX]
+    save_config(state.cfg)
+
+
+def guarded_at(cfg, ts):
+    """Was routing installed at wall-clock time `ts` (a process launch)? Returns
+    the last transition's state at or before ts; None when there's no covering
+    record or ts lands within ROUTE_EDGE_TOLERANCE_S of a transition (lstart is too
+    coarse to call it either way). None means 'unknown', never counted as un/guarded."""
+    if ts is None:
+        return None
+    rlog = cfg.get("route_log") or []
+    verdict = None
+    for e in rlog:
+        t = e.get("t")
+        if t is None:
+            continue
+        if abs(t - ts) <= ROUTE_EDGE_TOLERANCE_S:
+            return None
+        if t <= ts:
+            verdict = bool(e.get("installed"))
+    return verdict
+
+
 def route_on(proxy_port):
     # SAFETY: never point Claude Code at a proxy that isn't actually accepting
     # connections. Writing a dead proxy into settings.json silently kills every
@@ -2725,6 +2989,12 @@ def set_keepawake(state, on, mode):
 # File IPC: state writer + command watcher
 # --------------------------------------------------------------------------- #
 def build_state(state, usage, net, agents):
+    # Refresh the routing timeline from the on-disk truth every cycle: keeps
+    # state.routing_now fresh for the agent monitor and self-corrects the record
+    # after an external settings edit or a kill -9 (records a change only when the
+    # installed state actually flips, so this is a no-op write in steady state).
+    installed = routing_installed()
+    note_route_change(state, installed)
     return {
         "ts": time.time(),
         "location": state.location_dict(),
@@ -2740,7 +3010,8 @@ def build_state(state, usage, net, agents):
                   # (held in-proxy or retrying) — front-ends shimmer while true.
                   "pending": state.retry_pending(),
                   "holding": state.holding},
-        "routing": {"installed": routing_installed()},
+        "routing": {"installed": installed,
+                    "intended": state.routed},
         "keepawake": {"on": state.keepawake_on, "mode": state.keepawake_mode},
         "settings": {"theme": state.theme, "country": state.target_cc,
                      "plan_week_tokens": state.plan_week_tokens,
@@ -2775,13 +3046,17 @@ def dispatch(state, usage, net, agents, req):
     if cmd == "route":
         if bool(req.get("on", True)):
             ok = route_on(state.proxy_port)
+            state.routed = ok
             state.cfg["routed"] = ok
             save_config(state.cfg)
+            note_route_change(state, ok)
             return {"installed": ok,
                     "error": None if ok else "guard proxy is not running yet"}
         route_off()
+        state.routed = False
         state.cfg["routed"] = False
         save_config(state.cfg)
+        note_route_change(state, False)
         return {"installed": False}
     if cmd == "reset":
         return reset_to_default()
@@ -2922,6 +3197,24 @@ def _migrate_legacy_state_dir():
         print(f"towerd: state-dir migration failed ({e})", flush=True)
 
 
+_routed_off_once = False
+
+
+def _route_off_idempotent(reason):
+    """Restore settings.json (remove our proxy env) at most once, from whichever
+    shutdown path fires first — the main finally, a signal, or atexit."""
+    global _routed_off_once
+    if _routed_off_once:
+        return
+    _routed_off_once = True
+    try:
+        removed = route_off()
+        if removed:
+            log(f"route_off on {reason}: {removed}")
+    except Exception as e:  # noqa: BLE001
+        log(f"route_off on {reason} failed: {e}")
+
+
 def main():
     # Detach into our own session so we're an independent daemon, not a
     # responsibility-child of whatever launched us (the menu-bar app). This
@@ -2952,7 +3245,7 @@ def main():
     agents = AgentMonitor(state)
 
     try:
-        proxy_sock, proxy_port = bind_free(PROXY_PORT)
+        proxy_sock, proxy_port = bind_proxy(cfg)
     except OSError as e:
         log(f"proxy bind failed: {e}")
         print(f"towerd: proxy bind failed ({e})", flush=True)
@@ -2979,9 +3272,16 @@ def main():
     if state.cfg.get("routed", True):
         if route_on(state.proxy_port):
             log("routing on at startup (default-on)")
+    # Seed the routing timeline with the actual on-disk truth at boot: starts the
+    # history and self-corrects a record left stranded by a previous kill -9.
+    note_route_change(state, routing_installed())
 
     log(f"started pid={os.getpid()} proxy=:{proxy_port}")
     print(f"towerd: proxy :{proxy_port}", flush=True)
+
+    # Belt-and-braces: also restore settings.json if the interpreter exits without
+    # running the finally below (idempotent, so the finally path won't double-log).
+    atexit.register(_route_off_idempotent, "atexit")
 
     def _sig(*_a):
         state.stop.set()
@@ -2996,12 +3296,7 @@ def main():
         # SAFETY: never leave Claude Code pointed at a proxy that is stopping.
         # Routing is active ONLY while the guard is alive; always restore
         # settings.json on the way out.
-        try:
-            removed = route_off()
-            if removed:
-                log(f"route_off on shutdown: {removed}")
-        except Exception as e:  # noqa: BLE001
-            log(f"route_off on shutdown failed: {e}")
+        _route_off_idempotent("shutdown")
         try:
             os.remove(STATE_FILE)
         except OSError:
