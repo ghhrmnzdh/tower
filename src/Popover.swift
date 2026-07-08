@@ -307,6 +307,15 @@ struct AgentsSection: View {
                         .matchedGeometryEffect(id: s.id, in: space)
                 }
 
+                // Static, motionless callout: chats started before the guard are
+                // unprotected until restarted. Never pulses — needs-you stays the
+                // loudest thing. The reverse (pinned) case is a quiet hint only.
+                if model.unguardedCount > 0 {
+                    GuardGapBanner(count: model.unguardedCount, unguarded: true)
+                } else if model.pinnedCount > 0 {
+                    GuardGapBanner(count: model.pinnedCount, unguarded: false)
+                }
+
                 ForEach(model.collisions) { c in
                     CollisionBanner(collision: c)
                 }
@@ -376,6 +385,7 @@ struct NeedsYouRow: View {
                         .foregroundStyle(.primary)      // the name: one color
                         .lineLimit(1)
                     ModelBadge(session: session)
+                    UnguardedChip(model: model, session: session)
                 }
                 Text(copied ? "resume command copied — paste in any terminal"
                             : rowSubtitle(session, st))
@@ -508,6 +518,27 @@ struct ModelBadge: View {
     }
 }
 
+// A dim capsule marking a session that started before the guard: its requests go
+// out DIRECT until it's restarted. Shown only when routing is on and this session
+// is definitely unguarded (never on unknown — we don't alarm on uncertainty).
+struct UnguardedChip: View {
+    @ObservedObject var model: TowerModel
+    let session: GAgentSession
+    var body: some View {
+        if model.routingIntended && session.guarded == false {
+            Text("unguarded")
+                .font(TowerDesign.Font.mono(8.5, bold: true))
+                .tracking(0.3)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .foregroundStyle(Color(nsColor: .systemOrange))
+                .background(Color.orange.opacity(0.12))
+                .clipShape(Capsule(style: .continuous))
+                .help("This chat started before the guard — restart it to route "
+                      + "it through Tower.")
+        }
+    }
+}
+
 // A working row: the model's mark is alive; the activity line shimmers only
 // while a tool call is actually in flight. Momentum counter ticks up.
 struct AgentRow: View {
@@ -528,6 +559,7 @@ struct AgentRow: View {
                         .foregroundStyle(.primary)      // the name: one color
                         .lineLimit(1)
                     ModelBadge(session: session)
+                    UnguardedChip(model: model, session: session)
                     if session.health?.level == "warn" {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 9))
@@ -588,6 +620,50 @@ struct RestingRow: View {
                 .font(TowerDesign.Font.counter).foregroundStyle(.quaternary)
         }
         .padding(.vertical, 3)
+    }
+}
+
+// Guard-coverage callout. unguarded=true: chats that started before the guard and
+// send DIRECT requests until restarted (amber, actionable). unguarded=false: chats
+// still guarded by a proxy the user turned off — safe until restarted (a quiet,
+// reassuring tertiary hint, not an alarm).
+struct GuardGapBanner: View {
+    let count: Int
+    let unguarded: Bool
+    var body: some View {
+        let plural = count == 1 ? "" : "s"
+        if unguarded {
+            HStack(spacing: 8) {
+                Image(systemName: "shield.slash")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(nsColor: .systemOrange))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(count) chat\(plural) started before the guard — restart to protect")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("click a chat to jump to its terminal")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                Spacer()
+            }
+            .padding(7)
+            .background(Color.orange.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .transition(.opacity)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 10))
+                Text("\(count) chat\(plural) still guarded by the previous routing — protected until restarted")
+                    .font(.system(size: 10))
+                Spacer()
+            }
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 2)
+            .transition(.opacity)
+        }
     }
 }
 
