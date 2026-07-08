@@ -14,6 +14,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var animTimer: Timer?
     var daemon: Process?
     var confirmedQuit = false
+    // Crash-resilience watchdog: if the daemon dies unexpectedly (kill -9, panic)
+    // while we're running, sessions pinned to its proxy break until it's back. We
+    // respawn it — single-instance flock makes an extra spawn harmless, and the
+    // daemon rewrites settings.json on startup so new sessions heal too. The only
+    // intentional daemon exit is a full app quit (confirmedQuit), which we skip.
+    var daemonDeadSince: Date?
+    var lastRespawn: Date?
     lazy var dashboard = DashboardWindowController(model: model)
     lazy var notifier = Notifier(model: model)
 
@@ -52,8 +59,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateIcon()
                 self.notifier.process()
                 self.refreshAnimClock()
+                self.superviseDaemon()
             }
         }
+    }
+
+    /// Respawn the daemon if it has been unexpectedly dead for >10s (throttled to
+    /// once / 30s). Never fires during an intentional app quit.
+    private func superviseDaemon() {
+        if confirmedQuit { return }
+        if model.alive {
+            daemonDeadSince = nil
+            return
+        }
+        let now = Date()
+        if daemonDeadSince == nil { daemonDeadSince = now }
+        guard now.timeIntervalSince(daemonDeadSince ?? now) > 10 else { return }
+        if let last = lastRespawn, now.timeIntervalSince(last) < 30 { return }
+        lastRespawn = now
+        launchDaemonIfNeeded()
     }
 
     /// The radar animates only when there's motion worth spending frames on:
@@ -235,11 +259,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // is a dangerous action, so we double-confirm and call out any agents
         // that are working right now (they'd send unguarded requests at once).
         let working = model.agentsWorking
-        let agentClause = working > 0
-            ? "\n\n⚠︎ \(working) Claude agent\(working == 1 ? " is" : "s are") "
-              + "working right now and will immediately send requests with no "
-              + "location guard."
-            : ""
+        let pinned = model.proxyPinnedCount
+        var clauses = ""
+        if working > 0 {
+            clauses += "\n\n⚠︎ \(working) Claude agent\(working == 1 ? " is" : "s are") "
+                + "working right now and will immediately send requests with no "
+                + "location guard."
+        }
+        if pinned > 0 {
+            clauses += "\n\n⚠︎ \(pinned) chat\(pinned == 1 ? "" : "s") route through "
+                + "Tower now and will lose their connection until you restart "
+                + "each one."
+        }
+        let agentClause = clauses
         let a = NSAlert()
         a.messageText = "Quit Tower and turn off the guard?"
         a.informativeText = "Quitting removes routing from settings.json — "
