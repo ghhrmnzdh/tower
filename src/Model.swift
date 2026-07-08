@@ -44,7 +44,7 @@ struct GGuard: Decodable {
     var holding: Int?           // Claude requests parked in-proxy right now
 }
 
-struct GRouting: Decodable { var installed: Bool? }
+struct GRouting: Decodable { var installed: Bool?; var intended: Bool? }
 struct GKeepawake: Decodable { var on: Bool?; var mode: String? }
 struct GSettings: Decodable { var theme: String?; var country: String?; var plan_week_tokens: Int?; var plan_enabled: Bool? }
 
@@ -176,6 +176,7 @@ struct GAgentSession: Decodable, Identifiable {
     var pending_tool: GPendingTool?
     var tty: String?
     var focusable: Bool?
+    var guarded: Bool?           // true routed, false started-before-guard, nil unknown
     var last_activity: Double?
     var started: Double?
     var ticks: GTicks?
@@ -220,6 +221,8 @@ struct GCollision: Decodable, Identifiable {
 }
 struct GAgentSummary: Decodable {
     var working: Int?; var needs_you: Int?; var done_today: Int?; var top_tier: String?
+    var unguarded: Int?          // started before the guard, routing on
+    var pinned: Int?             // still proxy-pinned, routing off
 }
 struct GAgentEvent: Decodable {
     var t: Double?; var session_id: String?; var from: String?; var to: String?
@@ -506,6 +509,36 @@ final class TowerModel: ObservableObject {
     }
 
     var needsYouCount: Int { needsYou.count }
+
+    /// The user's routing INTENT (vs `installed`, the settings.json file truth).
+    /// Falls back to the file truth for a daemon that predates the field.
+    var routingIntended: Bool {
+        state?.routing?.intended ?? state?.routing?.installed ?? false
+    }
+    /// Live agents started before the guard while routing is on — restart them to
+    /// protect them. Trust the daemon's summary; re-derive defensively as a floor.
+    var unguardedCount: Int {
+        guard routingIntended else { return 0 }
+        if let n = state?.agents?.summary?.unguarded { return n }
+        return agentSessions.filter { $0.guarded == false && $0.pid != nil
+            && $0.kind != "infra" && $0.status != "gone" }.count
+    }
+    /// Live agents still guarded by a proxy the user has since turned off — they
+    /// keep working until restarted. Only meaningful while routing is off.
+    var pinnedCount: Int {
+        guard !routingIntended else { return 0 }
+        if let n = state?.agents?.summary?.pinned { return n }
+        return agentSessions.filter { $0.guarded == true && $0.pid != nil
+            && $0.kind != "infra" && $0.status != "gone" }.count
+    }
+    /// Live agents currently reaching the API THROUGH Tower's proxy (regardless of
+    /// routing intent). They lose their connection until restarted if the guard
+    /// stops — used to warn on quit.
+    var proxyPinnedCount: Int {
+        agentSessions.filter { $0.guarded == true && $0.pid != nil
+            && $0.kind != "infra" && $0.status != "gone" }.count
+    }
+
     var anyFailed: Bool { needsYou.contains { AgentStatus(raw: $0.status) == .failed } }
     /// True while at least one agent has a tool call in flight (menu-bar breath).
     var anyTooling: Bool {
