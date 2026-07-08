@@ -29,10 +29,16 @@ carries over. It refuses while an old legacy daemon still holds its lock.)
 
 ## The daemon — `src/towerd.py` (stdlib only)
 Runs these threads:
-- **proxy** — a local HTTP/HTTPS proxy on **:8888** (fixed, so routing stays
-  stable). It CONNECT-tunnels HTTPS, so it sees each request's **hostname** but
+- **proxy** — a local HTTP/HTTPS proxy on a **sticky port** (prefers **:8888**,
+  persisted as `cfg["proxy_port"]` and reused every run so a session pinned to it
+  survives a daemon restart; `bind_proxy` retries the sticky port briefly before
+  drifting). It CONNECT-tunnels HTTPS, so it sees each request's **hostname** but
   never decrypts traffic. Any host containing `anthropic`, `claude.ai`, or
-  `claude.com` is treated as a Claude request.
+  `claude.com` is treated as a Claude request. The upstream leg
+  (`_upstream_connect`) sets a **long, bounded idle timeout** (`TUNNEL_IDLE_S`,
+  not the connect timeout `create_connection` would otherwise strand on the
+  socket) and `TCP_NODELAY`, so slow-first-byte and idle keep-alive tunnels aren't
+  guillotined mid-session and streamed tokens aren't Nagle-batched.
 - **geo** — checks the public IP's country every ~15s from **multiple
   independent sources** (`ip-api.com` → `ipwho.is` → `ipapi.co`, first hit
   wins; all proxy-bypassed so they read your real egress IP). Multi-source so
@@ -66,8 +72,18 @@ Runs these threads:
   (failed > blocked > asking > done), detects **same-repo collisions**
   (escalating when two agents touch the same file), tracks momentum ticks
   (tools done / files touched / errors), and publishes state transitions as
-  events the app turns into notifications. **Read-only toward Claude Code**:
-  it never writes into `~/.claude` and never injects input.
+  events the app turns into notifications. It also classifies each session's
+  **guard status** (`guarded: true|false|null`): a **routing timeline**
+  (`cfg["route_log"]`, on/off transitions written by `note_route_change`) answers
+  "was routing installed when this process launched?", and an **lsof latch**
+  (`_scan_proxy_clients`, one `lsof -iTCP@127.0.0.1:<port>` every ~5s) upgrades
+  that presumption to proof for any session with a live proxy connection. A launch
+  within ~5s of a route flip, or before the timeline's coverage, is `null`
+  (unknown — never counted). From these, `agents.summary` publishes `unguarded`
+  (started before the guard, routing on → restart to protect) and `pinned` (still
+  proxy-guarded, routing off → safe until restarted). **Read-only toward Claude
+  Code**: it never writes into `~/.claude`, never injects input, and reads only
+  process/network tables (`ps`/`lsof`), never a process's files or env.
 - **state writer** — writes `state.json` atomically ~1/s (and immediately after
   any command, so the UI reflects changes in ~60ms).
 - **command watcher** — polls `cmd/` every ~60ms, runs the command, writes an
@@ -99,8 +115,18 @@ Runs these threads:
   multiple independent sources (ip-api → ipwho.is → ipapi.co, proxy-bypassed) and
   a merely-slow ("degraded") link still counts as reachable. `claude -p /usage`
   is gated the same way — it never runs off-country or on an unstable net.
-- **Single instance.** An `flock` on `daemon.lock` means a second launch just
-  exits; front-ends can always safely try to start it.
+- **Single instance + crash-resilient.** An `flock` on `daemon.lock` means a
+  second launch just exits; front-ends can always safely try to start it. The app
+  respawns a daemon that dies unexpectedly (its pollTimer notices `alive` gone for
+  >10s, throttled to once/30s), and `route_off` runs on every clean exit and via
+  `atexit`, so a stranded proxy env is rare and self-healing — the default-on
+  startup rewrites `settings.json` for new sessions the moment the daemon is back.
+- **"Off means off" for pinned sessions.** The proxy listener outlives routing, so
+  a session started while routed keeps its `HTTPS_PROXY` env even after a
+  double-confirmed route-off. `State.routed` mirrors that intent: while off,
+  `should_block` is a pure pass-through for those pinned tunnels (same direct
+  access new sessions get), never a stuck gate. `state.routed` is set only by the
+  route command or persisted `cfg["routed"]`; it never fails open on its own.
 - **Transcript parsing is defensive.** The session JSONL format is
   undocumented and drifts between Claude Code versions (observed mid-file).
   Every line parse is wrapped; unknown types are skipped;
