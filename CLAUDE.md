@@ -46,6 +46,12 @@ condition (your location or your connection) recovers.
   `geo_loop`), not letting unconfirmed traffic through. `claude -p /usage` is
   itself a Claude request: it is gated on the *same* predicate
   (`State.claude_allowed()`) and never runs off-country or on an unstable net.
+  The one intentional pass-through: while routing is ON the gate is fully
+  fail-closed, but a double-confirmed route-OFF sets `State.routed = False`, which
+  makes `should_block` a pass-through for sessions still pinned to the proxy —
+  the same direct, unguarded connection new sessions get. "Off means off," not
+  "stuck-gated." `state.routed` may only be flipped by the double-confirmed route
+  command or the persisted `cfg["routed"]`; it never fails open on its own.
 - **Block with 503, never 403 — the block is PENDING, not FAILED.** A blocked
   Claude request is *held* a few seconds (re-checking so a sub-second blip
   clears with no visible retry), then answered `503 + Retry-After`. Claude Code
@@ -66,14 +72,29 @@ condition (your location or your connection) recovers.
 - **On by default.** Opening the app starts the daemon, and the daemon routes
   Claude on startup unless you've *explicitly* turned routing off
   (`cfg["routed"] == False`). You never have to arm it by hand.
+- **The proxy endpoint is durable.** A Claude session captures `HTTPS_PROXY` once
+  at launch and can never change it, so the proxy address must not move under it.
+  `bind_proxy` prefers the *same* port every run (persisted `cfg["proxy_port"]`,
+  retrying briefly for a dying predecessor) so a pinned session survives a daemon
+  restart; the app's pollTimer respawns a daemon that dies unexpectedly (kill -9);
+  and `route_off` runs on every clean exit *and* via `atexit`. Don't reintroduce
+  port drift or an endpoint that vanishes mid-session — that is the "only a new
+  chat works" bug.
+- **Never let a live tunnel carry a short timeout.** `socket.create_connection`
+  leaves its connect timeout ON the socket, so the relay must reset it
+  (`_upstream_connect` → `settimeout(TUNNEL_IDLE_S)`); a short idle timeout
+  silently guillotines slow-first-byte and idle keep-alive tunnels mid-session.
+  Sockets on the hot path also set `TCP_NODELAY` (Nagle batches streamed tokens).
 - **Dangerous switch-offs are double-confirmed.** Anything that lets Claude
   reach the API *without* the guard — turning routing off, disabling
   enforcement, quitting/stopping the guard — is a destructive action. Both
   front-ends must **warn hard and require a second, explicit confirmation**
   before it takes effect, and the warning must call out how many agents are
-  *working right now* (they'd immediately send unguarded requests). Turning
-  the guard *on* stays one tap; only the off-direction is gated. App:
-  `TowerModel.requestDanger` + `DangerAlerts`; TUI: `danger_confirm`.
+  *working right now* (they'd immediately send unguarded requests), and quit/stop
+  additionally calls out how many chats are *pinned to the proxy* (they lose their
+  connection until restarted). Turning the guard *on* stays one tap; only the
+  off-direction is gated. App: `TowerModel.requestDanger` + `DangerAlerts` +
+  `proxyPinnedCount`; TUI: `danger_confirm` + `_pinned_note`.
 - **Never trip a macOS permission prompt.** Tower must never make macOS ask for
   Photos / Music / Contacts / Desktop / Documents / Downloads. Two rules keep it
   hermetic: (1) the daemon NEVER opens or enumerates anything under a
