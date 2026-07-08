@@ -455,6 +455,12 @@ struct AgentsTab: View {
             } else {
                 ForEach(model.collisions) { c in CollisionBanner(collision: c) }
 
+                if model.unguardedCount > 0 {
+                    GuardGapBanner(count: model.unguardedCount, unguarded: true)
+                } else if model.pinnedCount > 0 {
+                    GuardGapBanner(count: model.pinnedCount, unguarded: false)
+                }
+
                 GroupBox("Agents — \(sessions.count) session\(sessions.count == 1 ? "" : "s")") {
                     if sessions.isEmpty {
                         EmptyState(anyResting: false)
@@ -520,6 +526,7 @@ struct AgentTableRow: View {
                             .background(Color.secondary.opacity(0.15), in: Capsule())
                             .foregroundStyle(.secondary)
                     }
+                    UnguardedChip(model: model, session: session)
                 }
                 Text(session.title ?? session.activity ?? session.last_prompt ?? "")
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
