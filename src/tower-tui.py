@@ -586,12 +586,27 @@ def draw(win, s):
         counts = (f"{summary.get('working', 0)} at work · "
                   f"{summary.get('done_today', 0)} done today · "
                   f"{summary.get('needs_you', 0)} need you")
+        routing = s.get("routing") or {}
+        intended = routing.get("intended")
+        if intended is None:                 # old daemon: fall back to file truth
+            intended = routing.get("installed")
+        n_ung = summary.get("unguarded", 0) or 0
+        n_pin = summary.get("pinned", 0) or 0
+        guard_line, guard_color = None, C_WARN
+        if intended and n_ung:
+            guard_line = (f"⚠ {n_ung} chat{'s' if n_ung != 1 else ''} started "
+                          f"before the guard — restart to protect")
+        elif not intended and n_pin:
+            guard_line = (f"{n_pin} chat{'s' if n_pin != 1 else ''} still on the "
+                          f"old proxy — safe until restart")
+            guard_color = C_DIM
         nrows = min(6, len(arow))
         if arow:
-            bh_a = 1 + nrows + (1 if coll else 0) + 2
+            bh_a = 1 + nrows + (1 if coll else 0) + (1 if guard_line else 0) + 2
             while bh_a > (h - 4) - y and nrows > 1:   # shrink to fit
                 nrows -= 1
-                bh_a = 1 + nrows + (1 if coll else 0) + 2
+                bh_a = 1 + nrows + (1 if coll else 0) + \
+                    (1 if guard_line else 0) + 2
         else:
             bh_a = 3                     # just "no agents running"
         if y + bh_a <= h - 4:
@@ -605,6 +620,8 @@ def draw(win, s):
                 yy += 1
                 for mark, mc, txt, sid, live in arow[:nrows]:
                     safe_addstr(win, yy, 4, mark, cp(mc) | curses.A_BOLD)
+                    if intended and by_id.get(sid, {}).get("guarded") is False:
+                        txt = txt + "  ·unguarded"    # started before the guard
                     clipped = txt[:max(0, cardw - 7)]
                     if live:             # working agent: shimmer like the header
                         draw_shimmer(win, yy, 7, clipped, C_TITLE)
@@ -615,6 +632,10 @@ def draw(win, s):
                     yy += 1
                 if coll:
                     safe_addstr(win, yy, 4, coll[:max(0, cardw - 4)], cp(C_WARN))
+                    yy += 1
+                if guard_line:
+                    safe_addstr(win, yy, 4, guard_line[:max(0, cardw - 4)],
+                                cp(guard_color))
             y += bh_a
 
     # ---- PLAN LIMITS: the REAL numbers, mirrored from `claude -p /usage` ---- #
@@ -762,6 +783,16 @@ def _agents_working(s):
     sessions = ((s.get("agents") or {}).get("sessions")) or []
     return sum(1 for a in sessions
                if a.get("status") == "working" and not a.get("dismissed"))
+
+
+def _pinned_note(s):
+    """Extra warning for STOP/QUIT: sessions still pinned to the proxy keep working
+    while the guard runs, but lose their connection the moment it stops."""
+    n = ((s.get("agents") or {}).get("summary") or {}).get("pinned", 0) or 0
+    if not n:
+        return ""
+    return (f" {n} chat{'s' if n != 1 else ''} still pinned to the proxy will "
+            "lose their connection until restarted.")
 
 
 def danger_confirm(win, s, headline, detail):
@@ -1151,7 +1182,7 @@ def procs_modal(win, s):
                         win, s,
                         "Stop the guard and all background processes? Claude "
                         "goes back to a DIRECT, unguarded connection.",
-                        "This removes the guard entirely."):
+                        "This removes the guard entirely." + _pinned_note(s)):
                     send({"cmd": "quit"})
                     return "stopped"
             return None
@@ -1464,7 +1495,8 @@ def run(win):
                     win, st,
                     "Stop the guard and restore Claude to a DIRECT, "
                     "unguarded connection?",
-                    "This turns the guard off entirely, then quits."):
+                    "This turns the guard off entirely, then quits."
+                    + _pinned_note(st)):
                 send({"cmd": "quit"})
                 return
             sig_prev = object()
