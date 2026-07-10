@@ -13,7 +13,6 @@ the guard entirely (removes routing, restores Claude to a direct connection).
 Run:  python3 tower-tui.py
 """
 
-import curses
 import json
 import os
 import subprocess
@@ -21,6 +20,14 @@ import sys
 import textwrap
 import time
 import uuid
+
+# curses isn't in the Windows stdlib. _wincurses is a drop-in shim implementing
+# the exact curses subset this TUI uses, over ANSI/VT + msvcrt (dep-free). On
+# macOS/Linux the real curses is used, unchanged.
+if os.name == "nt":
+    import _wincurses as curses
+else:
+    import curses
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
@@ -89,11 +96,23 @@ def ensure_daemon():
         return
     if not os.path.exists(DAEMON):
         return
-    py = sys.executable or "python3"
+    py = sys.executable or ("python" if os.name == "nt" else "python3")
     try:
-        subprocess.Popen([py, DAEMON],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        if os.name == "nt":
+            # No setsid on Windows; detach so the daemon outlives this TUI and
+            # gets no console window of its own.
+            flags = (subprocess.CREATE_NEW_PROCESS_GROUP
+                     | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                     | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+            subprocess.Popen([py, DAEMON],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             creationflags=flags)
+        else:
+            subprocess.Popen([py, DAEMON],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             start_new_session=True)
     except OSError:
         pass
 
@@ -468,10 +487,10 @@ def draw(win, s):
         dot = "●" if kon else "○"
         state_txt = {"idle": "on · lid open",
                      "clamshell": "on · survives lid close"}.get(kmode, "off")
-        desc = {"idle": "Mac stays awake while the lid is open",
+        desc = {"idle": "Device stays awake while the lid is open",
                 "clamshell": "long agents keep running with the lid closed"}.get(
                     kmode if kon else "off",
-                    "Mac may sleep — long agents can be interrupted")
+                    "Device may sleep — long agents can be interrupted")
         hint = "[w] change"
         safe_addstr(win, y + 1, 4, f"{dot} {state_txt}",
                     cp(C_GOOD if kon else C_DIM) | curses.A_BOLD)
@@ -535,7 +554,7 @@ def draw(win, s):
             HITBOXES.append((yy, 2, w - 3, "speedtest"))
         y += 4
 
-    # ---- AGENTS — Claude agents on this Mac. Omitted entirely when the
+    # ---- AGENTS — Claude agents on this Device. Omitted entirely when the
     # daemon predates the `agents` key. --- #
     ag = s.get("agents")
     if isinstance(ag, dict):
@@ -1049,7 +1068,7 @@ HELP = [
     ("q", "Quit the dashboard — the guard keeps running"),
     ("Q", "Stop the guard & restore Claude to a direct connection"),
     ("net", "NETWORK card — your internet vs Anthropic's API; click"),
-    ("agents", "AGENTS — Claude agents on this Mac; click to focus"),
+    ("agents", "AGENTS — Claude agents on this Device; click to focus"),
     ("mouse", "Click rows to act; wheel scrolls lists"),
 ]
 
@@ -1223,7 +1242,7 @@ def actions_menu(win):
                 ("scope", "Block scope",
                  "ALL traffic" if g.get("block_all") else "Claude only"),
                 ("country", "Pin a country…", cname(g.get("target_cc"))),
-                ("keepawake", "Keep the Mac awake",
+                ("keepawake", "Keep the Device awake",
                  {"idle": "lid open", "clamshell": "lid-closed ok"}.get(
                      ka.get("mode", "off"), "off")),
                 ("recheck", "Re-check location now", ""),

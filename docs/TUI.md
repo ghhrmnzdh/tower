@@ -42,7 +42,7 @@ with `Enter` (or a click), close with `Esc`:
 | Enforcement | Fail-closed: allow Claude only when confirmed in-country on a stable connection; block otherwise |
 | Block scope | Block ALL traffic, or Claude only |
 | Pin a country… | Opens the searchable country picker |
-| Keep the Mac awake | Cycle off → lid-open → lid-closed (lid-closed asks for your password once) |
+| Keep the Device awake | Cycle off → lid-open → lid-closed (lid-closed asks for your password once) |
 | Re-check location now | Immediate location lookup **and** a fresh net probe |
 | Refresh usage now | Re-run `claude -p /usage` immediately |
 | **Run internet speed test** | 25 MB download, direct connection; shows running % / cooldown / last Mbps |
@@ -62,7 +62,7 @@ with `Enter` (or a click), close with `Esc`:
 - **NETWORK** — where a Claude error comes from: status dot
   (online/degraded/offline/api_issue/captive), `net` vs `api` latency, an
   API-latency sparkline (outages peg the top), and the last speed-test result.
-- **AGENTS** — Claude agents on this Mac: `N at work · M done today · K need
+- **AGENTS** — Claude agents on this Device: `N at work · M done today · K need
   you`, then rows (needs-you first: ✗ failed / ⛔ waiting approval / ? asking /
   ✓ done, then the working agents) as
   `project — activity · model · age`. Collisions show as a ⚠ line when two
