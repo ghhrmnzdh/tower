@@ -29,6 +29,10 @@ if os.name == "nt":
 else:
     import curses
 
+# Platform noun for user-facing copy — "Mac" on macOS (unchanged), "PC" on
+# Windows. Keeps the macOS wording byte-identical while reading right on Windows.
+DEVICE = "PC" if os.name == "nt" else "Mac"
+
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
@@ -487,10 +491,10 @@ def draw(win, s):
         dot = "●" if kon else "○"
         state_txt = {"idle": "on · lid open",
                      "clamshell": "on · survives lid close"}.get(kmode, "off")
-        desc = {"idle": "Device stays awake while the lid is open",
+        desc = {"idle": f"{DEVICE} stays awake while the lid is open",
                 "clamshell": "long agents keep running with the lid closed"}.get(
                     kmode if kon else "off",
-                    "Device may sleep — long agents can be interrupted")
+                    f"{DEVICE} may sleep — long agents can be interrupted")
         hint = "[w] change"
         safe_addstr(win, y + 1, 4, f"{dot} {state_txt}",
                     cp(C_GOOD if kon else C_DIM) | curses.A_BOLD)
@@ -554,7 +558,7 @@ def draw(win, s):
             HITBOXES.append((yy, 2, w - 3, "speedtest"))
         y += 4
 
-    # ---- AGENTS — Claude agents on this Device. Omitted entirely when the
+    # ---- AGENTS — Claude agents on this Mac. Omitted entirely when the
     # daemon predates the `agents` key. --- #
     ag = s.get("agents")
     if isinstance(ag, dict):
@@ -1068,7 +1072,7 @@ HELP = [
     ("q", "Quit the dashboard — the guard keeps running"),
     ("Q", "Stop the guard & restore Claude to a direct connection"),
     ("net", "NETWORK card — your internet vs Anthropic's API; click"),
-    ("agents", "AGENTS — Claude agents on this Device; click to focus"),
+    ("agents", f"AGENTS — Claude agents on this {DEVICE}; click to focus"),
     ("mouse", "Click rows to act; wheel scrolls lists"),
 ]
 
@@ -1242,7 +1246,7 @@ def actions_menu(win):
                 ("scope", "Block scope",
                  "ALL traffic" if g.get("block_all") else "Claude only"),
                 ("country", "Pin a country…", cname(g.get("target_cc"))),
-                ("keepawake", "Keep the Device awake",
+                ("keepawake", f"Keep the {DEVICE} awake",
                  {"idle": "lid open", "clamshell": "lid-closed ok"}.get(
                      ka.get("mode", "off"), "off")),
                 ("recheck", "Re-check location now", ""),

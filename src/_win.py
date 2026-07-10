@@ -33,19 +33,27 @@ _mutex_handle = None
 # --------------------------------------------------------------------------- #
 # Single instance — named mutex (replaces fcntl.flock on ~/.tower/daemon.lock)
 # --------------------------------------------------------------------------- #
-def single_instance(name="Global\\TowerDaemon"):
+def single_instance(name="Local\\TowerDaemon"):
     """Return an opaque handle if we are the first/only instance, or None if a
     daemon is already running. The handle must be kept referenced for the life
-    of the process; closing/GC-ing it releases the lock."""
+    of the process; closing/GC-ing it releases the lock.
+
+    Named in the per-session `Local\\` namespace (not `Global\\`): the daemon is
+    per-user, like the fcntl lock it replaces. `Global\\` both collides across
+    users (a second user's daemon would refuse to start) and needs
+    SeCreateGlobalPrivilege — whose absence for a normal account is exactly what
+    used to send us down the fail-open path below."""
     global _mutex_handle
     _k32.CreateMutexW.restype = wintypes.HANDLE
     _k32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    _k32.CloseHandle.restype = wintypes.BOOL
+    _k32.CloseHandle.argtypes = [wintypes.HANDLE]
     handle = _k32.CreateMutexW(None, False, name)
     err = ctypes.get_last_error()
     if not handle:
-        # Could not create the mutex at all — fail open (allow start) rather
-        # than block the daemon over a lock we couldn't take.
-        return object()
+        # Couldn't create the mutex at all (OOM / handle exhaustion). Fail
+        # CLOSED — never launch a second router when we can't prove we're alone.
+        return None
     if err == ERROR_ALREADY_EXISTS:
         _k32.CloseHandle(handle)
         return None
@@ -85,6 +93,9 @@ def keepawake(on):
 # daemon needs to correlate a live process to its transcript. Throttled by the
 # caller (PROC_RESCAN_S), so the PowerShell startup cost is paid rarely.
 _PS_ENUM = (
+    # Force UTF-8 out of PowerShell so non-ASCII command lines (accented user
+    # dirs, unicode --resume titles) survive; paired with a utf-8 decode below.
+    "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
     "$ErrorActionPreference='SilentlyContinue';"
     "Get-CimInstance Win32_Process -Filter \"Name='claude.exe' or Name='node.exe'\""
     " | ForEach-Object {"
@@ -112,8 +123,8 @@ def enum_claude_processes():
     try:
         r = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_ENUM],
-            capture_output=True, text=True, timeout=15,
-            creationflags=CREATE_NO_WINDOW)
+            capture_output=True, encoding="utf-8-sig", errors="replace",
+            timeout=15, creationflags=CREATE_NO_WINDOW)
     except Exception:
         return []
     out = (r.stdout or "").strip()
@@ -157,6 +168,14 @@ STD_OUTPUT_HANDLE = -11
 def enable_vt_and_utf8():
     """Turn on VT/ANSI escape processing and switch the console to UTF-8 so the
     TUI's box-drawing and block glyphs render. Best-effort; safe to call twice."""
+    # Prototype the console calls: without an explicit HANDLE restype ctypes
+    # treats GetStdHandle's return as a 32-bit int and truncates the handle on
+    # 64-bit Windows, so GetConsoleMode then fails and VT never turns on.
+    _k32.GetStdHandle.restype = wintypes.HANDLE
+    _k32.GetConsoleMode.restype = wintypes.BOOL
+    _k32.GetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.LPDWORD]
+    _k32.SetConsoleMode.restype = wintypes.BOOL
+    _k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     try:
         h = _k32.GetStdHandle(STD_OUTPUT_HANDLE)
         mode = wintypes.DWORD()

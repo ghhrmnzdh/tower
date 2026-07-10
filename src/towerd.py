@@ -986,7 +986,7 @@ class NetMonitor:
                                 else NET_INTERVAL_BAD)
                     if (self._last_sample_mono is not None
                             and mono - self._last_sample_mono > 3 * expected):
-                        # Slept through samples (Device asleep): the first groggy
+                        # Slept through samples (Mac asleep): the first groggy
                         # post-wake sample must not count toward a flip.
                         self._pending = None
                     self._last_sample_mono = mono
@@ -1212,8 +1212,10 @@ def _model_family(model):
 
 def _short_path(p):
     # Separator-agnostic: transcript paths recorded on Windows use "\", on Unix
-    # "/". Normalize to "/" so the last-two-segments shortening works on both.
-    parts = str(p).replace("\\", "/").rstrip("/").split("/")
+    # "/". Normalize to "/" on Windows only — a POSIX filename may legally
+    # contain a backslash, so the macOS shortening stays byte-for-byte as before.
+    s = str(p).replace("\\", "/") if IS_WINDOWS else str(p)
+    parts = s.rstrip("/").split("/")
     return "/".join(parts[-2:]) if len(parts) > 2 else str(p)
 
 
@@ -2760,9 +2762,14 @@ def fetch_plan():
             r = subprocess.run(
                 argv,
                 stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, timeout=90, env=env,
-                cwd=CONFIG_DIR)     # neutral cwd: never let claude scan a
-                                    # protected folder it happened to inherit
+                timeout=90, env=env, cwd=CONFIG_DIR,
+                # neutral cwd above: never let claude scan a protected folder it
+                # inherited. Windows: the console-less daemon would flash a
+                # console window each poll — suppress it; and decode UTF-8 so
+                # unicode / box glyphs in the report don't mojibake.
+                **({"creationflags": subprocess.CREATE_NO_WINDOW,
+                    "encoding": "utf-8", "errors": "replace"}
+                   if IS_WINDOWS else {"text": True}))
 
             res = parse_usage((r.stdout or "") + "\n" + (r.stderr or ""))
             if res.get("ok"):

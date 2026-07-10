@@ -220,7 +220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func explainThenEnableClamshell(model: TowerModel) {
         popover.performClose(nil)
         let a = NSAlert()
-        a.messageText = "Keep your Device awake with the lid closed?"
+        a.messageText = "Keep your Mac awake with the lid closed?"
         a.informativeText = """
         macOS will ask for your password once, right after this.
 
