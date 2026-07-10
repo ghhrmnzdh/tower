@@ -40,8 +40,8 @@ and the app icon. Hold/danger tones: amber `#E6A93C`, red `#E5484D`.
 
 ### The vigil — keep-awake, worn on the mark
 
-Keep-awake is orthogonal to the guard (the Mac can be held awake in any state),
-so it can't *be* a radar state — it rides one. When the Mac is held awake the
+Keep-awake is orthogonal to the guard (the Device can be held awake in any state),
+so it can't *be* a radar state — it rides one. When the Device is held awake the
 radar's **core lights**: a soft neutral **lamp** (a bloom + a crisp halo ring),
 deliberately never amber/red so a hold always outranks it and the two facts
 compose in one mark. `AwakeGlow` (`Glyph.swift`) has three looks: **idle** is a

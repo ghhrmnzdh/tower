@@ -39,7 +39,7 @@ verify sweep, or a calm scan while agents are working — and freezes under Redu
 Motion.
 
 When **keep-awake** is on, the radar's core lights — a soft, neutral **vigil
-lamp** meaning "the tower is holding your Mac awake." It's subliminal and never
+lamp** meaning "the tower is holding your Device awake." It's subliminal and never
 amber/red, so a guard hold always outranks it: the two facts compose in one mark
 instead of colliding. It's a still lit lamp while the lid may stay open, and
 breathes slowly on a lid-closed vigil.

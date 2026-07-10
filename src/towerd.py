@@ -15,7 +15,6 @@ stdlib only. Single instance (flock). Proxy fixed on :8888 so settings stay stab
 
 import atexit
 import errno
-import fcntl
 import json
 import os
 import re
@@ -34,6 +33,16 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:                       # zoneinfo is stdlib on 3.9+
     ZoneInfo = None
+
+# Platform split. Everything Unix-only (fcntl lock, caffeinate/pmset keep-awake,
+# ps/lsof process scan, osascript focus, os.setsid) lives behind IS_WINDOWS; the
+# Windows equivalents (named mutex, SetThreadExecutionState, toolhelp snapshot)
+# live in _win.py, imported only here. macOS/Linux behavior is unchanged.
+IS_WINDOWS = os.name == "nt"
+if IS_WINDOWS:
+    import _win
+else:
+    import fcntl
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
@@ -59,11 +68,17 @@ SETTINGS_BAK = CLAUDE_SETTINGS + ".tower.bak"
 # string, no I/O); we simply skip the git-root/branch/collision file reads for
 # it. See the "Never trip a TCC prompt" invariant in CLAUDE.md. (/Volumes covers
 # external/network disks, also gated by TCC on recent macOS.)
-_PROTECTED_ROOTS = tuple(os.path.join(HOME, d) for d in (
-    "Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music",
-    os.path.join("Library", "Mobile Documents"),   # iCloud Drive
-    os.path.join("Library", "CloudStorage"),        # third-party cloud mounts
-)) + ("/Volumes",)
+# Windows has no TCC prompt system, so nothing is "protected" there — the agent
+# monitor can read git roots/branches freely. Empty tuple ⇒ _is_protected is a
+# no-op (always False). The macOS list (and hardcoded /Volumes) stays as-is.
+if IS_WINDOWS:
+    _PROTECTED_ROOTS = ()
+else:
+    _PROTECTED_ROOTS = tuple(os.path.join(HOME, d) for d in (
+        "Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music",
+        os.path.join("Library", "Mobile Documents"),   # iCloud Drive
+        os.path.join("Library", "CloudStorage"),        # third-party cloud mounts
+    )) + ("/Volumes",)
 
 
 def _is_protected(path):
@@ -84,7 +99,8 @@ PMSET = "/usr/bin/pmset"
 # Legacy path kept on purpose: the rule may already be installed on disk under
 # this name and replacing it would cost the user another admin prompt.
 SUDOERS_FILE = "/etc/sudoers.d/geo-guard"
-USER = os.environ.get("USER") or os.environ.get("LOGNAME") or "user"
+USER = (os.environ.get("USER") or os.environ.get("LOGNAME")
+        or os.environ.get("USERNAME") or "user")
 
 # per-MTok USD (input, output, cache-write, cache-read); estimates, overridable.
 PRICING = {
@@ -130,13 +146,30 @@ def _atomic_write(path, text):
     try:
         with os.fdopen(fd, "w") as f:
             f.write(text)
-        os.replace(tmp, path)
+        _os_replace(tmp, path)
     except Exception:
         try:
             os.remove(tmp)
         except OSError:
             pass
         raise
+
+
+def _os_replace(src, dst):
+    """os.replace, but tolerant of Windows sharing violations. On POSIX a rename
+    over a file another process holds open is fine; on Windows it can raise
+    PermissionError for the brief instant a front-end has state.json open for
+    reading, so retry a few times. macOS/Linux take the plain path."""
+    if not IS_WINDOWS:
+        os.replace(src, dst)
+        return
+    for i in range(20):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(0.01)
+    os.replace(src, dst)   # last try — let it raise if still contended
 
 
 def is_claude_host(host):
@@ -953,7 +986,7 @@ class NetMonitor:
                                 else NET_INTERVAL_BAD)
                     if (self._last_sample_mono is not None
                             and mono - self._last_sample_mono > 3 * expected):
-                        # Slept through samples (Mac asleep): the first groggy
+                        # Slept through samples (Device asleep): the first groggy
                         # post-wake sample must not count toward a flip.
                         self._pending = None
                     self._last_sample_mono = mono
@@ -1178,7 +1211,9 @@ def _model_family(model):
 
 
 def _short_path(p):
-    parts = str(p).rstrip("/").split("/")
+    # Separator-agnostic: transcript paths recorded on Windows use "\", on Unix
+    # "/". Normalize to "/" so the last-two-segments shortening works on both.
+    parts = str(p).replace("\\", "/").rstrip("/").split("/")
     return "/".join(parts[-2:]) if len(parts) > 2 else str(p)
 
 
@@ -1307,9 +1342,17 @@ class ProcScanner:
         self.lsof_ok = True
         self._cwd_cache = {}
 
-    def scan(self):
-        """{pid: {pid, ppid, tty, lstart, kind, session_id, transcript}} for
-        claude processes; bg-pty-host parents are dropped (child kept)."""
+    def _scan_entries(self):
+        """Normalized raw process rows — one dict per candidate claude process
+        with keys pid, ppid, tty, stopped, lstart, args (full command line).
+        POSIX reads the BSD `ps` table; Windows reads Win32_Process via _win.
+        The shared parser in scan() turns these into the correlated row dicts."""
+        if IS_WINDOWS:
+            try:
+                return _win.enum_claude_processes()
+            except Exception as e:  # noqa: BLE001
+                log(f"win proc scan error: {e}")
+                return []
         try:
             r = subprocess.run(
                 ["ps", "-axo", "pid=,ppid=,tty=,state=,lstart=,args="],
@@ -1317,8 +1360,8 @@ class ProcScanner:
             lines = r.stdout.splitlines()
         except Exception as e:  # noqa: BLE001
             log(f"ps scan error: {e}")
-            return {}
-        rows, hosts = {}, set()
+            return []
+        entries = []
         for line in lines:
             parts = line.split(None, 9)
             if len(parts) < 10:
@@ -1342,6 +1385,20 @@ class ProcScanner:
                     " ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
             except Exception:  # noqa: BLE001
                 lstart = None
+            entries.append({"pid": pid, "ppid": ppid, "tty": tty,
+                            "stopped": stopped, "lstart": lstart, "args": args})
+        return entries
+
+    def scan(self):
+        """{pid: {pid, ppid, tty, lstart, kind, session_id, transcript}} for
+        claude processes; bg-pty-host parents are dropped (child kept)."""
+        rows, hosts = {}, set()
+        for e in self._scan_entries():
+            pid, ppid = e["pid"], e["ppid"]
+            args = e["args"]
+            tty = e["tty"]
+            stopped = e["stopped"]
+            lstart = e["lstart"]
             if "--bg-pty-host" in args:
                 hosts.add(pid)      # parent half of a bg pair — child wins
                 continue
@@ -1381,6 +1438,12 @@ class ProcScanner:
         return rows
 
     def cwd_of(self, pid):
+        # No dependency-free way to read another process's cwd on Windows
+        # (needs fragile PEB reads / admin). Return None: bare interactive
+        # sessions simply won't be correlated by cwd there — background/scripted
+        # agents (which carry --session-id/--resume in their args) still work.
+        if IS_WINDOWS:
+            return None
         if pid in self._cwd_cache:
             return self._cwd_cache[pid]
         cwd = None
@@ -2259,6 +2322,10 @@ class AgentMonitor:
 
     def focus(self, session_id):
         """Bring the session's terminal tab frontmost. Never raises."""
+        if IS_WINDOWS:
+            # No osascript/tmux tab-raising analog on Windows (and no tty to
+            # match a tab by). Offer the resume command as the fallback.
+            return {"ok": False, "fallback": f"claude --resume {session_id}"}
         try:
             with self.lock:
                 sess = next((s for s in self._snap["sessions"]
@@ -2536,6 +2603,12 @@ def find_claude():
     p = shutil.which("claude")
     if p:
         return p
+    if IS_WINDOWS:
+        for c in (os.path.join(HOME, ".claude", "local", "claude.exe"),
+                  os.path.join(HOME, ".claude", "local", "claude.cmd")):
+            if os.path.exists(c):
+                return c
+        return None
     for c in ("/opt/homebrew/bin/claude", "/usr/local/bin/claude",
               os.path.join(HOME, ".claude", "local", "claude"),
               "/usr/bin/claude"):
@@ -2626,13 +2699,17 @@ USAGE_MCP_FILE = os.path.join(CONFIG_DIR, "empty-mcp.json")  # zero MCP servers
 
 
 def _ensure_usage_sandbox():
-    """Create the empty ZDOTDIR + empty MCP config once; keep the rc dir clean."""
+    """Create the empty ZDOTDIR + empty MCP config once; keep the rc dir clean.
+    Windows has no TCC and no shell-rc sourcing to neutralise, so only the empty
+    MCP config (still passed to --mcp-config) is created there."""
     try:
-        os.makedirs(USAGE_NORC_DIR, exist_ok=True)
-        for n in (".zshrc", ".zshenv", ".zprofile", ".zlogin", ".profile"):
-            p = os.path.join(USAGE_NORC_DIR, n)
-            if os.path.lexists(p):
-                os.remove(p)                    # never let an rc sneak back in
+        if not IS_WINDOWS:
+            os.makedirs(USAGE_NORC_DIR, exist_ok=True)
+            for n in (".zshrc", ".zshenv", ".zprofile", ".zlogin", ".profile"):
+                p = os.path.join(USAGE_NORC_DIR, n)
+                if os.path.lexists(p):
+                    os.remove(p)                # never let an rc sneak back in
+        os.makedirs(CONFIG_DIR, exist_ok=True)
         if not os.path.exists(USAGE_MCP_FILE):
             with open(USAGE_MCP_FILE, "w") as f:
                 f.write('{"mcpServers":{}}')
@@ -2651,12 +2728,16 @@ def _claude_env():
            if not k.startswith("CLAUDE_CODE") and k != "CLAUDECODE"
            and k != "CLAUDE_EFFORT"}
     _ensure_usage_sandbox()
+    if IS_WINDOWS:
+        # No shell-rc sourcing on Windows, so nothing to neutralise; keep the
+        # inherited PATH (it already resolves claude/node). Separator is ';'.
+        return env
     env["ZDOTDIR"] = USAGE_NORC_DIR     # zsh sources $ZDOTDIR/.z* → none exist
     env["ENV"] = ""                     # sh: no startup file
     env["BASH_ENV"] = ""                # bash non-interactive: no startup file
     extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
-    have = env.get("PATH", "").split(":")
-    env["PATH"] = ":".join([p for p in extra if p not in have] + have)
+    have = env.get("PATH", "").split(os.pathsep)
+    env["PATH"] = os.pathsep.join([p for p in extra if p not in have] + have)
     return env
 
 
@@ -2665,14 +2746,19 @@ def fetch_plan():
     if not claude:
         return {"ok": False, "error": "claude CLI not found"}
     env = _claude_env()
+    argv = [claude, "-p", "/usage",
+            "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE]
+    # A Windows `claude` on PATH is usually a `claude.cmd` npm shim; CreateProcess
+    # can't exec a batch file directly (WinError 193), so run it through cmd /c.
+    if IS_WINDOWS and claude.lower().endswith((".cmd", ".bat")):
+        argv = ["cmd", "/c"] + argv
     last = {"ok": False, "error": "could not parse /usage output"}
     # `claude -p /usage` occasionally returns a run-stats blob instead of the
     # usage report; retry a few times so one bad response doesn't fail the cycle.
     for _ in range(3):
         try:
             r = subprocess.run(
-                [claude, "-p", "/usage",
-                 "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE],
+                argv,
                 stdin=subprocess.DEVNULL, capture_output=True,
                 text=True, timeout=90, env=env,
                 cwd=CONFIG_DIR)     # neutral cwd: never let claude scan a
@@ -2896,10 +2982,13 @@ def reset_to_default():
         removed.append("proxy from settings.json")
         if os.path.exists(SETTINGS_BAK):
             backups.append(SETTINGS_BAK)
-    _pmset_nopasswd("0")
-    if os.path.exists(SUDOERS_FILE):
-        removed.append("keep-awake disabled (permission remains; use "
-                       "'Remove keep-awake permission' to clear)")
+    if IS_WINDOWS:
+        _win.keepawake(False)       # no pmset/sudoers on Windows
+    else:
+        _pmset_nopasswd("0")
+        if os.path.exists(SUDOERS_FILE):
+            removed.append("keep-awake disabled (permission remains; use "
+                           "'Remove keep-awake permission' to clear)")
     return {"done": True, "removed": removed, "backups": backups}
 
 
@@ -2959,6 +3048,18 @@ def _remove_clamshell_rule():
 
 
 def set_keepawake(state, on, mode):
+    if IS_WINDOWS:
+        # SetThreadExecutionState replaces the whole caffeinate/pmset/sudoers
+        # stack. No admin, no clamshell — modes collapse to off / idle.
+        if not on:
+            _win.keepawake(False)
+            state.keepawake_on = False
+            state.keepawake_mode = "off"
+            return {"on": False, "mode": "off"}
+        _win.keepawake(True)
+        state.keepawake_on = True
+        state.keepawake_mode = "idle"
+        return {"on": True, "mode": "idle", "needs_admin": False}
     if state._caffeinate and state._caffeinate.poll() is None:
         try:
             state._caffeinate.terminate()
@@ -3099,10 +3200,13 @@ def dispatch(state, usage, net, agents, req):
         return set_keepawake(state, bool(req.get("on", False)),
                              str(req.get("mode", "idle")))
     if cmd == "removekeepawake":
-        _remove_clamshell_rule()
+        if IS_WINDOWS:
+            _win.keepawake(False)   # no persistent permission to remove
+        else:
+            _remove_clamshell_rule()
         state.keepawake_on = False
         state.keepawake_mode = "off"
-        return {"removed": not os.path.exists(SUDOERS_FILE)}
+        return {"removed": IS_WINDOWS or not os.path.exists(SUDOERS_FILE)}
     if cmd == "theme":
         state.theme = str(req.get("theme", "Daybreak"))
         state.cfg["theme"] = state.theme
@@ -3173,6 +3277,11 @@ def _migrate_legacy_state_dir():
     would keep writing into the moved directory."""
     if os.path.isdir(CONFIG_DIR):
         return
+    # Corral/Geo Guard were macOS-only; no legacy dir can exist on Windows, and
+    # fcntl isn't available there — skip the "is the old daemon still running?"
+    # probe entirely.
+    if IS_WINDOWS:
+        return
     legacy = next((d for d in LEGACY_CONFIG_DIRS if os.path.isdir(d)), None)
     if not legacy:
         return
@@ -3220,26 +3329,41 @@ def main():
     # responsibility-child of whatever launched us (the menu-bar app). This
     # keeps macOS from attributing a spawned `claude`'s unrelated prompts
     # (e.g. a shell/plugin touching Apple Music) to "Tower.app".
-    try:
-        os.setsid()
-    except OSError:
-        pass
+    # os.setsid doesn't exist on Windows (and raises AttributeError, not
+    # OSError); the front-end spawns us DETACHED there instead.
+    if hasattr(os, "setsid"):
+        try:
+            os.setsid()
+        except OSError:
+            pass
     _migrate_legacy_state_dir()
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(CMD_DIR, exist_ok=True)
     # single instance
-    lockf = open(LOCK_FILE, "w")
-    try:
-        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        log("another daemon is already running; exiting")
-        print("towerd: already running", flush=True)
-        return
-    lockf.write(str(os.getpid()))
-    lockf.flush()
+    if IS_WINDOWS:
+        # Named mutex — cleaner than a file lock on Windows. Keep the handle on
+        # `state` (set below) so it lives as long as the process.
+        _mutex = _win.single_instance()
+        if _mutex is None:
+            log("another daemon is already running; exiting")
+            print("towerd: already running", flush=True)
+            return
+        lockf = None
+    else:
+        _mutex = None
+        lockf = open(LOCK_FILE, "w")
+        try:
+            fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log("another daemon is already running; exiting")
+            print("towerd: already running", flush=True)
+            return
+        lockf.write(str(os.getpid()))
+        lockf.flush()
 
     cfg = load_config()
     state = State(cfg)
+    state._mutex = _mutex       # keep the single-instance mutex alive (Windows)
     usage = UsageIndex(state)
     net = NetMonitor(state)
     agents = AgentMonitor(state)
@@ -3285,8 +3409,15 @@ def main():
 
     def _sig(*_a):
         state.stop.set()
+    # SIGINT (Ctrl-C) works everywhere. SIGTERM is POSIX; on Windows the
+    # catchable console-close signal is SIGBREAK. The primary, cross-platform
+    # shutdown is the {"cmd":"quit"} command file (dispatch sets state.stop),
+    # which runs the finally: route_off() block below regardless of signals.
     signal.signal(signal.SIGINT, _sig)
-    signal.signal(signal.SIGTERM, _sig)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _sig)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _sig)
 
     try:
         while not state.stop.is_set():

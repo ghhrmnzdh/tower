@@ -36,7 +36,7 @@ enum RadarState {
 }
 
 /// Keep-awake, as a soft "vigil" the radar wears on top of any state — the
-/// tower's lamp. Dark when sleep is allowed, lit while the Mac is held awake,
+/// tower's lamp. Dark when sleep is allowed, lit while the Device is held awake,
 /// breathing slowly on a lid-closed vigil. Deliberately NEUTRAL (never amber /
 /// red) so a guard hold or an unguarded state always outranks it: the two facts
 /// compose in one mark instead of fighting for the same colour.
@@ -277,7 +277,7 @@ func drawModelMark(_ ctx: GraphicsContext, size: CGFloat, tier: ModelTier,
 // --------------------------------------------------------------------------- //
 // Beacon — the keep-awake mark for the popover row and the dashboard card. The
 // tower's lamp, standalone (no radar ring): a hollow, dim lamp when sleep is
-// allowed; a lit lamp with a breathing halo while the Mac is held awake. Same
+// allowed; a lit lamp with a breathing halo while the Device is held awake. Same
 // neutral vigil language as the radar core, so one glow reads the same
 // everywhere. Drawn in the shared 0…100 box.
 // --------------------------------------------------------------------------- //
@@ -322,7 +322,7 @@ struct TowerRadar: View {
 
     var body: some View {
         // Animate while the state has motion to spend frames on, OR while the
-        // Mac is on a lid-closed vigil (the lamp breathes). A still context
+        // Device is on a lid-closed vigil (the lamp breathes). A still context
         // (animated:false) still shows a static *lit* lamp when awake.
         let live = (animated || awake == .clamshell) && !reduceMotion
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
@@ -357,7 +357,7 @@ struct ModelGlyphView: View {
     }
 }
 
-/// The keep-awake lamp as a live view. Breathes only while the Mac is held
+/// The keep-awake lamp as a live view. Breathes only while the Device is held
 /// awake (idle or clamshell); a still, dim ring when sleep is allowed. Reduce
 /// Motion freezes it at a legible lit frame.
 struct BeaconView: View {

@@ -455,7 +455,7 @@ final class TowerModel: ObservableObject {
     }
 
     /// Keep-awake, distilled to a lamp glow for the radar + beacon. Orthogonal
-    /// to the guard state — the Mac can be held awake in any of them.
+    /// to the guard state — the Device can be held awake in any of them.
     var awakeGlow: AwakeGlow {
         guard state?.keepawake?.on == true else { return .none }
         return state?.keepawake?.mode == "clamshell" ? .clamshell : .idle
@@ -629,7 +629,7 @@ enum KeepAwakeCopy {
         switch mode {
         case "idle":      return "Long agents keep running while the lid is open."
         case "clamshell": return "Agents keep running even after you close the lid."
-        default:          return "The Mac may sleep on its own — a long agent can be cut off."
+        default:          return "The Device may sleep on its own — a long agent can be cut off."
         }
     }
     /// Menu / picker option labels, in mode order [off, idle, clamshell].
