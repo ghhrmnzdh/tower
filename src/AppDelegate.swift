@@ -10,6 +10,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover = NSPopover()
     var pollTimer: Timer?
+    /// App-lifetime App Nap exemption. As an accessory app with no window, Tower
+    /// is a prime App Nap target, and a napped 1s pollTimer is throttled for
+    /// minutes — the daemon's event ring then fires as a batch of stale "finished
+    /// its turn" notifications when the app next gets CPU. `.userInitiatedAllowing-
+    /// IdleSystemSleep` disables App Nap WITHOUT taking a system/display-sleep
+    /// assertion, so idle sleep still works and keep-awake stays a separate,
+    /// opt-in feature. Held for the process lifetime; never ended.
+    var pollActivity: NSObjectProtocol?
     /// Smooth ~30fps clock, live only while the radar has motion to show.
     var animTimer: Timer?
     var daemon: Process?
@@ -50,6 +58,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         launchDaemonIfNeeded()
         model.start()
+
+        // Keep the 1s poll firing even while inactive: without this, App Nap
+        // throttles the timer for minutes and the daemon's event backlog fires
+        // as stale notifications on resume. Allows idle system sleep (see property).
+        pollActivity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Poll daemon state every second for live agent status and timely notifications")
 
         // Poll daemon state once a second: refresh the icon, fire notifications,
         // and start/stop the smooth animation clock as the radar state changes.
