@@ -173,6 +173,7 @@ struct GAgentSession: Decodable, Identifiable {
     var status: String?          // working|pending_tool|waiting_input|asking|done|failed|idle|gone
     var status_since: Double?
     var activity: String?
+    var result: String?          // first line of the agent's final answer (done rows)
     var pending_tool: GPendingTool?
     var tty: String?
     var focusable: Bool?
