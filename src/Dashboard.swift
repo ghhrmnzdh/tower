@@ -528,7 +528,8 @@ struct AgentTableRow: View {
                     }
                     UnguardedChip(model: model, session: session)
                 }
-                Text(session.title ?? session.activity ?? session.last_prompt ?? "")
+                Text((st == .done ? session.result : nil) ?? session.title
+                     ?? session.activity ?? session.last_prompt ?? "")
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
