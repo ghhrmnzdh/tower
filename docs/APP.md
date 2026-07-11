@@ -55,7 +55,9 @@ unreachable — your internet is fine (23 ms)"*) → **Needs You** (failed >
 blocked > asking > done; click a row to focus that terminal, or copy the
 resume command for background agents; hover to dismiss) → collision banners →
 **Agents** (each working agent: its model mark, project, live
-activity line, `n ✓` momentum counter) → Resting (collapsed) → location (+
+activity line — the model's own step description, or "thinking…" between tools —
+and its `n ✓` momentum counter; a done row shows the agent's result, not your
+prompt) → Resting (collapsed) → location (+
 re-check button) → **keep awake** (the beacon lamp + what it means in plain
 words; tap to cycle Off / lid-open / lid-closed) → plan meters → footer
 (Dashboard / Settings / Quit).
@@ -76,9 +78,15 @@ toggle, country, reset).
 
 ## Notifications
 Fired on agent transitions: →failed / →blocked / →asking always; →done only
-when you haven't opened the popover in the last 60s. Clicking one focuses that
-agent's terminal. If you deny notification permission, the menubar badge
-carries the signal alone — Tower never nags.
+when you haven't opened the popover in the last 60s. A →done body carries the
+agent's result. Transitions older than ~3 minutes are never toasted — a sleep or
+App-Nap backlog resolves into the dashboard's "while you were away" list, not a
+burst of late banners — except a still-open failed/blocked/asking, which stays
+worth showing because it's still awaiting you. (To keep those timers honest while
+the menubar app is inactive, Tower holds an App-Nap exemption that still allows
+idle system sleep.) Clicking one focuses that agent's terminal. If you deny
+notification permission, the menubar badge carries the signal alone — Tower never
+nags.
 
 ## Quit
 `Cmd-Q` (or the Quit button) **asks first**, then tells the daemon to quit so
