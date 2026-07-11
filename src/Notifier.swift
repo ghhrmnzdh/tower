@@ -1,8 +1,12 @@
 // Tower — notifications. The daemon publishes agent state transitions in
 // agents.events; the app turns the ones that matter into macOS notifications:
-//   → failed / → pending_tool / → asking: always (that's the product).
-//   → done: only if the popover hasn't been opened in the last 60s — never
-//     interrupt someone who's already watching.
+//   → failed / → pending_tool / → asking: always when fresh; a STALE one (a
+//     sleep / App-Nap backlog) only if the agent is still in that state, since
+//     it's still actionable.
+//   → done: only when fresh AND the popover hasn't been opened in the last 60s —
+//     never interrupt someone who's already watching, and never toast a turn
+//     that finished long ago (the dashboard's "while you were away" owns the
+//     past). "Fresh" = the transition is younger than maxEventAge.
 // Clicking a notification focuses that agent's terminal. If authorization is
 // denied, the menubar badge carries the signal alone — no nagging.
 
@@ -16,6 +20,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private var requested = false
     /// Set by AppDelegate whenever the popover opens.
     var lastPopoverOpen: Date = .distantPast
+    /// Transitions older than this are history, not news. Normal detect→deliver
+    /// latency is ~2-4s (2-cycle debounce + ~1s state write + ~1s poll), so this
+    /// can never swallow a fresh toast; it exists solely to drop the minutes-old
+    /// backlog an App-Nap / system-sleep stall leaves behind.
+    private static let maxEventAge: TimeInterval = 180
 
     init(model: TowerModel) {
         self.model = model
@@ -33,21 +42,45 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
               let events = model.state?.agents?.events, !events.isEmpty else { return }
         let fresh = events.filter { ($0.t ?? 0) > lastSeenEvent }
         guard !fresh.isEmpty else { return }
+        // Advance the watermark over the whole fresh batch BEFORE deciding what
+        // to post: a transition we choose to drop (stale, or popover-suppressed)
+        // is dropped for good, never re-delivered on a later poll.
         lastSeenEvent = fresh.compactMap(\.t).max() ?? lastSeenEvent
 
+        let now = Date().timeIntervalSince1970
         for e in fresh {
             let to = AgentStatus(raw: e.to)
+            let age = now - (e.t ?? 0)
             switch to {
             case .failed, .pendingTool, .asking:
-                post(for: e, status: to)
+                // News while fresh; a stale one (a sleep/App-Nap backlog) is only
+                // worth a banner if the agent is STILL in that state — i.e. still
+                // blocked on you right now.
+                if age <= Self.maxEventAge || currentStatus(of: e.session_id) == to {
+                    post(for: e, status: to)
+                }
             case .done, .waitingInput:
-                if Date().timeIntervalSince(lastPopoverOpen) > 60 {
+                // A finished turn is only news while it's fresh, and never while
+                // you're already watching. Older completions live in the
+                // dashboard's "while you were away" list, not as a late banner.
+                if age <= Self.maxEventAge,
+                   Date().timeIntervalSince(lastPopoverOpen) > 60 {
                     post(for: e, status: to)
                 }
             default:
                 break
             }
         }
+    }
+
+    /// The session's current status from the latest snapshot, or nil if it has
+    /// dropped off the list. Lets a stale failed/asking/pending transition still
+    /// notify when it's genuinely still awaiting the user.
+    private func currentStatus(of sid: String?) -> AgentStatus? {
+        guard let sid, !sid.isEmpty,
+              let s = model?.agentSessions.first(where: { $0.session_id == sid })
+        else { return nil }
+        return AgentStatus(raw: s.status)
     }
 
     private func post(for event: GAgentEvent, status: AgentStatus) {
@@ -69,7 +102,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 content.body = session?.title ?? "It's blocked on your answer."
             default:
                 content.title = "\(project) finished its turn"
-                content.body = session?.title ?? "The result is ready."
+                content.body = session?.result ?? session?.title ?? "The result is ready."
             }
             content.userInfo = ["session_id": event.session_id ?? ""]
             let req = UNNotificationRequest(
