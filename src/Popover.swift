@@ -427,6 +427,12 @@ struct NeedsYouRow: View {
         if st == .failed, let a = s.activity, !a.isEmpty {
             return a
         }
+        // A finished turn: show what the agent produced (its final line), not
+        // the prompt the user typed. Falls back to title/prompt when the daemon
+        // didn't capture a result (old daemon, or a no-text turn).
+        if st == .done || st == .waitingInput, let r = s.result, !r.isEmpty {
+            return st.phrase + " · " + r
+        }
         var out = st.phrase
         if let t = s.title ?? s.last_prompt, !t.isEmpty {
             out += " · \(t)"
