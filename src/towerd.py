@@ -1184,6 +1184,12 @@ AGENT_WORKING_WARN_S = 1200.0  # agent_working_warn_s: no completed turn → war
 # is the only signal we have for a live API stall; kept well above a normal
 # think/first-token gap so a healthy turn never trips it. (agent_api_stall_s)
 AGENT_API_STALL_S = 90.0
+# Presentation hysteresis (not policy, so not cfg-overridable): once the last
+# tool has been closed for this long with nothing new open, a working turn is
+# the model reasoning/writing, so the row says "thinking…" instead of holding
+# the last tool's stale phrase. Kept just above a fast tool→tool gap so a quick
+# chain doesn't flicker between "editing X" and "thinking…".
+AGENT_THINK_AFTER_S = 2.0
 AGENT_EDIT_WINDOW_S = 900.0   # recent-edit window for file-level collisions
 GRACE_TOOLS = ("Bash", "Task", "Agent", "Workflow")    # legitimately slow
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
@@ -1234,6 +1240,34 @@ def _tool_detail(name, inp):
     return None
 
 
+_CMD_WRAPPERS = frozenset(("sudo", "env", "time", "nohup", "nice",
+                           "stdbuf", "command", "exec", "caffeinate"))
+_RE_ENVVAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _cmd_summary(c):
+    """The first meaningful program in a shell line: skip leading `cd …`
+    segments, shed env-var / wrapper prefixes, then basename the first real
+    token. `cd x && FOO=1 sudo pytest -q` → "pytest". None if nothing found."""
+    for seg in re.split(r"&&|\|\||;", c):
+        toks = seg.strip().split()
+        if not toks or toks[0] == "cd":
+            continue
+        while toks and (_RE_ENVVAR.match(toks[0]) or toks[0] in _CMD_WRAPPERS):
+            toks = toks[1:]
+        if toks:
+            return os.path.basename(toks[0])
+    return None
+
+
+def _decap(s):
+    """Lowercase only a leading Capitalised word so a human description joins the
+    lowercase phrase family ("Run the test suite" → "run the test suite"), while
+    an all-caps / proper token ("NPM", "CMake") is left as written."""
+    return s[0].lower() + s[1:] \
+        if len(s) > 1 and s[0].isupper() and s[1].islower() else s
+
+
 def _activity_phrase(tool):
     """Human phrase from the latest tool_use ("editing src/Model.swift")."""
     if not tool:
@@ -1248,13 +1282,18 @@ def _activity_phrase(tool):
     if n in ("grep", "glob", "websearch", "toolsearch"):
         return "searching"
     if n == "bash":
+        # Prefer the model's own one-line description of the command — far more
+        # informative than a token off the command line ("cd x && pytest" used
+        # to read as "running cd"). Fall back to a smarter command summary.
+        desc = tool.get("desc")
+        if desc:
+            return _decap(desc)
         c = detail or ""
         if re.search(r"(?:^|\s|/)(?:pytest|npm test|cargo test|swift test"
                      r"|go test|xcodebuild test|make test)\b", c):
             return "running tests"
-        first = c.split()[0] if c.split() else ""
-        return f"running {os.path.basename(first)}" if first else \
-            "running a command"
+        first = _cmd_summary(c)
+        return f"running {first}" if first else "running a command"
     if n in ("task", "agent"):
         return "delegating to a subagent"
     if n == "webfetch":
@@ -1283,12 +1322,33 @@ def _stall_secs(rec, threshold):
     return int(age) if age > threshold else None
 
 
+def _thinking_phrase(rec):
+    """Between tools, with nothing genuinely open, the model is reasoning /
+    writing — say that instead of holding the last tool's stale phrase. Returns
+    None when the honest thing is still the last-tool phrase (a tool really is in
+    flight, or one just closed and we keep its phrase for a beat). Drift-safe: if
+    a tool_result is never parsed, open_tools stays non-empty and we degrade to
+    the old last-tool behaviour rather than a wrong "thinking…"."""
+    if rec.get("open_tools"):
+        return None                     # a tool is genuinely in flight
+    if rec.get("last_stop") == "end_turn":
+        return "finishing up…"          # turn over; "done" lands after debounce
+    if rec.get("last_tool") is None:
+        return "thinking…"              # turn started, no tool used yet
+    done_ts = rec.get("last_tool_done_ts")
+    if done_ts and time.time() - done_ts > AGENT_THINK_AFTER_S:
+        return "thinking…"
+    return None                         # just closed — keep its phrase briefly
+
+
 def _activity_for(rec, status, stall_s=AGENT_API_STALL_S):
     """The live description line for a session: the API-error reason when the
     turn has failed, an honest 'no response — possible API error' when a working
-    turn has gone silent mid-flight, otherwise the phrase for its latest
-    tool_use. Shared by the full-refresh row builder and the between-refresh fast
-    tick so both agree."""
+    turn has gone silent mid-flight, 'thinking…' when the model is reasoning
+    between tools, otherwise the phrase for its latest tool_use. A finished row
+    (done/idle/gone) carries no activity — the status is the message, and a stale
+    'editing X' there is exactly the bug. Shared by the full-refresh row builder
+    and the between-refresh fast tick so both agree."""
     if status == "paused":
         return "paused — process suspended"
     if status == "failed" and rec.get("api_error_msg"):
@@ -1298,7 +1358,26 @@ def _activity_for(rec, status, stall_s=AGENT_API_STALL_S):
         if stalled is not None:
             return (f"no response for {stalled}s — "
                     "possible API error or network stall")
+        think = _thinking_phrase(rec)
+        if think:
+            return think
+    if status in ("done", "idle", "gone"):
+        return None
     return _activity_phrase(rec.get("last_tool"))
+
+
+def _result_snippet(rec):
+    """First meaningful line of the final assistant text — what a done row shows
+    ("Fixed the race in the relay"). None for a synthetic error notice (a failed
+    row carries its api_error_msg instead) or an empty / freshly-reset turn. The
+    same trust level _finished_status already places in last_text."""
+    if rec.get("last_synth"):
+        return None
+    for raw in (rec.get("last_text") or "").splitlines():
+        ln = " ".join(raw.split()).lstrip("#>*` ").rstrip("*` ")
+        if ln:
+            return ln[:140]
+    return None
 
 
 def _norm_effort(v):
@@ -1562,6 +1641,7 @@ class TranscriptIndex:
                 "open_tools": {}, "last_tool": None,
                 "err_ring": deque(maxlen=10), "tools_done": 0, "errors": 0,
                 "subagents": 0, "files": set(),
+                "last_tool_done_ts": None,   # wall ts the most recent tool_result landed
                 "recent_edits": deque(maxlen=100), "mtime": 0.0}
 
     def _tail(self, path, rec):
@@ -1686,6 +1766,13 @@ class TranscriptIndex:
                     else {}
                 tool = {"name": name, "detail": _tool_detail(name, inp),
                         "since": ts or time.time()}
+                # The human-written one-liner Claude attaches to a Bash/Task call
+                # ("Run the test suite"). Kept separate from `detail` (the raw
+                # command, which the approval surface must show verbatim) — the
+                # live activity line prefers this when present.
+                desc = inp.get("description")
+                if desc:
+                    tool["desc"] = " ".join(str(desc).split())[:80]
                 tid = b.get("id")
                 if tid:
                     s["open_tools"][tid] = tool
@@ -1733,6 +1820,7 @@ class TranscriptIndex:
                     continue
                 handled = True
                 s["open_tools"].pop(b.get("tool_use_id"), None)
+                s["last_tool_done_ts"] = ts or s["last_ts"] or time.time()
                 err = bool(b.get("is_error"))
                 s["err_ring"].append(err)
                 s["tools_done"] += 1
@@ -1860,6 +1948,7 @@ class AgentMonitor:
                     continue
                 sess["activity"] = _activity_for(rec, sess["status"],
                                                  self.api_stall_s)
+                sess["result"] = _result_snippet(rec)
                 sess["last_activity"] = rec.get("mtime")
                 # Live per-session effort: a `/effort` change lands in the
                 # transcript and is picked up here within ~0.5s (settings default
@@ -2178,6 +2267,7 @@ class AgentMonitor:
             "status": status,
             "status_since": tr["since"],
             "activity": _activity_for(rec, status, self.api_stall_s),
+            "result": _result_snippet(rec),
             "pending_tool": pt if status in ("pending_tool", "asking")
             else None,
             "tty": tty,
