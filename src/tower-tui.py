@@ -238,14 +238,23 @@ AGENT_PHRASE = {
 
 
 def agent_row(sess, reason, since):
-    """One agent row: <project> — <activity or status phrase> · <family> · <ago>."""
+    """One agent row: <project> — <activity/result/phrase> · <family> [· N ✓] · <ago>."""
     name = (sess.get("project_name")
             or os.path.basename(sess.get("cwd") or "") or "?")
-    what = (sess.get("activity")
-            or AGENT_PHRASE.get(reason or sess.get("status"), reason or "…"))
+    st = reason or sess.get("status")
+    result = sess.get("result")
+    if st == "done" and result:
+        what = f"done — {result}"       # what the agent produced, not the prompt
+    else:
+        what = (sess.get("activity")
+                or AGENT_PHRASE.get(st, st or "…"))
     parts = [f"{name} — {what}"]
     if sess.get("model") or sess.get("model_family"):
         parts.append(model_label(sess))
+    ticks = sess.get("ticks")
+    done = ticks.get("tools_done") if isinstance(ticks, dict) else None
+    if sess.get("status") == "working" and done:
+        parts.append(f"{done} ✓")       # momentum, matched to the app row
     when = ago(since or sess.get("status_since") or sess.get("last_activity"))
     if when:
         parts.append(when)
@@ -1416,7 +1425,10 @@ def _sig(d):
     summary = ag.get("summary") or {}
     ag_sig = (tuple(sorted((str(x.get("session_id")), str(x.get("status")),
                             str(x.get("activity")), str(x.get("model")),
-                            str(x.get("effort")), str(x.get("context")))
+                            str(x.get("effort")), str(x.get("context")),
+                            str(x.get("result")),
+                            str((x.get("ticks") or {}).get("tools_done")
+                                if isinstance(x.get("ticks"), dict) else None))
                            for x in (ag.get("sessions") or [])
                            if isinstance(x, dict))),
               len(ag.get("needs_you") or []), len(ag.get("collisions") or []),
