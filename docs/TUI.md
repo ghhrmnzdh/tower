@@ -65,7 +65,10 @@ with `Enter` (or a click), close with `Esc`:
 - **AGENTS** — Claude agents on this Device: `N at work · M done today · K need
   you`, then rows (needs-you first: ✗ failed / ⛔ waiting approval / ? asking /
   ✓ done, then the working agents) as
-  `project — activity · model · age`. Collisions show as a ⚠ line when two
+  `project — activity · model [· N ✓] · age`. The activity is the model's own
+  step description (or "thinking…" between tools); a working row adds its `N ✓`
+  momentum count, and a ✓ done row shows the agent's result rather than the
+  prompt. Collisions show as a ⚠ line when two
   agents share a repo (louder when they touch the same file). Click a row to
   focus that agent's terminal.
 - **PLAN LIMITS** — the **real** numbers, mirrored from `claude -p /usage`
