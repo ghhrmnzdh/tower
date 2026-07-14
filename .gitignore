@@ -10,3 +10,4 @@ Tower.app/
 
 # Local runtime state (created at ~/.tower, never in-repo, but just in case)
 .tower/
+Tower.app.zip
