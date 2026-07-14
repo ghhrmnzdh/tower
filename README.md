@@ -74,11 +74,16 @@ live.
 curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
 ```
 
-No Gatekeeper warning, nothing to drag, nothing to un-quarantine. (Tower is
-ad-hoc signed, not notarized — notarizing needs a paid Apple Developer account.
-A file fetched with `curl` isn't quarantined, so macOS never assesses it and the
-app just opens. Same binary as the zip below, fewer hoops.) Run the same line
-again to upgrade.
+No Gatekeeper warning, nothing to drag, nothing to un-quarantine. It installs to
+`/Applications`, puts the `tower` command on your PATH, and opens the app — with
+no password and no `sudo`. Run the same line again to upgrade.
+
+(Tower isn't notarized, and macOS quarantines anything downloaded *in a browser*
+— that's what triggers the "unidentified developer" block. A file fetched with
+`curl` is never quarantined, so macOS doesn't run that check. Same binary as the
+zip below, fewer hoops. The script is short: [read it first](https://ghhrmnzdh.github.io/tower/install.sh)
+if you'd rather not pipe a stranger's shell script into `sh` — a reasonable
+instinct.)
 
 **Or download it by hand** — from [Releases](https://github.com/ghhrmnzdh/tower/releases/latest),
 grab **`Tower.app.zip`** and unzip it. That is the built app.
@@ -88,7 +93,7 @@ grab **`Tower.app.zip`** and unzip it. That is the built app.
 > bundle is a build product, not a checked-in file. If that's what you have,
 > either download `Tower.app.zip` instead, or build it (below).
 
-> A browser download **is** quarantined, so macOS will refuse to open it —
+> macOS quarantines browser downloads, so it will refuse to open the app —
 > *"Tower.app cannot be opened because it is from an unidentified developer."*
 > On macOS 15+ right-click → Open no longer clears it. Either run
 > `xattr -rd com.apple.quarantine /path/to/Tower.app`, or open it once and go to

@@ -12,9 +12,9 @@
 # bundle's execute bits and metadata. A zip made another way can land on a user's
 # Mac as an app that won't launch.
 #
-# Note the app is only ad-hoc signed (build.sh) — notarizing needs a paid Apple
-# Developer account. That's why the *recommended* install path is the curl
-# one-liner in site/install.sh: curl-downloaded files carry no quarantine flag,
+# Note the app is only ad-hoc signed (build.sh), not notarized. That's why the
+# *recommended* install path is the curl one-liner in site/install.sh:
+# curl-downloaded files carry no quarantine flag,
 # so Gatekeeper never shows the "unidentified developer" block. This zip stays
 # published for people who'd rather download by hand (they get the Gatekeeper
 # prompt, and the README tells them how to clear it).
@@ -76,9 +76,8 @@ Terminal dashboard: type \`tower\`, or click **Terminal Dashboard…** in the po
 ### Downloading by hand instead?
 
 Grab \`Tower.app.zip\` below — *not* \"Source code\", which contains no built app.
-A browser download **is** quarantined, and because this build is ad-hoc signed
-rather than notarized (that needs a paid Apple Developer account), macOS will
-refuse to open it as *\"from an unidentified developer.\"* On macOS 15+,
+macOS quarantines browser downloads, and because this build isn't notarized it
+will refuse to open it as *\"from an unidentified developer.\"* On macOS 15+,
 right-click → Open no longer clears this. Either:
 
 \`\`\`sh

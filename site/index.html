@@ -624,7 +624,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 <header class="band hero">
   <div>
     <div class="cap">Tower · macOS menu bar + terminal</div>
-    <h1>You are the control tower.<span class="l2">This is your radar.</span></h1>
+    <h1>Every Claude Code agent, on one radar.<span class="l2">You are the control tower.</span></h1>
     <p class="lede">Run a dozen Claude Code agents and you lose the thread — which one needs you, which one quietly failed, which two are editing the same file. Tower is a Mac menu bar app and terminal dashboard that watches every agent, mirrors your real plan usage, pins Claude to a country, and tells you the truth about your connection.</p>
     <div class="btn-row">
       <a class="btn btn--primary" href="#get">
@@ -632,6 +632,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
       <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>View source</a>
     </div>
+    <div class="clone clone--hero"><code><span class="p">$</span> curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh</code>
+      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh">copy</button></div>
     <div class="hero-meta">
       <span><b>One daemon</b>stdlib Python</span>
       <span><b>Two front-ends</b>menu bar + curses</span>
@@ -976,6 +978,10 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 <section class="band" id="faq">
   <div class="head-2 rv"><h2>Before you install&nbsp;it.</h2></div>
   <div class="faq rv">
+    <div class="q"><h3>macOS says Tower is from an “unidentified developer.” What now?</h3>
+      <p>Use the one-line install and you'll never see that. Tower isn't notarized with Apple, and macOS quarantines anything you download <i>in a browser</i> — so it checks the signature, doesn't recognize it, and refuses to open the app. A file fetched with <span class="kbd">curl</span> is never quarantined, so macOS doesn't run that check and Tower opens normally. If you'd rather download the zip by hand, clear the flag yourself with <span class="kbd">xattr -rd com.apple.quarantine /Applications/Tower.app</span>, or open it once and choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. (Right-click → Open used to work; macOS 15 removed it.)</p></div>
+    <div class="q"><h3>Piping a script from the internet into <span class="kbd">sh</span> — should I be nervous?</h3>
+      <p>You're right to ask, and you shouldn't take anyone's word for it. <a href="https://ghhrmnzdh.github.io/tower/install.sh" rel="noopener">Read the script first</a> — it's short, and it's the same file the command fetches. It downloads the release from GitHub, unpacks it to <span class="kbd">/Applications</span>, links the <span class="kbd">tower</span> command, and opens the app. It asks for no password and never uses <span class="kbd">sudo</span>. If you'd still rather not, download the zip from Releases and do it by hand.</p></div>
     <div class="q"><h3>Does Tower read my Anthropic API key or tokens?</h3>
       <p>No. Real plan usage is mirrored from Claude Code's own <span class="kbd">claude -p /usage</span> — Claude does its own auth, and Tower never reads a token. The proxy tunnels HTTPS with CONNECT, so it sees hostnames and never decrypts your traffic.</p></div>
     <div class="q"><h3>How does Tower pin Claude Code to a country?</h3>
@@ -998,7 +1004,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <p class="lede">One line installs Tower, puts the <span class="kbd">tower</span> command on your PATH, and starts it. No Gatekeeper warning, nothing to drag. The app starts the daemon for you — you never have to arm the guard by hand.</p>
     <div class="clone clone--hero"><code><span class="p">$</span> curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh</code>
       <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh">copy</button></div>
-    <p class="fine">Tower is ad-hoc signed, not notarized — notarizing needs a paid Apple developer account. A file fetched with <span class="kbd">curl</span> isn't quarantined, so macOS never assesses it and the app just opens. Run the same line again to upgrade.</p>
+    <p class="fine">Installs to <span class="kbd">/Applications</span>, puts <span class="kbd">tower</span> on your PATH, and opens the app. No password, no <span class="kbd">sudo</span>, no Gatekeeper warning. Run the same line again to upgrade.</p>
     <div class="btn-row">
       <a class="btn" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
@@ -1006,7 +1012,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     </div>
     <div class="clone"><code><span class="p">$</span> git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh</code>
       <button class="copy" data-copy="git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh">copy</button></div>
-    <p class="fine">Downloading by hand? Grab <b>Tower.app.zip</b> — not GitHub's “Source code (zip)”, which has no built app inside it. A browser download <i>is</i> quarantined, so macOS calls it unidentified and refuses to open it; clear that with <span class="kbd">xattr -rd com.apple.quarantine</span>, or open it once and choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. Or just use the line above.</p>
+    <p class="fine">Downloading by hand? Grab <b>Tower.app.zip</b> — not GitHub's “Source code (zip)”, which has no built app inside it. macOS quarantines browser downloads, so it will call the app unidentified and refuse to open it; clear that with <span class="kbd">xattr -rd com.apple.quarantine</span>, or choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. The line above avoids it.</p>
     <div class="reqs"><span><b>macOS 14+</b> · Apple Silicon</span><span><b>Windows 10/11</b> · terminal only, experimental</span>
       <span><b>Python 3.8+</b> at runtime</span><span><b>Xcode CLT</b> to build the Mac app</span><span><b>Claude Code</b> installed</span></div>
   </div>
