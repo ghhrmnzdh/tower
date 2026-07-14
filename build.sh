@@ -36,6 +36,11 @@ echo "▸ copying resources"
 cp "$SRC/Info.plist"     "$APP/Contents/Info.plist"
 cp "$SRC/towerd.py"      "$APP/Contents/Resources/towerd.py"
 cp "$SRC/tower-tui.py"   "$APP/Contents/Resources/tower-tui.py"
+# The terminal front-end's launchers: `tower` is the CLI shim install.sh links
+# onto PATH; the .command is what the popover hands to LaunchServices (Terminal
+# runs it) so "Terminal Dashboard…" is one click and prompts for nothing.
+cp "$SRC/tower"                  "$APP/Contents/Resources/tower"
+cp "$SRC/Tower Terminal.command" "$APP/Contents/Resources/Tower Terminal.command"
 [ -f "$SRC/AppIcon.icns" ] && cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 [ -f "$SRC/AppIcon.svg" ]  && cp "$SRC/AppIcon.svg"  "$APP/Contents/Resources/AppIcon.svg"
 # Bundled fonts (JetBrains Mono) — registered at launch by AppDelegate.
@@ -46,6 +51,7 @@ if [ -d "$SRC/Fonts" ]; then
 fi
 chmod +x "$APP/Contents/MacOS/tower"
 chmod +x "$APP/Contents/Resources/towerd.py" "$APP/Contents/Resources/tower-tui.py"
+chmod +x "$APP/Contents/Resources/tower" "$APP/Contents/Resources/Tower Terminal.command"
 
 echo "▸ ad-hoc code signing"
 codesign --force --deep --sign - "$APP" 2>/dev/null || echo "  (codesign skipped)"

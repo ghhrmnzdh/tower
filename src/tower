@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# tower — open the Tower terminal dashboard.
+#
+# This ships inside the app bundle (Contents/Resources/tower) and install.sh
+# symlinks it onto your PATH, so the terminal dashboard is one word:
+#
+#     tower
+#
+# Before this existed, the only way in was to remember
+# `python3 "/Applications/Tower.app/Contents/Resources/tower-tui.py"`.
+set -eu
+
+# Resolve our own real path. On PATH we're a symlink into the app bundle, so
+# $0 is the symlink — follow it to find the Resources dir the TUI lives in.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *)  self=$(dirname "$self")/$link ;;
+  esac
+done
+here=$(cd "$(dirname "$self")" && pwd)
+
+# Next to us inside the bundle; else a source checkout; else an installed app.
+TUI=''
+for candidate in \
+  "$here/tower-tui.py" \
+  "$here/src/tower-tui.py" \
+  "$here/../src/tower-tui.py" \
+  "/Applications/Tower.app/Contents/Resources/tower-tui.py" \
+  "$HOME/Applications/Tower.app/Contents/Resources/tower-tui.py"
+do
+  if [ -f "$candidate" ]; then TUI=$candidate; break; fi
+done
+
+if [ -z "$TUI" ]; then
+  echo "tower: can't find tower-tui.py — is Tower.app installed?" >&2
+  echo "       reinstall: curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "tower: python3 not found — the dashboard needs it." >&2
+  echo "       install it with: xcode-select --install" >&2
+  exit 1
+fi
+
+exec python3 "$TUI" "$@"

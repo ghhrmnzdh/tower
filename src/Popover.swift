@@ -899,6 +899,9 @@ struct PopFooter: View {
             footerButton("gauge.with.dots.needle.67percent", "Open Dashboard…") {
                 (NSApp.delegate as? AppDelegate)?.openDashboard(tab: .overview)
             }
+            footerButton("terminal", "Terminal Dashboard…") {
+                (NSApp.delegate as? AppDelegate)?.openTerminalDashboard()
+            }
             footerButton("gearshape", "Settings…") {
                 (NSApp.delegate as? AppDelegate)?.openDashboard(tab: .settings)
             }

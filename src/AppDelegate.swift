@@ -228,6 +228,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController?.view.window?.makeKey()
     }
 
+    // ---- Terminal dashboard (the popover's footer item) ---- //
+    // Hand the bundled .command to LaunchServices and let Terminal run it.
+    // Deliberately NOT an AppleScript `tell application "Terminal"` — that is an
+    // Apple Event, and would make macOS ask for Automation permission the first
+    // time. `open` asks for nothing. (See the "never trip a permission prompt"
+    // invariant in CLAUDE.md.)
+    @objc func openTerminalDashboard() {
+        popover.performClose(nil)
+        guard let cmd = Bundle.main.url(forResource: "Tower Terminal", withExtension: "command") else { return }
+        NSWorkspace.shared.open(cmd)
+    }
+
     // ---- Quit (Cmd-Q, or the popover button) ---- //
     @objc func confirmQuit() { NSApp.terminate(nil) }
 
