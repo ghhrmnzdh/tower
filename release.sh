@@ -34,6 +34,14 @@ gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated — run
 
 VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$HERE/src/Info.plist")"
 [ -n "$VERSION" ] || { echo "error: no CFBundleShortVersionString in src/Info.plist" >&2; exit 1; }
+
+# Tags are vX.Y.Z. Insist on three parts, or a plist reading "3.0" would tag
+# v3.0 *alongside* the existing v3.0.0 — two tags for one version, and a
+# /releases/latest that points at whichever GitHub decides is newest.
+case "$VERSION" in
+  [0-9]*.[0-9]*.[0-9]*) : ;;
+  *) echo "error: CFBundleShortVersionString is '$VERSION' — must be X.Y.Z to match the vX.Y.Z tags." >&2; exit 1 ;;
+esac
 TAG="v$VERSION"
 
 echo "▸ releasing $TAG"
@@ -58,18 +66,29 @@ else
 curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
 \`\`\`
 
-Installs Tower to /Applications and launches it. No Gatekeeper warning — a
-curl-downloaded app isn't quarantined.
+Installs Tower to /Applications, puts the \`tower\` command on your PATH, and
+launches it. **No Gatekeeper warning** — a curl-downloaded file is never
+quarantined, so macOS doesn't assess it.
 
-Prefer to download by hand? Grab \`Tower.app.zip\` below (not \"Source code\" —
-that has no built app in it). macOS will call it *unidentified* because the build
-isn't notarized; clear that with:
+Menu bar: the radar appears at the top right.
+Terminal dashboard: type \`tower\`, or click **Terminal Dashboard…** in the popover.
+
+### Downloading by hand instead?
+
+Grab \`Tower.app.zip\` below — *not* \"Source code\", which contains no built app.
+A browser download **is** quarantined, and because this build is ad-hoc signed
+rather than notarized (that needs a paid Apple Developer account), macOS will
+refuse to open it as *\"from an unidentified developer.\"* On macOS 15+,
+right-click → Open no longer clears this. Either:
 
 \`\`\`sh
 xattr -rd com.apple.quarantine /Applications/Tower.app
 \`\`\`
 
-Requires macOS 14+ on Apple Silicon, Python 3.8+, and Claude Code."
+…or open it once and choose **Open Anyway** in System Settings → Privacy &
+Security. The one-liner above avoids all of it.
+
+Requires macOS 14+ on Apple Silicon, Python 3, and Claude Code."
 fi
 
 echo "✓ published: $(gh release view "$TAG" --json url -q .url)"
