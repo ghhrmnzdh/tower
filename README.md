@@ -5,6 +5,51 @@ agents across terminal tabs and projects, Tower brings them into one view:
 what each is doing, which one needs you (blocked, asking, done), and which are
 colliding on the same repo — so none run off unwatched.
 
+## Install
+
+One line — installs Tower to `/Applications`, puts the `tower` command on your
+PATH, and starts it:
+
+```sh
+curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
+```
+
+No password, no `sudo`, no Gatekeeper warning, nothing to drag or un-quarantine.
+Run the same line again to upgrade. The radar then appears in your menu bar;
+type `tower` for the terminal dashboard.
+
+<details>
+<summary>Why a <code>curl</code> line and not a download?</summary>
+
+Tower isn't notarized (that needs a paid Apple Developer account), and macOS
+quarantines anything downloaded *in a browser* — that's what triggers the
+"unidentified developer" block. A file fetched with `curl` is never quarantined,
+so macOS never runs that check. Same binary, fewer hoops.
+
+The script is short and does nothing clever:
+[read it first](https://ghhrmnzdh.github.io/tower/install.sh) if you'd rather not
+pipe a stranger's shell script into `sh` — a reasonable instinct.
+
+**Prefer to build it?** One command, ~20s. Needs Xcode Command Line Tools for
+`swiftc` (`xcode-select --install`):
+
+```bash
+git clone https://github.com/ghhrmnzdh/tower && cd tower
+./build.sh          # → creates Tower.app
+```
+
+**Just want the terminal dashboard?** It's pure Python, stdlib only — no build,
+no app, no `swiftc`. From a checkout: `python3 src/tower-tui.py`.
+
+</details>
+
+Requires macOS 14+ on Apple Silicon, Python 3.8+, and Claude Code.
+(Windows: the daemon and terminal dashboard run today, [experimentally](#windows-experimental).)
+
+---
+
+## What it does
+
 One daemon, four jobs:
 
 - **The agents** — every running Claude Code agent, live: status, activity,
@@ -13,8 +58,8 @@ One daemon, four jobs:
 - **The weather** — when Claude errors mid-session, Tower instantly answers
   *"is it my internet, is it slow, or is it Anthropic?"* — passive latency
   probes + an on-demand speed test.
-- **The fence** — pin Claude Code to one country. A tiny local proxy blocks
-  Claude's requests when you're **confirmed outside** your target country
+- **The fence** — pin Claude Code to one country. A tiny local proxy holds
+  Claude's requests whenever you're not **confirmed** inside your target country
   (fail-closed: an unconfirmed location never gets through).
 - **Usage** — your real plan usage (mirrored from `claude -p /usage`)
   plus a clearly-labeled local token/cost estimate.
@@ -27,7 +72,9 @@ Two front-ends, one daemon, one source of truth:
   when you live in the shell.
 
 Both read the same `~/.tower/state.json` and drive the daemon through the
-same command files, so you can use either (or both) interchangeably.
+same command files, so you can use either (or both) interchangeably. Either
+front-end starts the background daemon automatically if it isn't running, and
+from the popover, **Terminal Dashboard…** opens the TUI for you.
 
 > Tower is the app formerly known as **Geo Guard** (then Corral), grown up.
 > Your `~/.corral` or `~/.geo-guard` state migrates automatically on first
@@ -55,88 +102,12 @@ live.
 
 | Doc | What it covers |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The daemon, IPC, routing, fail-open, net probes, agent monitoring |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The daemon, IPC, routing, the fail-closed gate, net probes, agent monitoring |
 | [docs/DESIGN.md](docs/DESIGN.md) | The design system — the radar, model marks, attention semantics, motion tokens |
 | [docs/APP.md](docs/APP.md) | The macOS menubar app — build, popover, dashboard, notifications |
 | [docs/TUI.md](docs/TUI.md) | The terminal dashboard — cards, actions menu, mouse |
 | [windows_plan.md](windows_plan.md) | The Windows port — what already runs, and the plan for the native tray |
 | [CLAUDE.md](CLAUDE.md) | Quick orientation + invariants for contributors |
-
----
-
-## Quick start
-
-### Get it
-
-**One line** — installs Tower to `/Applications` and starts it:
-
-```sh
-curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
-```
-
-No Gatekeeper warning, nothing to drag, nothing to un-quarantine. It installs to
-`/Applications`, puts the `tower` command on your PATH, and opens the app — with
-no password and no `sudo`. Run the same line again to upgrade.
-
-(Tower isn't notarized, and macOS quarantines anything downloaded *in a browser*
-— that's what triggers the "unidentified developer" block. A file fetched with
-`curl` is never quarantined, so macOS doesn't run that check. Same binary as the
-zip below, fewer hoops. The script is short: [read it first](https://ghhrmnzdh.github.io/tower/install.sh)
-if you'd rather not pipe a stranger's shell script into `sh` — a reasonable
-instinct.)
-
-**Or download it by hand** — from [Releases](https://github.com/ghhrmnzdh/tower/releases/latest),
-grab **`Tower.app.zip`** and unzip it. That is the built app.
-
-> ⚠️ Don't grab **"Source code (zip)"** — GitHub lists that on every release, and
-> it unpacks to a `tower-x.y.z/` folder with **no `Tower.app` inside it**. The
-> bundle is a build product, not a checked-in file. If that's what you have,
-> either download `Tower.app.zip` instead, or build it (below).
-
-> macOS quarantines browser downloads, so it will refuse to open the app —
-> *"Tower.app cannot be opened because it is from an unidentified developer."*
-> On macOS 15+ right-click → Open no longer clears it. Either run
-> `xattr -rd com.apple.quarantine /path/to/Tower.app`, or open it once and go to
-> **System Settings → Privacy & Security → Open Anyway**. The one-liner above
-> avoids all of this.
-
-**Or build from source** — one command, ~20s. Needs Xcode Command Line Tools
-(for `swiftc`); `xcode-select --install` if you don't have them:
-
-```bash
-./build.sh          # → creates Tower.app
-```
-
-### Run it
-
-**Menubar app** — double-click **`Tower.app`**. The tower radar appears in your
-menu bar; click it for the popover.
-
-**Terminal** — one word:
-
-```bash
-tower
-```
-
-The installer symlinks that onto your PATH. Or, from the menu bar popover, click
-**Terminal Dashboard…** — it opens in Terminal for you.
-
-The terminal dashboard is pure Python, so it needs no build at all. Straight
-from a source checkout, with no `swiftc` and no `Tower.app`, this just works:
-
-```bash
-python3 src/tower-tui.py
-```
-
-(Or double-click **`Tower (Terminal).command`** in a checkout.)
-
-Either front-end starts the background daemon automatically if it isn't
-already running.
-
-> **First launch:** only an app you *downloaded in a browser* is quarantined, and
-> macOS will call it unidentified. Installing with the `curl` one-liner above, or
-> building from source, avoids that entirely — the app just opens. To rescue a
-> browser-downloaded copy: `xattr -rd com.apple.quarantine /path/to/Tower.app`.
 
 ---
 
@@ -159,7 +130,9 @@ Badge: needs-you count (red if something failed) · optional usage %.
 ## What the agents view shows
 
 Per agent: project, model (its mark), live activity (`editing
-src/Model.swift`), status, a `n ✓` completed-tools momentum counter, and age.
+src/Model.swift`), status, a `n ✓` completed-tools momentum counter, age, and
+whether that agent is actually **behind the guard** (a chat started before you
+turned Tower on is still on a direct connection until you restart it).
 Plus: same-repo collision banners (escalating when two agents edit the same
 file), a "while you were away" event history in the dashboard, and macOS
 notifications when an agent flips to blocked / asking / failed / done.
@@ -171,47 +144,72 @@ a stalled transcript can also be a slow tool).
 
 ---
 
+## How the guard works
+
+The guard is **fail-closed**. A Claude request proceeds only when Tower can
+*affirmatively confirm* two things at once: you are inside the target country,
+**and** the network has a usable path to Anthropic. Anything uncertain — the
+location still checking, cached, or errored; the net offline, captive, or unable
+to reach Anthropic's edge — is held. There is no allow-through fallback.
+
+**A held request is PENDING, not FAILED.** Tower holds it for a few seconds
+(so a sub-second blip clears with no visible retry), then answers `503 +
+Retry-After`. Claude Code turns a 503 into its own native *"Retrying · attempt
+x/y"* spinner, so the turn survives and resumes by itself the moment the guard
+clears. (Tower never returns 403 — Claude reads that as broken auth and kills
+the turn.)
+
+- The proxy tunnels HTTPS via `CONNECT`, so it sees each request's **hostname**
+  (enough to allow or hold) but **never decrypts** your traffic.
+- Any host containing `anthropic`, `claude.ai`, or `claude.com` is treated as a
+  Claude Code request.
+- Your country is confirmed every ~15 s against **three independent geo
+  providers**, re-checked immediately whenever your public IP changes (a VPN
+  drop is caught in about a quarter of a second), and a confirmation older than
+  60 s is never trusted.
+
+| Situation | Claude Code | Other traffic |
+|---|---|---|
+| Confirmed inside target country, path to Anthropic open | ✅ allowed | ✅ allowed |
+| Confirmed outside target country | ⏸ held (503-pending) | ✅ allowed (⏸ with *Block ALL*) |
+| Location unknown / unconfirmed / stale | ⏸ held (fail-closed) | ✅ allowed |
+| No usable path (offline, captive portal, edge unreachable) | ⏸ held | ✅ allowed |
+| Live Claude tunnels being reset upstream | ⏸ held | ✅ allowed |
+| Slow but reachable connection | ✅ allowed | ✅ allowed |
+| Routing or enforcement off | ✅ allowed (**unguarded**) | ✅ allowed |
+
+> **Limitation:** this is a proxy, not an OS-level kill switch. It guards
+> Claude Code because Claude Code obeys the proxy env. A program told to
+> ignore the proxy could still reach the network.
+
+---
+
 ## Safety model
 
 Tower is careful never to leave Claude Code in a broken state:
 
 1. **It never routes Claude at a dead proxy.** Routing is only written to
-   `settings.json` when the proxy is actually accepting connections.
+   `settings.json` when the proxy is actually accepting connections, and only
+   ever as `env` keys — never a shell alias.
 2. **It always un-routes on shutdown.** Quitting tells the daemon to remove
    the proxy from `settings.json` first, so Claude goes back to a direct
    connection.
 3. **A crashed UI can't break Claude.** If a front-end dies, the daemon keeps
    the proxy up; if the daemon dies, it removes routing on the way out.
-4. **Fail-open.** If your location can't be confirmed (offline, rate-limited),
-   Claude is **not** blocked — a failed lookup must never knock Claude offline.
-5. **It backs up `settings.json`** to `settings.json.tower.bak` before its
+4. **Fail-closed.** An unconfirmed location never gets through. A false hold is
+   a pending retry that clears itself; a false *allow* is an off-country request
+   you can't take back.
+5. **Turning the guard off is double-confirmed.** Anything that lets Claude
+   reach the API unguarded — routing off, enforcement off, quitting — warns hard
+   and asks a second time, telling you how many agents are working right now and
+   how many chats are pinned to the proxy.
+6. **It backs up `settings.json`** to `settings.json.tower.bak` before its
    first edit.
-6. **Network probes never go through the proxy** and never touch your Claude
+7. **Network probes never go through the proxy** and never touch your Claude
    credentials; the Anthropic probe is a TLS handshake, not an API request.
-
-**Quitting the menubar app asks first** and tells you it will turn the guard
-off.
-
----
-
-## How blocking works
-
-- The proxy tunnels HTTPS via `CONNECT`, so it sees each request's **hostname**
-  (enough to allow/deny) but **never decrypts** your traffic.
-- Any host containing `anthropic`, `claude.ai`, or `claude.com` is treated as a
-  Claude Code request.
-- Country is checked every ~15 s via `ip-api.com`.
-
-| Situation | Claude Code | Other traffic |
-|---|---|---|
-| Inside target country | ✅ allowed | ✅ allowed |
-| Confirmed outside target | ⛔ blocked | ✅ allowed (⛔ with *Block ALL*) |
-| Location unknown | ✅ allowed (fail-open) | ✅ allowed |
-| Enforcement off | ✅ allowed | ✅ allowed |
-
-> **Limitation:** this is a proxy, not an OS-level kill switch. It blocks
-> Claude Code because Claude Code obeys the proxy env. A program told to
-> ignore the proxy could still reach the network.
+8. **It never trips a macOS permission prompt** — the daemon never reads inside
+   Photos / Documents / Desktop / Downloads, and every `claude -p /usage` runs
+   sandboxed.
 
 ---
 
@@ -232,6 +230,8 @@ tower/
 ├── Tower (Terminal).command    # double-click → terminal dashboard
 ├── Tower Identity Study.html   # the radar + model marks, live
 ├── build.sh                     # assembles the .app from src/
+├── release.sh                   # builds, packages and publishes a release
+├── site/                        # the landing page + install.sh (→ gh-pages)
 ├── docs/                        # ARCHITECTURE, DESIGN, APP, TUI
 ├── windows_plan.md              # plan to port this to Windows
 └── src/
@@ -316,7 +316,8 @@ flag. The plan for the native tray is [windows_plan.md](windows_plan.md).
 - **Full manual reset:** delete `~/.tower/`, and if `env.HTTPS_PROXY` still
   points at `127.0.0.1` in `~/.claude/settings.json`, remove it (or restore
   `~/.claude/settings.json.tower.bak`).
-- **Remove the app:** delete `Tower.app`. Nothing else is left behind.
+- **Remove the app:** delete `Tower.app` (and the `tower` symlink the installer
+  put on your PATH). Nothing else is left behind.
 - If you ever want to see the TUI onboarding again, delete `~/.tower/.tui_seen`.
 
 ---
