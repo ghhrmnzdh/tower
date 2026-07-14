@@ -66,6 +66,25 @@ live.
 
 ## Quick start
 
+### Get it
+
+**Download the app** — from [Releases](https://github.com/ghhrmnzdh/tower/releases/latest),
+grab **`Tower.app.zip`** and unzip it. That is the built app.
+
+> ⚠️ Don't grab **"Source code (zip)"** — GitHub lists that on every release, and
+> it unpacks to a `tower-x.y.z/` folder with **no `Tower.app` inside it**. The
+> bundle is a build product, not a checked-in file. If that's what you have,
+> either download `Tower.app.zip` instead, or build it (below).
+
+**Or build from source** — one command, ~20s. Needs Xcode Command Line Tools
+(for `swiftc`); `xcode-select --install` if you don't have them:
+
+```bash
+./build.sh          # → creates Tower.app
+```
+
+### Run it
+
 **Menubar app** — double-click **`Tower.app`**. The tower radar appears in your
 menu bar; click it for the popover.
 
@@ -73,6 +92,13 @@ menu bar; click it for the popover.
 
 ```bash
 python3 "Tower.app/Contents/Resources/tower-tui.py"
+```
+
+The terminal dashboard is pure Python, so it needs no build at all. Straight
+from a source checkout, with no `swiftc` and no `Tower.app`, this just works:
+
+```bash
+python3 src/tower-tui.py
 ```
 
 Either front-end starts the background daemon automatically if it isn't

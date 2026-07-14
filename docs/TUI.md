@@ -8,6 +8,12 @@ files — see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 ```bash
 python3 "Tower.app/Contents/Resources/tower-tui.py"
 ```
+That path exists once you have the built app (from `Tower.app.zip`, or after
+`./build.sh`). The TUI is pure stdlib Python, though, so it needs no build —
+from a bare source checkout, run it directly:
+```bash
+python3 src/tower-tui.py
+```
 If the daemon isn't running it starts it (single-instance, so this is safe).
 
 ## First run — onboarding
