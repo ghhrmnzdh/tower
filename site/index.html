@@ -521,6 +521,10 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:10px;padding:11px 15px}
 .clone code{overflow-wrap:anywhere}
 .clone .p{color:var(--green)}
+/* the install one-liner — the loudest thing in this section */
+.clone--hero{margin-top:30px;font-size:14px;padding:15px 19px;
+  border-color:var(--hair);background:rgba(255,255,255,.035)}
+.clone--hero code{color:var(--white)}
 .clone button{color:var(--txt3);font-family:var(--mono);font-size:11px;font-weight:500;transition:color .2s}
 .clone button:hover{color:var(--white)}
 .fine{margin-top:16px;font-size:13px;color:var(--txt3);max-width:56ch;margin-inline:auto}
@@ -612,7 +616,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <a href="#honest">Philosophy</a>
     <a href="#faq">FAQ</a>
   </div>
-  <a class="btn btn--primary btn--sm cta" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">Download</a>
+  <a class="btn btn--primary btn--sm cta" href="#get">Install</a>
 </nav>
 <span id="top"></span>
 
@@ -623,8 +627,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <h1>You are the control tower.<span class="l2">This is your radar.</span></h1>
     <p class="lede">Run a dozen Claude Code agents and you lose the thread — which one needs you, which one quietly failed, which two are editing the same file. Tower is a Mac menu bar app and terminal dashboard that watches every agent, mirrors your real plan usage, pins Claude to a country, and tells you the truth about your connection.</p>
     <div class="btn-row">
-      <a class="btn btn--primary" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
+      <a class="btn btn--primary" href="#get">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Install Tower</a>
       <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>View source</a>
     </div>
@@ -849,6 +853,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
       <h2>The same tower, in the&nbsp;shell.</h2>
       <p class="lede">A zero-dependency curses dashboard — pure Python stdlib, reading the same state file as the app. Change a setting in one and the other reflects it in about a second.</p>
       <div class="facts">
+        <div class="f"><b>One word to open it.</b><span>Type <span class="kbd">tower</span>. The installer puts it on your PATH — no paths to remember, nothing to double-click. Or click <b>Terminal Dashboard…</b> in the menu bar popover and it opens for you.</span></div>
         <div class="f"><b>Deliberately non-reactive. Fully clickable.</b><span>A stray keypress does nothing, so you can't fat-finger the guard off. But click a row and it acts: toggle routing, pick a country, run a speed test, focus an agent's terminal.</span></div>
         <div class="f"><b>Answers on sight.</b><span>A red header — INTERNET DOWN, WI-FI LOGIN REQUIRED, ANTHROPIC API ISSUE — means stop and look here. A net fault always outranks the guard.</span></div>
         <div class="f"><b>Repaints only on change.</b><span>~80 ms input, ~60 ms to confirm an action at the daemon, no idle cost.</span></div>
@@ -857,7 +862,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 
     <figure class="rv" role="group" aria-label="A replica of the Tower terminal dashboard" style="margin:0">
       <div class="term" id="term">
-        <div class="term-bar"><span class="d"><i></i><i></i><i></i></span><span class="n">python3 tower-tui.py</span></div>
+        <div class="term-bar"><span class="d"><i></i><i></i><i></i></span><span class="n">tower</span></div>
         <div class="tb">
           <div class="ln rw"><span class="t b">TOWER</span><span class="g b">Protected · target: Canada</span></div>
           <div class="tr2"></div>
@@ -990,15 +995,18 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   <div class="get rv">
     <div class="cap" style="color:var(--txt2)">Get Tower</div>
     <h2>Give your agents a tower.</h2>
-    <p class="lede">Download the app, or build it from source in about twenty seconds. Either front-end starts the daemon for you — you never have to arm the guard by hand.</p>
+    <p class="lede">One line installs Tower, puts the <span class="kbd">tower</span> command on your PATH, and starts it. No Gatekeeper warning, nothing to drag. The app starts the daemon for you — you never have to arm the guard by hand.</p>
+    <div class="clone clone--hero"><code><span class="p">$</span> curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh</code>
+      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh">copy</button></div>
+    <p class="fine">Tower is ad-hoc signed, not notarized — notarizing needs a paid Apple developer account. A file fetched with <span class="kbd">curl</span> isn't quarantined, so macOS never assesses it and the app just opens. Run the same line again to upgrade.</p>
     <div class="btn-row">
-      <a class="btn btn--primary" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">
+      <a class="btn" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
       <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">View on GitHub</a>
     </div>
     <div class="clone"><code><span class="p">$</span> git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh</code>
-      <button id="copy">copy</button></div>
-    <p class="fine">On the release page, grab <b>Tower.app.zip</b> — not GitHub's “Source code (zip)”, which has no built app inside it. The build is ad-hoc signed, not notarized — so on first launch, right-click the app and choose Open. After that it opens normally.</p>
+      <button class="copy" data-copy="git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh">copy</button></div>
+    <p class="fine">Downloading by hand? Grab <b>Tower.app.zip</b> — not GitHub's “Source code (zip)”, which has no built app inside it. A browser download <i>is</i> quarantined, so macOS calls it unidentified and refuses to open it; clear that with <span class="kbd">xattr -rd com.apple.quarantine</span>, or open it once and choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. Or just use the line above.</p>
     <div class="reqs"><span><b>macOS 14+</b> · Apple Silicon</span><span><b>Windows 10/11</b> · terminal only, experimental</span>
       <span><b>Python 3.8+</b> at runtime</span><span><b>Xcode CLT</b> to build the Mac app</span><span><b>Claude Code</b> installed</span></div>
   </div>
@@ -1363,12 +1371,12 @@ const rest=document.getElementById('rest');
 rest.addEventListener('click',()=>rest.setAttribute('aria-expanded',
   rest.getAttribute('aria-expanded')==='true'?'false':'true'));
 
-document.getElementById('copy').addEventListener('click',async function(){
+document.querySelectorAll('.copy').forEach(btn=>btn.addEventListener('click',async function(){
   try{
-    await navigator.clipboard.writeText('git clone https://github.com/ghhrmnzdh/tower && cd tower && ./build.sh');
+    await navigator.clipboard.writeText(this.dataset.copy);
     this.textContent='copied'; setTimeout(()=>this.textContent='copy',1600);
   }catch(e){ this.textContent='press ⌘C'; }
-});
+}));
 </script>
 </body>
 </html>

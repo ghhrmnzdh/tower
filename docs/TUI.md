@@ -6,11 +6,19 @@ files — see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ## Run
 ```bash
-python3 "Tower.app/Contents/Resources/tower-tui.py"
+tower
 ```
-That path exists once you have the built app (from `Tower.app.zip`, or after
-`./build.sh`). The TUI is pure stdlib Python, though, so it needs no build —
-from a bare source checkout, run it directly:
+That's `src/tower` — a tiny `sh` shim that ships in the bundle at
+`Contents/Resources/tower`, which `site/install.sh` symlinks onto your PATH. It
+resolves its own symlink to find the bundle it lives in, so it works from
+anywhere; failing that it looks in `/Applications` and `~/Applications`. From the
+menu-bar popover, **Terminal Dashboard…** runs the same thing: the app hands
+`Contents/Resources/Tower Terminal.command` to LaunchServices and Terminal
+executes it (deliberately not an AppleScript `tell application "Terminal"` —
+that's an Apple Event, and would trigger an Automation permission prompt).
+
+The TUI is pure stdlib Python, so it needs no build at all — from a bare source
+checkout, run it directly:
 ```bash
 python3 src/tower-tui.py
 ```

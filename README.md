@@ -59,7 +59,7 @@ live.
 | [docs/DESIGN.md](docs/DESIGN.md) | The design system — the radar, model marks, attention semantics, motion tokens |
 | [docs/APP.md](docs/APP.md) | The macOS menubar app — build, popover, dashboard, notifications |
 | [docs/TUI.md](docs/TUI.md) | The terminal dashboard — cards, actions menu, mouse |
-| [windows_plan.md](windows_plan.md) | Plan to port this to Windows |
+| [windows_plan.md](windows_plan.md) | The Windows port — what already runs, and the plan for the native tray |
 | [CLAUDE.md](CLAUDE.md) | Quick orientation + invariants for contributors |
 
 ---
@@ -68,13 +68,32 @@ live.
 
 ### Get it
 
-**Download the app** — from [Releases](https://github.com/ghhrmnzdh/tower/releases/latest),
+**One line** — installs Tower to `/Applications` and starts it:
+
+```sh
+curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
+```
+
+No Gatekeeper warning, nothing to drag, nothing to un-quarantine. (Tower is
+ad-hoc signed, not notarized — notarizing needs a paid Apple Developer account.
+A file fetched with `curl` isn't quarantined, so macOS never assesses it and the
+app just opens. Same binary as the zip below, fewer hoops.) Run the same line
+again to upgrade.
+
+**Or download it by hand** — from [Releases](https://github.com/ghhrmnzdh/tower/releases/latest),
 grab **`Tower.app.zip`** and unzip it. That is the built app.
 
 > ⚠️ Don't grab **"Source code (zip)"** — GitHub lists that on every release, and
 > it unpacks to a `tower-x.y.z/` folder with **no `Tower.app` inside it**. The
 > bundle is a build product, not a checked-in file. If that's what you have,
 > either download `Tower.app.zip` instead, or build it (below).
+
+> A browser download **is** quarantined, so macOS will refuse to open it —
+> *"Tower.app cannot be opened because it is from an unidentified developer."*
+> On macOS 15+ right-click → Open no longer clears it. Either run
+> `xattr -rd com.apple.quarantine /path/to/Tower.app`, or open it once and go to
+> **System Settings → Privacy & Security → Open Anyway**. The one-liner above
+> avoids all of this.
 
 **Or build from source** — one command, ~20s. Needs Xcode Command Line Tools
 (for `swiftc`); `xcode-select --install` if you don't have them:
@@ -88,11 +107,14 @@ grab **`Tower.app.zip`** and unzip it. That is the built app.
 **Menubar app** — double-click **`Tower.app`**. The tower radar appears in your
 menu bar; click it for the popover.
 
-**Terminal** — double-click **`Tower (Terminal).command`**, or run:
+**Terminal** — one word:
 
 ```bash
-python3 "Tower.app/Contents/Resources/tower-tui.py"
+tower
 ```
+
+The installer symlinks that onto your PATH. Or, from the menu bar popover, click
+**Terminal Dashboard…** — it opens in Terminal for you.
 
 The terminal dashboard is pure Python, so it needs no build at all. Straight
 from a source checkout, with no `swiftc` and no `Tower.app`, this just works:
@@ -101,12 +123,15 @@ from a source checkout, with no `swiftc` and no `Tower.app`, this just works:
 python3 src/tower-tui.py
 ```
 
+(Or double-click **`Tower (Terminal).command`** in a checkout.)
+
 Either front-end starts the background daemon automatically if it isn't
 already running.
 
-> **First launch:** because the app is ad-hoc signed (not notarized), macOS may
-> say it's from an unidentified developer. Right-click **Tower.app → Open →
-> Open** once; normal double-clicks work after that.
+> **First launch:** only an app you *downloaded in a browser* is quarantined, and
+> macOS will call it unidentified. Installing with the `curl` one-liner above, or
+> building from source, avoids that entirely — the app just opens. To rescue a
+> browser-downloaded copy: `xattr -rd com.apple.quarantine /path/to/Tower.app`.
 
 ---
 
@@ -232,15 +257,50 @@ codebase small and the [Windows port](windows_plan.md) straightforward.
 
 ## Requirements
 
-- **macOS 14+**, Apple Silicon.
+- **macOS 14+**, Apple Silicon — for the full experience (menubar app + TUI).
+- **Windows 10/11** — daemon + terminal dashboard only, and **experimental**;
+  see [Windows](#windows-experimental) below.
 - **Python 3.8+** on `PATH` (macOS ships one; Homebrew or python.org also fine).
-- **Xcode Command Line Tools** — only to *build* (`xcode-select --install`).
+- **Xcode Command Line Tools** — only to *build* the Mac app (`xcode-select --install`).
 - **Claude Code** installed, so there are agents to tower.
 
 No root, no daemons installed system-wide (except the optional keep-awake
 "lid-closed" mode, which asks for admin once and can be fully removed).
 Nothing leaves your machine but the public-IP country lookup and the network
 probes.
+
+---
+
+## Windows (experimental)
+
+The daemon and the terminal dashboard **run on Windows 10/11 today** — the same
+guard, the same fail-closed proxy, the same live state, still dependency-free.
+Routing ported for free: Claude Code reads the same `settings.json` on every
+platform. What's missing is the native tray app (the menubar app is Swift,
+macOS-only), so on Windows the TUI *is* the front-end.
+
+There's no build step — grab the source and run:
+
+```bat
+python src\tower-tui.py
+```
+
+or double-click **`Tower (Terminal).cmd`**, which finds Python for you.
+
+> ⚠️ **Experimental — please read.** The Windows port is written and reviewed,
+> but it has **never been run on real Windows hardware**. Expect rough edges,
+> and please [open an issue](https://github.com/ghhrmnzdh/tower/issues) with
+> what you hit — that feedback is exactly what promotes it out of experimental.
+> Nothing here weakens the guard: the fail-closed rule is in the shared daemon,
+> and the Windows-only shims (single-instance mutex, process enumeration) are
+> written to fail *closed* too.
+
+Under the hood, only the OS-specific edges differ — [`src/_win.py`](src/_win.py)
+(named-mutex single instance, `SetThreadExecutionState` keep-awake,
+`Win32_Process` agent scan, console VT/UTF-8) and
+[`src/_wincurses.py`](src/_wincurses.py) (a drop-in `curses` subset over ANSI +
+`msvcrt`). `towerd.py` itself stays one portable file behind an `IS_WINDOWS`
+flag. The plan for the native tray is [windows_plan.md](windows_plan.md).
 
 ---
 
@@ -258,5 +318,6 @@ probes.
 
 ## License
 
-Open source. Use it, fork it, port it. See `windows_plan.md` if you want to
-bring the same experience to Windows.
+Open source. Use it, fork it, port it. The Windows daemon and terminal dashboard
+already run ([experimental](#windows-experimental)) — `windows_plan.md` covers
+what's left, chiefly the native tray.

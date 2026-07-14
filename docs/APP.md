@@ -6,15 +6,24 @@ files, exactly like the terminal dashboard — see
 **[ARCHITECTURE.md](ARCHITECTURE.md)**; the look and motion are specified in
 **[DESIGN.md](DESIGN.md)**.
 
+## Install
+```sh
+curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh
+```
+Installs to `/Applications` and launches. The app is ad-hoc signed, not notarized
+(that needs a paid Apple Developer account), so a *browser* download gets
+quarantined and blocked as "unidentified developer" — but a `curl` download never
+carries the quarantine flag, so Gatekeeper never assesses it and the app just
+opens. `site/install.sh` is the script; `release.sh` publishes the release it
+pulls from. To rescue a hand-downloaded copy:
+`xattr -rd com.apple.quarantine /path/to/Tower.app`.
+
 ## Run
 ```bash
 open "Tower.app"
 ```
 or double-click **`Tower.app`** in Finder. The tower radar appears in the menu
 bar; click it for the popover.
-
-> **First launch:** it's ad-hoc signed (not notarized), so macOS may block it —
-> **right-click → Open → Open** once, then normal launch works.
 
 ## Build from source
 ```bash
