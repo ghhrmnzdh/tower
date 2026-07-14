@@ -38,7 +38,7 @@
   "@type": "SoftwareApplication",
   "name": "Tower",
   "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "macOS 14.0 or later (Apple Silicon)",
+  "operatingSystem": "macOS 14.0 or later (Apple Silicon); Windows 10/11 (terminal dashboard, experimental)",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "url": "https://ghhrmnzdh.github.io/tower/",
   "image": "https://ghhrmnzdh.github.io/tower/og.png",
@@ -65,7 +65,7 @@
     {"@type":"Question","name":"How does Tower pin Claude Code to a country?","acceptedAnswer":{"@type":"Answer","text":"It runs a small local proxy and points Claude Code at it through the HTTPS_PROXY key in ~/.claude/settings.json — never through your shell. When you are confirmed outside your target country, a Claude request is held and answered 503 with Retry-After, so Claude retries it into its own spinner. The request is pending, not failed, and it resumes the moment you are back on-country."}},
     {"@type":"Question","name":"What happens if Tower quits or crashes?","acceptedAnswer":{"@type":"Answer","text":"Quitting removes the proxy from settings.json first, so Claude Code returns to a direct connection. The guard un-routes on every clean exit and via atexit, and the daemon is single-instance. A crashed front-end can't break Claude."}},
     {"@type":"Question","name":"How do I tell whether an outage is my internet or Anthropic?","acceptedAnswer":{"@type":"Answer","text":"Tower probes both, passively and continuously: your link, and a timed TLS handshake to api.anthropic.com. It reports online, degraded, offline, captive portal, or an Anthropic-side problem — plus an on-demand speed test. No guessing, and no Claude request is spent finding out."}},
-    {"@type":"Question","name":"Is Tower free? Does it run on Windows or Linux?","acceptedAnswer":{"@type":"Answer","text":"Tower is free and open source. It runs on macOS 14 or later, on Apple Silicon. The daemon is portable stdlib Python, so a Windows tray app and a Linux front-end are planned — but they are not shipped yet."}}
+    {"@type":"Question","name":"Is Tower free? Does it run on Windows or Linux?","acceptedAnswer":{"@type":"Answer","text":"Tower is free and open source. The full experience — menubar app plus terminal dashboard — runs on macOS 14 or later, on Apple Silicon. On Windows 10/11, the daemon and the terminal dashboard already run: same guard, same fail-closed proxy, no dependencies. Treat it as experimental — it is written and reviewed but not yet tested on real Windows hardware, so expect rough edges and please report them. The native Windows tray app is next. A Linux front-end is planned; the curses dashboard should already run there."}}
   ]
 }
 </script>
@@ -953,7 +953,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   </div>
   <div class="road rv stag">
     <div class="r next"><span class="tag">Next</span><h3>Windows tray app</h3>
-      <p>About 80% of the code — the daemon — is already portable Python. A C#/.NET tray plus an ANSI terminal UI, driven by the same JSON. Routing ports for free: Claude Code reads the same settings.json everywhere.</p></div>
+      <p>Half done: the daemon and the terminal dashboard already run on Windows — same guard, same JSON, still dependency-free (experimental, untested on real hardware). Routing ported for free, since Claude Code reads the same settings.json everywhere. What's left is the native piece: a C#/.NET tray to stand in for the menubar.</p></div>
     <div class="r"><span class="tag">Planned</span><h3>Linux front-end</h3>
       <p>A tray via AppIndicator, and the curses dashboard already runs. The daemon is stdlib-portable as-is.</p></div>
     <div class="r"><span class="tag">Idea</span><h3>Deeper collisions</h3>
@@ -980,7 +980,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <div class="q"><h3>How do I tell whether an outage is my internet or Anthropic?</h3>
       <p>Tower probes both, passively and continuously: your link, and a timed TLS handshake to <span class="kbd">api.anthropic.com</span>. It reports online, degraded, offline, captive portal, or an Anthropic-side problem — plus an on-demand speed test. No guessing, and no Claude request is spent finding out.</p></div>
     <div class="q"><h3>Is Tower free? Does it run on Windows or Linux?</h3>
-      <p>Tower is free and open source. It runs on macOS 14 or later, on Apple Silicon. The daemon is portable stdlib Python, so a Windows tray app and a Linux front-end are planned — but they are not shipped yet.</p></div>
+      <p>Tower is free and open source. The full experience — menubar app plus terminal dashboard — runs on macOS 14 or later, on Apple Silicon.</p>
+      <p>On <b>Windows 10/11</b>, the daemon and the terminal dashboard already run — same guard, same fail-closed proxy, no dependencies. Treat it as <b>experimental</b>: it's written and reviewed, but not yet tested on real Windows hardware, so expect rough edges (and please <a href="https://github.com/ghhrmnzdh/tower/issues" rel="noopener">report them</a>). The native tray app is next. A Linux front-end is planned — the curses dashboard should already run there.</p></div>
   </div>
 </section>
 
@@ -998,8 +999,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <div class="clone"><code><span class="p">$</span> git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh</code>
       <button id="copy">copy</button></div>
     <p class="fine">On the release page, grab <b>Tower.app.zip</b> — not GitHub's “Source code (zip)”, which has no built app inside it. The build is ad-hoc signed, not notarized — so on first launch, right-click the app and choose Open. After that it opens normally.</p>
-    <div class="reqs"><span><b>macOS 14+</b> · Apple Silicon</span><span><b>Python 3.8+</b> at runtime</span>
-      <span><b>Xcode CLT</b> to build</span><span><b>Claude Code</b> installed</span></div>
+    <div class="reqs"><span><b>macOS 14+</b> · Apple Silicon</span><span><b>Windows 10/11</b> · terminal only, experimental</span>
+      <span><b>Python 3.8+</b> at runtime</span><span><b>Xcode CLT</b> to build the Mac app</span><span><b>Claude Code</b> installed</span></div>
   </div>
 </section>
 
