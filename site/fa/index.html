@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa" dir="rtl">
 <head>
 <!-- Tower — one self-contained page. No third-party origins; fonts are local.
      The radar and the four model marks are the real geometry from src/Glyph.swift,
@@ -7,9 +7,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>Tower — Claude Code Agent Monitor &amp; Usage Tracker for macOS</title>
-<meta name="description" content="Free, open-source Mac menu bar app and terminal dashboard for Claude Code: monitor every running agent, see real plan usage, and pin Claude to a country — fail-closed.">
-<link rel="canonical" href="https://ghhrmnzdh.github.io/tower/">
+<title>Tower — مانیتور Agentهای Claude Code و نمایش مصرف برای macOS</title>
+<meta name="description" content="اپ رایگان و متن‌باز برای menu bar مک، همراه با داشبورد ترمینال برای Claude Code: Agentهای در حال اجرا را ببینید، مصرف واقعی پلن را دنبال کنید و Claude را — fail-closed — روی کشور هدف قفل کنید تا هیچ درخواستی از کشور اشتباه بیرون نرود.">
+<link rel="canonical" href="https://ghhrmnzdh.github.io/tower/fa/">
 <link rel="alternate" hreflang="en" href="https://ghhrmnzdh.github.io/tower/">
 <link rel="alternate" hreflang="fa" href="https://ghhrmnzdh.github.io/tower/fa/">
 <link rel="alternate" hreflang="x-default" href="https://ghhrmnzdh.github.io/tower/">
@@ -18,22 +18,24 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Tower">
-<meta property="og:url" content="https://ghhrmnzdh.github.io/tower/">
-<meta property="og:title" content="Tower — Claude Code agent monitor for macOS">
-<meta property="og:description" content="Every running Claude Code agent in one view — model, effort, status, momentum. Real plan usage. Pin Claude to a country, fail-closed.">
-<meta property="og:image" content="https://ghhrmnzdh.github.io/tower/og.png">
+<meta property="og:url" content="https://ghhrmnzdh.github.io/tower/fa/">
+<meta property="og:title" content="Tower — مانیتور Agentهای Claude Code برای macOS">
+<meta property="og:description" content="همه Agentهای Claude Code در یک نما: model، effort، وضعیت و پیشرفت. مصرف واقعی پلن. قفل کردن Claude روی کشور هدف، با رفتار fail-closed.">
+<meta property="og:image" content="https://ghhrmnzdh.github.io/tower/og-fa.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Tower radar mark on black, above the line: a control tower for your Claude agents.">
-<meta property="og:locale" content="en_US">
+<meta property="og:image:alt" content="نشان راداری Tower روی زمینه مشکی، با متن: برج مراقبت برای Agentهای Claude.">
+<meta property="og:locale" content="fa_IR">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Tower — Claude Code agent monitor for macOS">
-<meta name="twitter:description" content="Every running Claude Code agent in one view. Real plan usage. Pin Claude to a country, fail-closed.">
-<meta name="twitter:image" content="https://ghhrmnzdh.github.io/tower/og.png">
+<meta name="twitter:title" content="Tower — مانیتور Agentهای Claude Code برای macOS">
+<meta name="twitter:description" content="همه Agentهای Claude Code در یک نما. مصرف واقعی پلن. قفل کردن Claude روی کشور هدف، با رفتار fail-closed.">
+<meta name="twitter:image" content="https://ghhrmnzdh.github.io/tower/og-fa.png">
 
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="preload" href="fonts/jetbrainsmono-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preload" href="../fonts/vazirmatn-arabic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/estedad-arabic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/jetbrainsmono-500.woff2" as="font" type="font/woff2" crossorigin>
 
 <script type="application/ld+json">
 {
@@ -43,18 +45,18 @@
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS 14.0 or later (Apple Silicon); Windows 10/11 (terminal dashboard, experimental)",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "url": "https://ghhrmnzdh.github.io/tower/",
-  "image": "https://ghhrmnzdh.github.io/tower/og.png",
+  "url": "https://ghhrmnzdh.github.io/tower/fa/",
+  "image": "https://ghhrmnzdh.github.io/tower/og-fa.png",
   "downloadUrl": "https://github.com/ghhrmnzdh/tower/releases/latest",
   "softwareRequirements": "Claude Code; Python 3.8 or later at runtime",
-  "description": "A menu bar app and terminal dashboard that monitors every running Claude Code agent, mirrors real plan usage from claude /usage, and pins Claude to a country with a fail-closed local proxy.",
+  "description": "اپ menu bar و داشبورد ترمینال که همه Agentهای در حال اجرای Claude Code را مانیتور می‌کند، مصرف واقعی پلن را از claude /usage نشان می‌دهد و با یک proxy محلی fail-closed، Claude را روی کشور هدف قفل می‌کند.",
   "featureList": [
-    "Monitor every running Claude Code agent — model, effort, status, momentum",
-    "Ranked needs-you queue: failed, blocked, asking, done",
-    "Real plan usage mirrored from claude -p /usage",
-    "Pin Claude Code to a country with a fail-closed proxy guard",
-    "Network fault isolation — your connection or Anthropic",
-    "Same-repo and same-file collision warnings between agents"
+    "مانیتور کردن همه Agentهای در حال اجرای Claude Code: model، effort، وضعیت و پیشرفت",
+    "صف مرتب‌شده برای مواردی که به شما نیاز دارند: failed، blocked، asking، done",
+    "نمایش مصرف واقعی پلن از claude -p /usage",
+    "قفل کردن Claude Code روی کشور هدف با proxy guard به شکل fail-closed",
+    "تشخیص خطای شبکه: اتصال شما یا Anthropic",
+    "هشدار برخورد بین Agentها در یک repo یا یک فایل"
   ],
   "sameAs": ["https://github.com/ghhrmnzdh/tower"]
 }
@@ -64,25 +66,36 @@
   "@context": "https://schema.org",
   "@type": "FAQPage",
   "mainEntity": [
-    {"@type":"Question","name":"Does Tower read my Anthropic API key or tokens?","acceptedAnswer":{"@type":"Answer","text":"No. Real plan usage is mirrored from Claude Code's own claude -p /usage — Claude does its own auth, and Tower never reads a token. The proxy tunnels HTTPS with CONNECT, so it sees hostnames and never decrypts your traffic."}},
-    {"@type":"Question","name":"How does Tower pin Claude Code to a country?","acceptedAnswer":{"@type":"Answer","text":"It runs a small local proxy and points Claude Code at it through the HTTPS_PROXY key in ~/.claude/settings.json — never through your shell. When you are confirmed outside your target country, a Claude request is held and answered 503 with Retry-After, so Claude retries it into its own spinner. The request is pending, not failed, and it resumes the moment you are back on-country."}},
-    {"@type":"Question","name":"What happens if Tower quits or crashes?","acceptedAnswer":{"@type":"Answer","text":"Quitting removes the proxy from settings.json first, so Claude Code returns to a direct connection. The guard un-routes on every clean exit and via atexit, and the daemon is single-instance. A crashed front-end can't break Claude."}},
-    {"@type":"Question","name":"How do I tell whether an outage is my internet or Anthropic?","acceptedAnswer":{"@type":"Answer","text":"Tower probes both, passively and continuously: your link, and a timed TLS handshake to api.anthropic.com. It reports online, degraded, offline, captive portal, or an Anthropic-side problem — plus an on-demand speed test. No guessing, and no Claude request is spent finding out."}},
-    {"@type":"Question","name":"Is Tower free? Does it run on Windows or Linux?","acceptedAnswer":{"@type":"Answer","text":"Tower is free and open source. The full experience — menubar app plus terminal dashboard — runs on macOS 14 or later, on Apple Silicon. On Windows 10/11, the daemon and the terminal dashboard already run: same guard, same fail-closed proxy, no dependencies. Treat it as experimental — it is written and reviewed but not yet tested on real Windows hardware, so expect rough edges and please report them. The native Windows tray app is next. A Linux front-end is planned; the curses dashboard should already run there."}}
+    {"@type":"Question","name":"آیا Tower کلید API یا tokenهای Anthropic را می‌خواند؟","acceptedAnswer":{"@type":"Answer","text":"نه. مصرف واقعی پلن از خروجی خود Claude Code یعنی claude -p /usage می‌آید. احراز هویت را خود Claude انجام می‌دهد و Tower هیچ tokenای را نمی‌خواند. proxy ترافیک HTTPS را با CONNECT تونل می‌کند؛ فقط hostnameها را می‌بیند و ترافیک شما را decrypt نمی‌کند."}},
+    {"@type":"Question","name":"Tower چطور Claude Code را روی یک کشور قفل می‌کند؟","acceptedAnswer":{"@type":"Answer","text":"Tower یک proxy محلی کوچک اجرا می‌کند و Claude Code را از طریق کلید HTTPS_PROXY در ~/.claude/settings.json به آن وصل می‌کند، نه از طریق shell شما. وقتی قطعا بیرون از کشور هدف باشید، درخواست Claude نگه داشته می‌شود و با 503 و Retry-After جواب می‌گیرد؛ بنابراین Claude آن را در spinner خودش retry می‌کند. درخواست pending می‌ماند، failed نمی‌شود، و وقتی دوباره داخل کشور هدف باشید ادامه پیدا می‌کند."}},
+    {"@type":"Question","name":"اگر Tower بسته شود یا crash کند چه می‌شود؟","acceptedAnswer":{"@type":"Answer","text":"قبل از خروج، proxy از settings.json حذف می‌شود تا Claude Code دوباره مستقیم وصل شود. guard در هر خروج سالم و از طریق atexit مسیر را برمی‌گرداند و daemon تک‌نمونه‌ای است. crash کردن front-end باعث خراب شدن Claude نمی‌شود."}},
+    {"@type":"Question","name":"از کجا بفهمم قطعی از اینترنت من است یا از Anthropic؟","acceptedAnswer":{"@type":"Answer","text":"Tower هر دو را پیوسته و بی‌سروصدا بررسی می‌کند: لینک شما و یک TLS handshake زمان‌گیری‌شده با api.anthropic.com. نتیجه را به شکل online، degraded، offline، captive portal یا مشکل سمت Anthropic نشان می‌دهد و یک speed test دستی هم دارد. حدس لازم نیست و برای فهمیدن وضعیت، هیچ درخواست Claude مصرف نمی‌شود."}},
+    {"@type":"Question","name":"Tower رایگان است؟ روی Windows یا Linux اجرا می‌شود؟","acceptedAnswer":{"@type":"Answer","text":"Tower رایگان و متن‌باز است. تجربه کامل، یعنی menubar app به‌همراه terminal dashboard، روی macOS 14 یا جدیدتر و Apple Silicon اجرا می‌شود. روی Windows 10/11، daemon و terminal dashboard همین حالا اجرا می‌شوند: همان guard، همان proxy fail-closed و بدون dependency. فعلا experimental است؛ نوشته و review شده، اما هنوز روی سخت‌افزار واقعی Windows تست نشده است. native tray app برای Windows مرحله بعدی است. front-end لینوکس هم برنامه‌ریزی شده و curses dashboard باید از حالا روی Linux اجرا شود."}}
   ]
 }
 </script>
 
 <style>
 /* ═══════════════════════════ fonts ═══════════════════════════
-   SF Pro on the target platform (what the app itself renders in) —
+   Persian is its own edition, not a translation laid over Latin metrics:
+   Vazirmatn (self-hosted, OFL) is the Persian face across the whole page,
+   restricted to the Arabic block so Latin product terms (Agent, Claude,
+   macOS) fall through to SF Pro / Inter inside the RTL flow.
    Inter is self-hosted and only fetched where SF Pro doesn't exist.
    JetBrains Mono is the same face the app bundles for its chips. */
-@font-face{font-family:"JetBrains Mono";src:url("fonts/jetbrainsmono-500.woff2") format("woff2");
+@font-face{font-family:"Vazirmatn";src:url("../fonts/vazirmatn-arabic.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;font-display:swap;
+  unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200C-200E,U+FB50-FDFF,U+FE70-FEFF}
+/* Estedad — the Persian display face (variable, OFL). Headlines only; the same
+   Arabic-block restriction so Latin runs inside a heading stay on Inter. */
+@font-face{font-family:"Estedad";src:url("../fonts/estedad-arabic.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;font-display:swap;
+  unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200C-200E,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"JetBrains Mono";src:url("../fonts/jetbrainsmono-500.woff2") format("woff2");
   font-weight:500;font-style:normal;font-display:swap}
-@font-face{font-family:"JetBrains Mono";src:url("fonts/jetbrainsmono-700.woff2") format("woff2");
+@font-face{font-family:"JetBrains Mono";src:url("../fonts/jetbrainsmono-700.woff2") format("woff2");
   font-weight:700;font-style:normal;font-display:swap}
-@font-face{font-family:"Inter";src:url("fonts/inter-latin.woff2") format("woff2");
+@font-face{font-family:"Inter";src:url("../fonts/inter-latin.woff2") format("woff2");
   font-weight:300 800;font-style:normal;font-display:swap}
 
 /* ═══════════════════════════ tokens ═══════════════════════════ */
@@ -105,7 +118,7 @@
   --blue:#0a84ff;
   /* model tiers — labels only, never on a mark */
   --gold:#C9A227; --rosso:#c76b72; --steel:#6f9ad6; --crayon:#eda45f;
-  --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  --sans:"Vazirmatn",-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --ease:cubic-bezier(.22,.68,.16,1);
   /* the app's motion tokens, approximated: settle = spring(.45,.85) — a hair of
@@ -119,7 +132,11 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;overflow-x:hidden}
 body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);
   font-size:16px;line-height:1.62;letter-spacing:-.006em;overflow-x:hidden;
   -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
-h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.035em;line-height:1.06;text-wrap:balance}
+code,.clone,.term,.kbd,.mono,.cap,.pill,.badge,.mt,.src,.note,.reqs,.foot-bot{direction:ltr}
+/* Persian is cursive — Latin's negative tracking would pinch the joins and word
+   gaps, so headings run at normal tracking. Latin runs (Agent, Claude) sit inside
+   the Persian flow and read fine un-tightened at display size. */
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:normal;line-height:1.06;text-wrap:balance}
 p{margin:0}
 a{color:inherit;text-decoration:none}
 svg{display:block}
@@ -146,9 +163,9 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 /* the section rule carries its own name — a chart annotation, so no section
    needs a repeated kicker/eyebrow of its own */
 .brule{position:relative;max-width:var(--maxw);margin:0 auto;height:0;border-top:1px solid var(--line2)}
-.brule b{position:absolute;left:var(--pad);top:-7px;background:var(--bg);padding-right:16px;
-  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.26em;
-  text-transform:uppercase;color:var(--txt3)}
+.brule b{position:absolute;right:var(--pad);top:-7px;background:var(--bg);padding-left:16px;
+  font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:0;
+  text-transform:none;color:var(--txt3)}
 
 /* the one panel primitive — flat, machined, hairline. Not glass. */
 .well{background:var(--panel);border:1px solid var(--line2);border-radius:14px;
@@ -166,11 +183,11 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   -webkit-backdrop-filter:blur(18px) saturate(1.4);border-bottom-color:var(--line2)}
 .nav .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px;letter-spacing:-.02em}
 .nav .brand svg{width:24px;height:24px}
-.nav .links{display:flex;gap:26px;margin-left:auto;font-size:13.5px;color:var(--txt2);font-weight:500}
+.nav .links{display:flex;gap:26px;margin-right:auto;font-size:13.5px;color:var(--txt2);font-weight:500}
 .nav .links a{transition:color .2s}
 .nav .links a:hover{color:var(--white)}
-.nav .cta{margin-left:24px}
-@media(max-width:900px){.nav .links{display:none}.nav .cta{margin-left:auto}}
+.nav .cta{margin-right:24px}
+@media(max-width:900px){.nav .links{display:none}.nav .cta{margin-right:auto}}
 
 /* ═══════════════════════════ buttons ═══════════════════════════ */
 .btn{display:inline-flex;align-items:center;gap:9px;font-size:14px;font-weight:600;letter-spacing:-.01em;
@@ -187,13 +204,14 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .hero{padding-top:154px;padding-bottom:96px;display:grid;grid-template-columns:1fr 480px;
   gap:64px;align-items:center}
 .hero>*{min-width:0}
-.hero h1{font-size:clamp(40px,6.2vw,72px);letter-spacing:-.045em;margin:22px 0 0;line-height:1.02}
+.hero h1{font-size:clamp(40px,6.2vw,72px);letter-spacing:normal;margin:22px 0 0;line-height:1.04}
 .hero h1 .l2{display:block;font-weight:300;color:var(--txt2)}
 .hero .lede{margin-top:26px}
 .hero .btn-row{margin-top:34px}
 .hero-meta{margin-top:34px;padding-top:22px;border-top:1px solid var(--line2);display:flex;gap:30px;
   flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--txt3)}
 .hero-meta b{color:var(--txt);font-weight:700;display:block;letter-spacing:.04em}
+.hero-meta span{direction:ltr;text-align:right}
 
 /* ── the scope: the signature instrument ───────────────────────── */
 .scope{border-radius:18px;padding:18px 18px 14px;background:var(--panel);
@@ -209,7 +227,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .read{border-top:1px solid var(--line2);padding-top:12px;margin-top:6px}
 .rl{display:flex;align-items:baseline;gap:12px;padding:5px 2px;font-family:var(--mono);font-size:11.5px;
   font-weight:500}
-.rl .k{flex:none;width:98px;font-size:9.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+.rl .k{flex:none;width:98px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:none;
   color:var(--txt3)}
 .rl .v{color:var(--txt);min-width:0;overflow-wrap:anywhere}
 .rl .v.st{font-weight:700;letter-spacing:.1em}
@@ -230,14 +248,14 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .sw button[aria-pressed="true"]::before{background:var(--white)}
 .sw .g{width:30px;height:30px;color:var(--txt3);transition:color .3s}
 .sw button[aria-pressed="true"] .g{color:var(--white)}
-.sw .l{font-family:var(--mono);font-size:7.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+.sw .l{font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;
   color:var(--txt3);text-align:center;line-height:1.4;white-space:pre-line}
 .sw button[aria-pressed="true"] .l{color:var(--txt)}
 
 /* ═══════════════════════════ problem ═══════════════════════════ */
 .lost{display:grid;grid-template-columns:.88fr 1.12fr;gap:60px;align-items:center}
 .lost>*{min-width:0}
-.say{font-size:clamp(23px,2.9vw,32px);line-height:1.4;font-weight:300;letter-spacing:-.025em;
+.say{font-size:clamp(23px,2.9vw,32px);line-height:1.45;font-weight:300;letter-spacing:normal;
   color:var(--txt);max-width:26ch}
 .say b{font-weight:600;color:var(--white)}
 /* the wall — six live agents, and not one of them says a thing */
@@ -268,8 +286,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 /* uniform tiles, so the column reads as one array of lamps — every one of them dark */
 .ann .lamp{display:flex;width:100%;align-items:center;gap:10px;padding:11px 13px;border-radius:8px;
   border:1px solid rgba(255,255,255,.075);background:rgba(255,255,255,.018);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);font-family:var(--mono);font-size:10px;font-weight:700;
-  letter-spacing:.15em;text-transform:uppercase;color:var(--txt3);white-space:nowrap}
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);font-family:var(--sans);font-size:12px;font-weight:700;
+  letter-spacing:0;text-transform:none;color:var(--txt3);white-space:nowrap}
 .ann .lamp i{width:9px;height:9px;border-radius:50%;flex:none;
   border:1.5px solid rgba(255,69,58,.42);background:rgba(255,69,58,.05);
   box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
@@ -288,7 +306,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .job{display:grid;grid-template-columns:1fr 400px;gap:56px;align-items:center;padding:38px 2px;
   border-bottom:1px solid var(--line2)}
 .job>*{min-width:0}
-.job .jl{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+.job .jl{font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;
   color:var(--txt3)}
 .job h3{font-size:26px;margin:14px 0 10px}
 .job p{font-size:15.5px;color:var(--txt2);line-height:1.62;max-width:52ch}
@@ -299,13 +317,13 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .qz .q{display:flex;align-items:center;gap:11px;padding:7px 2px;color:var(--txt)}
 .qz .q+.q{border-top:1px solid rgba(255,255,255,.04)}
 .qz .q .m{width:15px;text-align:center;font-weight:700;flex:none}
-.qz .q .w{margin-left:auto;color:var(--txt3);font-size:11px}
+.qz .q .w{margin-right:auto;color:var(--txt3);font-size:11px}
 /* demo — the weather */
 .wx{display:flex;flex-direction:column;gap:12px}
 .wx .verdict{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--txt)}
 .wx .verdict i{width:7px;height:7px;border-radius:50%;background:var(--green);
   box-shadow:0 0 9px rgba(48,209,88,.6);flex:none}
-.wx .verdict span{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--txt2)}
+.wx .verdict span{margin-right:auto;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--txt2);direction:ltr}
 .spark{display:flex;align-items:flex-end;gap:3px;height:46px}
 .spark i{flex:1;min-width:0;border-radius:1.5px;
   background:linear-gradient(180deg,rgba(255,255,255,.8),rgba(255,255,255,.12));
@@ -317,7 +335,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   border:1px solid var(--line2)}
 .fz .fr i{width:7px;height:7px;border-radius:50%;flex:none}
 .fz .fr b{font-weight:500;color:var(--txt)}
-.fz .fr .t{margin-left:auto;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+.fz .fr .t{margin-right:auto;font-size:10.5px;letter-spacing:0;text-transform:none;font-weight:700}
 .fz .ok{background:rgba(48,209,88,.05);border-color:rgba(48,209,88,.16)}
 .fz .ok i{background:var(--green)} .fz .ok .t{color:var(--green)}
 .fz .hold{background:rgba(230,169,60,.05);border-color:rgba(230,169,60,.18)}
@@ -328,7 +346,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .mz .m{font-family:var(--mono);font-size:11.5px;font-weight:500}
 .mz .mt{display:flex;align-items:baseline;gap:8px;margin-bottom:7px}
 .mz .mt .n{color:var(--txt);font-weight:700;letter-spacing:.04em}
-.mz .mt .p{margin-left:auto;color:var(--white);font-weight:700}
+.mz .mt .p{margin-right:auto;color:var(--white);font-weight:700}
 .mz .mt .r{color:var(--txt3);font-size:10px}
 .mz .tr{height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden}
 .mz .fi{height:100%;border-radius:3px;background:var(--white);transform-origin:left;transform:scaleX(0);
@@ -572,6 +590,12 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .tmd{border-top:1px solid #58b6c9;margin:7px 0 5px}
 .tmf{padding:3px 16px 5px;color:#58b6c9}
 
+/* the replicas render the real app — an LTR, English UI — inside the RTL page */
+.mbar,.pop,.simsw{direction:ltr}
+.pop{text-align:left}
+.simcap{font-family:var(--sans);font-size:12px;letter-spacing:0}
+
+
 /* ═══════════════════════════ the marks — a spec sheet ═══════════════════════════ */
 .spec{margin-top:56px;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);
   border-bottom:1px solid var(--line)}
@@ -580,19 +604,19 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .spec .g{width:82px;height:82px;color:var(--white)}
 .spec .nm{font-size:18px;font-weight:600;letter-spacing:-.02em}
 .spec .id{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
-.spec .ds{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.05em;color:var(--txt3);
-  text-align:center;text-transform:uppercase;line-height:1.6}
+.spec .ds{font-family:var(--sans);font-size:12px;font-weight:500;letter-spacing:0;color:var(--txt3);
+  text-align:center;text-transform:none;line-height:1.6}
 
 /* ═══════════════════════════ honest ═══════════════════════════ */
-.pull{font-size:clamp(26px,3.6vw,42px);line-height:1.32;font-weight:300;letter-spacing:-.03em;
-  color:var(--txt2);max-width:20ch}
+.pull{font-size:clamp(26px,3.6vw,42px);line-height:1.38;font-weight:300;letter-spacing:normal;
+  color:var(--txt2);max-width:24ch}
 .pull b{font-weight:600;color:var(--white)}
 .honest{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:start;margin-top:52px}
 .honest>*{min-width:0}
 /* the procedure card — a real sequence, so it is really numbered */
 .proc{border-radius:14px;padding:24px;background:var(--panel);border:1px solid var(--line2);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
-.proc h3{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+.proc h3{font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;
   color:var(--txt3);margin-bottom:6px}
 .proc .step{display:flex;gap:13px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--line2)}
 .proc .step:last-child{border-bottom:0;padding-bottom:2px}
@@ -608,7 +632,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .road{margin-top:44px;border-top:1px solid var(--line)}
 .road .r{display:grid;grid-template-columns:110px 220px 1fr;gap:28px;align-items:baseline;padding:22px 2px;
   border-bottom:1px solid var(--line2)}
-.road .tag{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+.road .tag{font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:0;text-transform:none;
   color:var(--txt3)}
 .road .r.next .tag{color:var(--green)}
 .road h3{font-size:17px;font-weight:600;letter-spacing:-.02em}
@@ -654,6 +678,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 .clone .copy.ok .cchk{transition:stroke-dashoffset .4s cubic-bezier(.3,1.35,.5,1) .05s;stroke-dashoffset:0}
 .hint{margin-top:12px;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--txt3);
   letter-spacing:.02em}
+.hint{font-family:var(--sans);font-size:12.5px;letter-spacing:0}
 .fine{margin-top:16px;font-size:13px;color:var(--txt3);max-width:56ch;margin-inline:auto}
 .reqs{margin-top:30px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;font-family:var(--mono);
   font-size:11px;font-weight:500;color:var(--txt3)}
@@ -734,6 +759,19 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   .hero-meta{gap:20px}
   .piece,.piece.rev{gap:30px}
 }
+/* RTL chevron for the get-section disclosures */
+.gmore summary::before{transform:rotate(135deg)}
+.gmore details[open] summary::before{transform:rotate(45deg)}
+
+/* ═══════════ Persian typography — Estedad display over Vazirmatn text ═══════════ */
+h1,h2,.say,.pull,.get h2,.job h3,.ann h3,.faq h3,.road h3{
+  font-family:"Estedad","Vazirmatn",-apple-system,"Inter",sans-serif}
+h1{font-weight:700}
+h2{font-weight:650}
+body{line-height:1.85}
+.lede{line-height:1.95}
+.ann p,.job p,.faq p,.road p,.facts .f>span,.proc div>span{line-height:1.85}
+
 @media(prefers-reduced-motion:reduce){
   *{animation-duration:.001ms!important;animation-iteration-count:1!important;
     transition-duration:.001ms!important;scroll-behavior:auto!important}
@@ -743,20 +781,20 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 </head>
 <body>
 
-<a class="skip" href="#does">Skip to content</a>
+<a class="skip" href="#does">رفتن به محتوا</a>
 
 <!-- ═══════════════════════════ nav ═══════════════════════════ -->
 <nav class="nav" id="nav">
-  <a class="brand" href="#top"><svg id="navMark" viewBox="0 0 100 100"></svg>Tower</a>
+    <a class="brand" href="#top"><svg id="navMark" viewBox="0 0 100 100"></svg>Tower</a>
   <div class="links">
-    <a href="#does">What it does</a>
+    <a href="#does">کارکردها</a>
     <a href="#live">Menu bar</a>
     <a href="#terminal">Terminal</a>
-    <a href="#honest">Philosophy</a>
-    <a href="#faq">FAQ</a>
-    <a href="fa/" lang="fa" hreflang="fa">فارسی</a>
+    <a href="#honest">منطق طراحی</a>
+    <a href="#faq">سوال‌ها</a>
+    <a href="../" lang="en" hreflang="en">English</a>
   </div>
-  <a class="btn btn--primary btn--sm cta" href="#get">Install</a>
+  <a class="btn btn--primary btn--sm cta" href="#get">نصب</a>
 </nav>
 <span id="top"></span>
 
@@ -764,47 +802,47 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 <header class="band hero">
   <div>
     <div class="cap">Tower · macOS menu bar + terminal</div>
-    <h1>Every Claude Code agent, on one radar.<span class="l2">You are the control tower.</span></h1>
-    <p class="lede">Run a dozen Claude Code agents and you lose the thread — which one needs you, which one quietly failed, which two are editing the same file. Tower is a Mac menu bar app and terminal dashboard that watches every agent, mirrors your real plan usage, pins Claude to a country, and tells you the truth about your connection.</p>
+    <h1>همه Agentهای Claude Code روی یک رادار.<span class="l2">برج مراقبت دست شماست.</span></h1>
+    <p class="lede">وقتی چندین Agent در Claude Code هم‌زمان کار می‌کنند، پیگیری‌شان سخت می‌شود: کدام منتظر شماست، کدام بی‌سروصدا fail شده، و کدام دو تا دارند یک فایل را تغییر می‌دهند. Tower یک app برای menu bar مک و یک داشبورد terminal است که Agentها را زیر نظر می‌گیرد، مصرف واقعی پلن را نشان می‌دهد، Claude را روی کشور هدف قفل می‌کند — که یعنی درخواست‌ها فقط وقتی بیرون می‌روند که واقعا داخل همان کشور باشید — و وضعیت اتصال را هم بی‌تعارف می‌گوید.</p>
     <div class="btn-row">
       <a class="btn btn--primary" href="#get">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Install Tower</a>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>نصب Tower</a>
       <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>View source</a>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.63.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.34 9.34 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>مشاهده source</a>
     </div>
     <div class="clone clone--hero"><code><span class="p">$</span> curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh</code>
-      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh" aria-label="Copy command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>copy</span></button></div>
-    <div class="hint">then: type <span class="kbd">tower</span> in any terminal — the dashboard opens right there</div>
+      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh" aria-label="کپی دستور"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>کپی</span></button></div>
+    <div class="hint">بعد از نصب: در هر terminal فقط بنویسید <span class="kbd">tower</span> — داشبورد همان‌جا باز می‌شود</div>
     <div class="hero-meta">
-      <span><b>One daemon</b>stdlib Python</span>
-      <span><b>Two front-ends</b>menu bar + curses</span>
-      <span><b>Zero</b>third-party deps</span>
+      <span><b>یک daemon</b>stdlib Python</span>
+      <span><b>دو front-end</b>menu bar + curses</span>
+      <span><b>صفر</b>third-party deps</span>
     </div>
   </div>
 
   <!-- the scope — the guard, its reason, and what Claude actually receives -->
-  <figure class="scope" role="group" aria-label="The guard radar, and what a Claude request receives in each of its five states" style="margin:0">
+  <figure class="scope" role="group" aria-label="رادار guard و پاسخی که درخواست Claude در پنج وضعیت می‌گیرد" style="margin:0">
     <div class="scope-hd"><span>Guard radar</span></div>
     <div class="stage">
       <svg class="rings" id="rings" viewBox="0 0 100 100" aria-hidden="true" focusable="false"></svg>
       <svg class="mk" id="heroMark" viewBox="0 0 100 100" aria-hidden="true" focusable="false"></svg>
     </div>
     <div class="read">
-      <div class="rl"><span class="k">Guard</span><span class="v st" id="rGuard">Cleared</span></div>
-      <div class="rl"><span class="k">Reason</span><span class="v" id="rWhy">In-country · the path to Anthropic is open</span></div>
-      <div class="rl"><span class="k">Claude gets</span><span class="v ok" id="rSees">→ api.anthropic.com · allowed</span></div>
+      <div class="rl"><span class="k">Guard</span><span class="v st" id="rGuard">مجاز</span></div>
+      <div class="rl"><span class="k">دلیل</span><span class="v" id="rWhy">داخل کشور هدف · مسیر Anthropic باز است</span></div>
+      <div class="rl"><span class="k">پاسخ به Claude</span><span class="v ok" id="rSees">→ api.anthropic.com · مجاز</span></div>
     </div>
-    <div class="sw" id="sw" role="group" aria-label="Guard states"></div>
+    <div class="sw" id="sw" role="group" aria-label="وضعیت‌های guard"></div>
   </figure>
 </header>
 
-<div class="brule"><b>The problem</b></div>
+<div class="brule"><b>مسئله</b></div>
 
 <!-- ═══════════════════════════ problem ═══════════════════════════ -->
 <section class="band" id="problem">
   <div class="lost rv">
-    <h2 class="say">Six agents. One failed twenty minutes ago, one is waiting on an approval you never saw, and two are about to collide. <b>From out here, they look identical.</b></h2>
-    <figure class="wall" role="group" aria-label="Six terminal windows running Claude Code — none of them shows a status" style="margin:0">
+    <h2 class="say">شش Agent. یکی بیست دقیقه پیش fail شده، یکی منتظر approval است که ندیده‌اید، و دو تای دیگر دارند به هم برخورد می‌کنند. <b>از بیرون، همه شبیه هم‌اند.</b></h2>
+    <figure class="wall" role="group" aria-label="شش پنجره terminal در حال اجرای Claude Code، بدون نمایش وضعیت مشخص" style="margin:0">
       <div class="pane"><div class="hd"><i></i><i></i><i></i><span>claude — payments-api</span></div>
         <div class="sc"><b></b><b></b><b></b><b></b><span class="cu"></span></div></div>
       <div class="pane"><div class="hd"><i></i><i></i><i></i><span>claude — auth-service</span></div>
@@ -822,50 +860,50 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 
   <div class="ann rv stag">
     <div class="row">
-      <div class="lamp"><i></i>No signal</div>
-      <h3>You can't see who needs you.</h3>
-      <p>Nothing surfaces. You tab through terminals hunting for the one that stopped — and you find it late, if at all.<span class="saw">what you get today · <em>silence</em></span></p>
+      <div class="lamp"><i></i>سیگنال ندارید</div>
+      <h3>نمی‌بینید کدام Agent به شما نیاز دارد.</h3>
+      <p>هیچ چیز بالا نمی‌آید. بین terminalها جابه‌جا می‌شوید تا مورد متوقف‌شده را پیدا کنید؛ اگر هم پیدا شود، دیر پیدا می‌شود.<span class="saw">وضعیت امروز · <em>سکوت</em></span></p>
     </div>
     <div class="row">
-      <div class="lamp"><i></i>No cause</div>
-      <h3>An error, and nowhere to place it.</h3>
-      <p>Claude stops mid-turn. Your Wi-Fi? A slow hotel network? Anthropic having a moment? You alt-tab to a speed test and guess.<span class="saw">what you get today · <em>API Error (500)</em></span></p>
+      <div class="lamp"><i></i>علت روشن نیست</div>
+      <h3>خطا می‌بینید، اما منبعش معلوم نیست.</h3>
+      <p>Claude وسط کار می‌ایستد. مشکل Wi‑Fi است؟ شبکه کند هتل است؟ Anthropic مشکل دارد؟ سراغ speed test می‌روید و حدس می‌زنید.<span class="saw">وضعیت امروز · <em>API Error (500)</em></span></p>
     </div>
     <div class="row">
-      <div class="lamp"><i></i>No fence</div>
-      <h3>A VPN hops, and the turn dies.</h3>
-      <p>Your location drifts mid-session. The request comes back looking like broken auth instead of simply <em>waiting</em> for you to be back on-country.<span class="saw">what you get today · <em>Please run /login</em></span></p>
+      <div class="lamp"><i></i>مرز ندارید</div>
+      <h3>VPN جابه‌جا می‌شود و کار می‌میرد.</h3>
+      <p>موقعیت شما وسط session عوض می‌شود. درخواست به‌جای اینکه فقط <em>منتظر</em> برگشتن به کشور هدف بماند، شبیه auth خراب برمی‌گردد.<span class="saw">وضعیت امروز · <em>Please run /login</em></span></p>
     </div>
     <div class="row">
-      <div class="lamp"><i></i>No meter</div>
-      <h3>You don't know what's left.</h3>
-      <p>How much of your plan is gone? Local token math is a guess. You find out for real when you hit the wall, mid-task.<span class="saw">what you get today · <em>a guess</em></span></p>
+      <div class="lamp"><i></i>متر ندارید</div>
+      <h3>نمی‌دانید چقدر مانده است.</h3>
+      <p>چقدر از پلن مصرف شده؟ محاسبه local token فقط تخمین است. مقدار واقعی را وقتی می‌فهمید که وسط کار به سقف خورده‌اید.<span class="saw">وضعیت امروز · <em>یک حدس</em></span></p>
     </div>
   </div>
 </section>
 
-<div class="brule"><b>What Tower does</b></div>
+<div class="brule"><b>کار Tower</b></div>
 
 <!-- ═══════════════════════════ four jobs ═══════════════════════════ -->
 <section class="band" id="does">
   <div class="head-2 rv">
-    <h2>Four jobs, one&nbsp;daemon.</h2>
-    <p class="lede">One background process holds all the logic and state. Everything you see — in the menu bar or in the terminal — is a thin, honest view over it.</p>
+    <h2>چهار کار، یک&nbsp;daemon.</h2>
+    <p class="lede">همه منطق و state در یک process پس‌زمینه نگه داشته می‌شود. چیزی که در menu bar یا terminal می‌بینید فقط یک نمای سبک و مستقیم از همان state است.</p>
   </div>
 
   <div class="ledger">
     <article class="job rv">
       <div>
         <div class="jl">Traffic</div>
-        <h3>Every agent, ranked.</h3>
-        <p>Each running Claude Code agent, live: its model, effort, what it's doing right now, and its momentum. The queue is ordered by who needs you — failed, then blocked, then asking, then done — with notifications, and click-to-focus that jumps straight to that agent's terminal.</p>
+        <h3>همه Agentها، مرتب‌شده.</h3>
+        <p>هر Agent فعال در Claude Code به‌صورت زنده دیده می‌شود: model، effort، کاری که همین حالا انجام می‌دهد و سرعت پیشرفتش. صف بر اساس نیاز به توجه شما مرتب می‌شود: failed، بعد blocked، بعد asking، بعد done. notification هم دارد و با click-to-focus مستقیم به terminal همان Agent می‌روید.</p>
       </div>
       <div class="demo">
         <div class="qz">
           <div class="q"><span class="m bad">✗</span> auth-service<span class="w">failed</span></div>
-          <div class="q"><span class="m warn">⛔︎</span> api<span class="w">waiting for approval</span></div>
-          <div class="q"><span class="m ask">?</span> web-ui<span class="w">asked you a question</span></div>
-          <div class="q"><span class="m ok">✓</span> docs<span class="w">done · your turn</span></div>
+          <div class="q"><span class="m warn">⛔︎</span> api<span class="w">منتظر approval</span></div>
+          <div class="q"><span class="m ask">?</span> web-ui<span class="w">از شما سوال دارد</span></div>
+          <div class="q"><span class="m ok">✓</span> docs<span class="w">done · نوبت شما</span></div>
         </div>
       </div>
     </article>
@@ -873,8 +911,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <article class="job rv">
       <div>
         <div class="jl">Weather</div>
-        <h3>Your internet, or Anthropic.</h3>
-        <p>When Claude errors mid-session, Tower has already answered the only question that matters. It probes your link and times a TLS handshake to Anthropic's edge, continuously and passively — so it can name the fault instead of guessing at it. An on-demand speed test is one click away.</p>
+        <h3>اینترنت شما، یا Anthropic.</h3>
+        <p>وقتی Claude وسط session خطا می‌دهد، Tower از قبل سوال اصلی را جواب داده است. لینک شما و TLS handshake تا edgeهای Anthropic را پیوسته و بی‌سروصدا بررسی می‌کند تا به‌جای حدس، منبع خطا را نام ببرد. speed test دستی هم با یک کلیک در دسترس است.</p>
       </div>
       <div class="demo">
         <div class="wx">
@@ -888,8 +926,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <article class="job rv">
       <div>
         <div class="jl">Fence</div>
-        <h3>Pin Claude to one country.</h3>
-        <p>A small local proxy holds Claude's requests whenever you are <em>confirmed</em> outside your country — fail-closed, so anything uncertain waits. A held request is answered <span class="kbd">503</span> with a <span class="kbd">Retry-After</span>, never <span class="kbd">403</span>: Claude retries it into its own spinner, and it resumes the moment you're back. Pending, not failed.</p>
+        <h3>Claude را روی یک کشور قفل کنید.</h3>
+        <p>قفل بودن یعنی: درخواست Claude فقط وقتی بیرون می‌رود که <em>تایید شده باشد</em> داخل کشور هدف هستید. یک proxy محلی کوچک، هر درخواست را وقتی قطعا بیرون از آن کشور باشید نگه می‌دارد. رفتار آن fail-closed است، یعنی هر وضعیت نامطمئن منتظر می‌ماند. درخواست نگه‌داشته‌شده با <span class="kbd">503</span> و <span class="kbd">Retry-After</span> جواب می‌گیرد، نه <span class="kbd">403</span>: Claude خودش retry می‌کند و وقتی برگشتید ادامه می‌دهد. pending است، failed نیست.</p>
       </div>
       <div class="demo">
         <div class="fz">
@@ -903,14 +941,14 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
     <article class="job rv">
       <div>
         <div class="jl">Usage</div>
-        <h3>The real number, not an estimate.</h3>
-        <p>Your true plan limits, mirrored from Claude Code's own <span class="kbd">claude -p /usage</span> — Claude does its own auth, and Tower never reads a token. A local token-and-cost estimate sits beside it, clearly labeled as the guess it is.</p>
+        <h3>عدد واقعی، نه تخمین.</h3>
+        <p>حد واقعی پلن از خروجی خود Claude Code یعنی <span class="kbd">claude -p /usage</span> می‌آید. احراز هویت را خود Claude انجام می‌دهد و Tower هیچ tokenای را نمی‌خواند. تخمین local token و cost کنار آن هست، اما واضح برچسب خورده که تخمین است.</p>
       </div>
       <div class="demo">
         <div class="mz">
-          <div class="m"><div class="mt"><span class="n">Session</span><span class="p">3%</span><span class="r">resets in 4h</span></div><div class="tr"><div class="fi" style="--p:.03"></div></div></div>
-          <div class="m"><div class="mt"><span class="n">Weekly</span><span class="p">33%</span><span class="r">resets in 2d</span></div><div class="tr"><div class="fi" style="--p:.33"></div></div></div>
-          <div class="m"><div class="mt"><span class="n">Fable</span><span class="p">31%</span><span class="r">resets in 2d</span></div><div class="tr"><div class="fi" style="--p:.31"></div></div></div>
+          <div class="m"><div class="mt"><span class="n">Session</span><span class="p">3%</span><span class="r">reset in 4h</span></div><div class="tr"><div class="fi" style="--p:.03"></div></div></div>
+          <div class="m"><div class="mt"><span class="n">Weekly</span><span class="p">33%</span><span class="r">reset in 2d</span></div><div class="tr"><div class="fi" style="--p:.33"></div></div></div>
+          <div class="m"><div class="mt"><span class="n">Fable</span><span class="p">31%</span><span class="r">reset in 2d</span></div><div class="tr"><div class="fi" style="--p:.31"></div></div></div>
           <div class="src">source · claude -p /usage · 60s</div>
         </div>
       </div>
@@ -918,29 +956,29 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   </div>
 </section>
 
-<div class="brule"><b>The menu bar</b></div>
+<div class="brule"><b>Menu bar</b></div>
 
 <!-- ═══════════════════════════ live ═══════════════════════════ -->
 <section class="band" id="live">
   <div class="piece">
     <div class="copy rv">
-      <h2>Every agent, at a&nbsp;glance.</h2>
-      <p class="lede">A native menu bar app — Swift, AppKit and SwiftUI. Click the radar in the bar and the whole tower drops down, in strict attention order: what needs you first, then what's working.</p>
+      <h2>همه Agentها در یک نگاه.</h2>
+      <p class="lede">یک app native برای menu bar، نوشته‌شده با Swift، AppKit و SwiftUI. روی رادار در bar کلیک می‌کنید و نمای Tower باز می‌شود: اول چیزهایی که به توجه شما نیاز دارند، بعد کارهایی که در حال اجرا هستند.</p>
       <div class="facts">
-        <div class="f"><b>The mark is the state.</b><span>The bar's radar <em>is</em> the guard. Full color only for a hold or for danger; calm and white when you're protected.</span></div>
-        <div class="f"><b>Model and effort, per agent.</b><span>Opus, Sonnet, Haiku, Fable — at MAX, HIGH, MEDIUM or LOW. Each agent's mark comes alive only while it's working.</span></div>
-        <div class="f"><b>Collisions, before they land.</b><span>Two agents in one repo is a warning. Two agents in the same file is a red one.</span></div>
-        <div class="f"><b>The done payoff is earned.</b><span>A checkmark draws on, the row glows once, the counter ticks. Failure never bounces — it fades in, sober.</span></div>
+        <div class="f"><b>نشان همان state است.</b><span>رادار داخل bar خود guard است. رنگ کامل فقط برای hold یا خطر استفاده می‌شود؛ وقتی محافظت برقرار است، آرام و سفید می‌ماند.</span></div>
+        <div class="f"><b>Model و effort برای هر Agent.</b><span>Opus، Sonnet، Haiku، Fable با MAX، HIGH، MEDIUM یا LOW. نشان هر Agent فقط وقتی زنده می‌شود که همان Agent مشغول کار باشد.</span></div>
+        <div class="f"><b>برخوردها قبل از خراب‌کاری.</b><span>دو Agent در یک repo هشدار است. دو Agent روی یک فایل هشدار قرمز است.</span></div>
+        <div class="f"><b>پایان کار واضح دیده می‌شود.</b><span>checkmark کشیده می‌شود، row یک‌بار روشن می‌شود و counter بالا می‌رود. failure حرکت نمایشی ندارد؛ ساده و خشک ظاهر می‌شود.</span></div>
       </div>
     </div>
 
-    <figure class="desk rv" role="group" aria-label="A live replica of the Tower menu bar icon and popover" style="margin:0">
-      <div class="simsw" data-sim role="group" aria-label="Simulate a guard state">
-        <button type="button" data-k="clear" aria-pressed="true">Protected</button>
-        <button type="button" data-k="verify" aria-pressed="false">Verifying</button>
-        <button type="button" data-k="holdNet" aria-pressed="false">Hold · connection</button>
+    <figure class="desk rv" role="group" aria-label="نمونه زنده آیکون menu bar و popover اپ Tower" style="margin:0">
+      <div class="simsw" data-sim role="group" aria-label="شبیه‌سازی وضعیت guard">
+        <button type="button" data-k="clear" aria-pressed="true">مجاز</button>
+        <button type="button" data-k="verify" aria-pressed="false">در حال بررسی</button>
+        <button type="button" data-k="holdNet" aria-pressed="false">Hold · اتصال</button>
         <button type="button" data-k="holdGeo" aria-pressed="false">Hold · location</button>
-        <button type="button" data-k="off" aria-pressed="false">Guard off</button>
+        <button type="button" data-k="off" aria-pressed="false">Guard خاموش</button>
       </div>
 
       <div class="mbar" aria-hidden="true">
@@ -1016,34 +1054,34 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
           <span class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M12 3v9M6 6a9 9 0 1 0 12 0"/></svg>Quit &amp; Stop Guard…</span>
         </div>
       </div>
-      <figcaption class="simcap">Live replicas — the same glyph geometry and motion the app ships, not screenshots.<br>Switch a state above: the bar icon, the popover, Claude Code and the terminal dashboard all follow.</figcaption>
+      <figcaption class="simcap">این نمونه‌ها زنده‌اند — همان هندسه و همان حرکتی که خود اپ می‌سازد، نه اسکرین‌شات.<br>بالا یک وضعیت را انتخاب کنید: آیکون menu bar، popover، Claude Code و داشبورد terminal همه با هم دنبالش می‌کنند.</figcaption>
     </figure>
   </div>
 </section>
 
-<div class="brule"><b>Inside Claude Code</b></div>
+<div class="brule"><b>داخل Claude Code</b></div>
 
 <!-- ═══════════════════════════ what Claude sees ═══════════════════════════ -->
 <section class="band" id="pilot">
   <div class="piece">
     <div class="copy rv">
-      <h2>A hold never kills your&nbsp;agent.</h2>
-      <p class="lede">You run Claude Code exactly as before — no wrapper, no flag, no extra command. When the guard holds a request, Claude sees a retryable 503 and waits in its own native spinner. The moment your connection or location recovers, the same turn resumes where it stopped.</p>
+      <h2>Hold هیچ‌وقت Agent شما را قطع نمی‌کند.</h2>
+      <p class="lede">Claude Code را دقیقا مثل قبل اجرا می‌کنید — نه wrapper، نه flag، نه دستور اضافه. وقتی guard درخواستی را نگه می‌دارد، Claude فقط یک 503 قابل‌retry می‌بیند و در spinner خودش صبر می‌کند. همین که اتصال یا موقعیت شما برگردد، همان turn از همان‌جا ادامه پیدا می‌کند.</p>
       <div class="facts">
-        <div class="f"><b>503 + Retry-After, never 403.</b><span>Claude Code treats 403 as broken auth — “Please run /login” — and kills the turn. A 503 lands in its native retry loop: pending, not failed.</span></div>
-        <div class="f"><b>The reason rides in the message.</b><span>The hold names its cause — <span class="kbd">no stable connection to Anthropic</span>, <span class="kbd">outside target country</span>, <span class="kbd">location not confirmed</span> — so you know why it's waiting before you even open Tower.</span></div>
-        <div class="f"><b>A retry budget that outlasts outages.</b><span>Tower raises Claude's retry ceiling — <span class="kbd">attempt 7/300</span> — so a VPN nap or an Anthropic incident is ridden out, not surrendered to. Your agents are never disconnected or terminated.</span></div>
-        <div class="f"><b>Nothing to restart.</b><span>Fix the network, or land back in your country: the spinner clears on its own and the agent keeps working. No lost context, no dead turn.</span></div>
+        <div class="f"><b>503 + Retry-After، هرگز 403.</b><span>Claude Code خطای 403 را auth خراب می‌فهمد — «Please run /login» — و turn را می‌کشد. اما 503 وارد چرخه retry خودش می‌شود: pending، نه failed.</span></div>
+        <div class="f"><b>دلیل، داخل خود پیام است.</b><span>پیام hold علتش را می‌گوید — <span class="kbd">no stable connection to Anthropic</span>، <span class="kbd">outside target country</span>، <span class="kbd">location not confirmed</span> — پس حتی قبل از باز کردن Tower می‌دانید چرا منتظر است.</span></div>
+        <div class="f"><b>بودجه retry که از قطعی‌ها بلندتر است.</b><span>Tower سقف retry کلود را بالا می‌برد — <span class="kbd">attempt 7/300</span> — تا چرت VPN یا اختلال سمت Anthropic هم بی‌دردسر رد شود. Agentهای شما هرگز قطع یا terminate نمی‌شوند.</span></div>
+        <div class="f"><b>چیزی برای restart وجود ندارد.</b><span>شبکه را درست کنید یا به کشور هدف برگردید: spinner خودش پاک می‌شود و Agent به کار ادامه می‌دهد. نه context از دست می‌رود، نه turn می‌میرد.</span></div>
       </div>
     </div>
 
-    <figure class="rv" role="group" aria-label="A replica of Claude Code held by the guard and resuming" style="margin:0">
-      <div class="simsw" data-sim role="group" aria-label="Simulate a guard state">
-        <button type="button" data-k="clear" aria-pressed="true">Protected</button>
-        <button type="button" data-k="verify" aria-pressed="false">Verifying</button>
-        <button type="button" data-k="holdNet" aria-pressed="false">Hold · connection</button>
+    <figure class="rv" role="group" aria-label="نمونه‌ای از Claude Code که guard نگهش داشته و بعد ادامه می‌دهد" style="margin:0">
+      <div class="simsw" data-sim role="group" aria-label="شبیه‌سازی وضعیت guard">
+        <button type="button" data-k="clear" aria-pressed="true">مجاز</button>
+        <button type="button" data-k="verify" aria-pressed="false">در حال بررسی</button>
+        <button type="button" data-k="holdNet" aria-pressed="false">Hold · اتصال</button>
         <button type="button" data-k="holdGeo" aria-pressed="false">Hold · location</button>
-        <button type="button" data-k="off" aria-pressed="false">Guard off</button>
+        <button type="button" data-k="off" aria-pressed="false">Guard خاموش</button>
       </div>
       <div class="term">
         <div class="term-bar"><span class="d"><i></i><i></i><i></i></span><span class="n">tower — caffeinate ◂ claude — 125×32</span></div>
@@ -1064,34 +1102,34 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
           <div class="spin" id="ccLine" aria-live="off"><span class="st" id="ccStar">✻</span><span id="ccTxt"></span></div>
         </div>
       </div>
-      <figcaption class="simcap">The hold is the daemon's real answer, byte for byte: <span class="mono">tower: blocked (reason) - holding for a usable path, retry shortly</span>. Switch back to Protected — the same turn picks up on its own.</figcaption>
+      <figcaption class="simcap">متن hold همان پاسخ واقعی daemon است، بایت به بایت: <span class="mono">tower: blocked (reason) - holding for a usable path, retry shortly</span>. به «مجاز» برگردید — همان turn خودش ادامه می‌دهد.</figcaption>
     </figure>
   </div>
 </section>
 
-<div class="brule"><b>The terminal</b></div>
+<div class="brule"><b>Terminal</b></div>
 
 <!-- ═══════════════════════════ terminal ═══════════════════════════ -->
 <section class="band" id="terminal">
   <div class="piece rev">
     <div class="copy rv">
-      <h2>The same tower, in the&nbsp;shell.</h2>
-      <p class="lede">A zero-dependency curses dashboard — pure Python stdlib, reading the same state file as the app. Change a setting in one and the other reflects it in about a second.</p>
+      <h2>همان Tower، داخل&nbsp;shell.</h2>
+      <p class="lede">یک داشبورد curses بدون dependency؛ فقط Python stdlib، با همان state file که app می‌خواند. تنظیمی را در یکی تغییر دهید، حدود یک ثانیه بعد در دیگری هم دیده می‌شود.</p>
       <div class="facts">
-        <div class="f"><b>One word to open it.</b><span>Type <span class="kbd">tower</span>. The installer puts it on your PATH — no paths to remember, nothing to double-click. Or click <b>Terminal Dashboard…</b> in the menu bar popover and it opens for you.</span></div>
-        <div class="f"><b>Deliberately non-reactive. Fully clickable.</b><span>A stray keypress does nothing, so you can't fat-finger the guard off. But click a row and it acts: toggle routing, pick a country, run a speed test, focus an agent's terminal.</span></div>
-        <div class="f"><b>Answers on sight.</b><span>A red header — INTERNET DOWN, WI-FI LOGIN REQUIRED, ANTHROPIC API ISSUE — means stop and look here. A net fault always outranks the guard.</span></div>
-        <div class="f"><b>Repaints only on change.</b><span>~80 ms input, ~60 ms to confirm an action at the daemon, no idle cost.</span></div>
+        <div class="f"><b>با یک کلمه باز می‌شود.</b><span>بنویسید <span class="kbd">tower</span>. installer آن را روی PATH می‌گذارد؛ لازم نیست path حفظ کنید یا چیزی را double-click کنید. از popover داخل menu bar هم می‌توانید <b>Terminal Dashboard…</b> را باز کنید.</span></div>
+        <div class="f"><b>عمدا به کلیدهای پراکنده واکنش نمی‌دهد، اما clickپذیر است.</b><span>یک keypress اشتباهی کاری نمی‌کند، پس guard ناخواسته خاموش نمی‌شود. اما روی یک row کلیک کنید تا عمل کند: routing را toggle کند، کشور را انتخاب کند، speed test بگیرد یا terminal یک Agent را focus کند.</span></div>
+        <div class="f"><b>پاسخ را همان لحظه نشان می‌دهد.</b><span>header قرمز مثل INTERNET DOWN، WI-FI LOGIN REQUIRED یا ANTHROPIC API ISSUE یعنی اول همین‌جا را ببینید. خطای شبکه همیشه از guard مهم‌تر است.</span></div>
+        <div class="f"><b>فقط وقتی چیزی تغییر کند repaint می‌شود.</b><span>حدود 80 ms برای input، حدود 60 ms تا تایید action در daemon، و بدون هزینه idle.</span></div>
       </div>
     </div>
 
-    <figure class="rv" role="group" aria-label="A live replica of the Tower terminal dashboard" style="margin:0">
-      <div class="simsw" data-sim role="group" aria-label="Simulate a guard state">
-        <button type="button" data-k="clear" aria-pressed="true">Protected</button>
-        <button type="button" data-k="verify" aria-pressed="false">Verifying</button>
-        <button type="button" data-k="holdNet" aria-pressed="false">Hold · connection</button>
+    <figure class="rv" role="group" aria-label="نمونه زنده داشبورد terminal اپ Tower" style="margin:0">
+      <div class="simsw" data-sim role="group" aria-label="شبیه‌سازی وضعیت guard">
+        <button type="button" data-k="clear" aria-pressed="true">مجاز</button>
+        <button type="button" data-k="verify" aria-pressed="false">در حال بررسی</button>
+        <button type="button" data-k="holdNet" aria-pressed="false">Hold · اتصال</button>
         <button type="button" data-k="holdGeo" aria-pressed="false">Hold · location</button>
-        <button type="button" data-k="off" aria-pressed="false">Guard off</button>
+        <button type="button" data-k="off" aria-pressed="false">Guard خاموش</button>
       </div>
       <div class="term" id="term" style="position:relative">
         <div class="term-bar"><span class="d"><i></i><i></i><i></i></span><span class="n">tower</span></div>
@@ -1179,90 +1217,90 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
           </div>
         </div>
       </div>
-      <figcaption class="simcap">Click the footer line — the real ACTIONS menu opens. “Route Claude through the guard” actually toggles the guard in this demo; “Re-check location now” runs a verify.</figcaption>
+      <figcaption class="simcap">روی خطِ پایین کلیک کنید تا منوی واقعی ACTIONS باز شود. «Route Claude through the guard» در همین دمو واقعا guard را خاموش و روشن می‌کند و «Re-check location now» یک بررسی موقعیت اجرا می‌کند.</figcaption>
     </figure>
   </div>
 </section>
 
-<div class="brule"><b>The marks</b></div>
+<div class="brule"><b>نشان‌ها</b></div>
 
 <!-- ═══════════════════════════ marks ═══════════════════════════ -->
 <section class="band" id="marks">
   <div class="head-2 rv">
-    <h2>One living glyph per&nbsp;model.</h2>
-    <p class="lede">Deliberately monochrome and minimal. Still at rest — and while its agent works, each comes alive in its own way. The tier's color appears only in the small label beside it, never on the mark itself.</p>
-    <p class="lede" style="margin-top:14px">The point is practical: one glance at the roster tells you <em>which model is running which job</em> — so the heavy spiral doing a doc tweak, or a haiku carrying a refactor, jumps out before it burns tokens (or your week's Fable budget) on the wrong tier.</p>
+    <h2>برای هر&nbsp;model یک glyph زنده.</h2>
+    <p class="lede">عمدا تک‌رنگ و کمینه. در حالت عادی ثابت می‌ماند؛ وقتی Agent مربوطه کار می‌کند، هر نشان به شکل خودش زنده می‌شود. رنگ tier فقط روی label کوچک کنار آن دیده می‌شود، نه روی خود نشان.</p>
+    <p class="lede" style="margin-top:14px">فایده‌اش کاملا عملی است: با یک نگاه به فهرست می‌بینید <em>کدام model دارد کدام کار را انجام می‌دهد</em> — تا مارپیچ سنگین Fable که سرِ یک اصلاح ساده مستندات نشسته، یا Haiku که وسط یک refactor بزرگ افتاده، قبل از اینکه token (یا سهم هفتگی Fable) بی‌دلیل بسوزد، به چشم بیاید.</p>
   </div>
   <div class="spec rv stag" id="spec"></div>
 </section>
 
-<div class="brule"><b>The philosophy</b></div>
+<div class="brule"><b>منطق طراحی</b></div>
 
 <!-- ═══════════════════════════ honest ═══════════════════════════ -->
 <section class="band" id="honest">
-  <h2 class="pull rv">If something looks wrong, that is the app <b>doing its job</b> — not the app being broken.</h2>
+  <h2 class="pull rv">اگر چیزی اشتباه به نظر می‌رسد، یعنی app دارد <b>کارش را انجام می‌دهد</b>؛ نه اینکه خراب شده باشد.</h2>
   <div class="honest">
     <div class="rv">
       <div class="facts" style="margin-top:0;border-top:0">
-        <div class="f" style="padding-top:0"><b>Fail-closed, never fail-confusing.</b><span>Claude is allowed only when Tower has confirmed you're in-country <em>and</em> that there's a usable path to Anthropic. Anything uncertain is held — and a hold clears itself the moment your location or your connection recovers. There is nothing to quit.</span></div>
-        <div class="f"><b>It always un-routes on shutdown.</b><span>Quitting removes the proxy from <span class="kbd">settings.json</span> first, so Claude Code returns to a direct connection. A crashed front-end can't break Claude.</span></div>
-        <div class="f"><b>Never through the shell, never in your traffic.</b><span>Routing edits <span class="kbd">settings.json</span> only — passive, reversible, backed up before the first edit. The proxy tunnels HTTPS with CONNECT: it sees hostnames, and never decrypts a byte.</span></div>
-        <div class="f"><b>Read-only toward your sessions.</b><span>Tower never writes into <span class="kbd">~/.claude</span> and never types into a session. It reads process and network tables, and tails transcripts. That's all.</span></div>
+        <div class="f" style="padding-top:0"><b>Fail-closed، نه گیج‌کننده.</b><span>Claude فقط وقتی مجاز است که Tower تایید کرده باشد داخل کشور هدف هستید <em>و</em> مسیر قابل استفاده‌ای تا Anthropic وجود دارد. هر چیز نامطمئن hold می‌شود و به‌محض درست شدن location یا connection آزاد می‌شود. لازم نیست چیزی را kill کنید.</span></div>
+        <div class="f"><b>موقع خاموش شدن همیشه route را برمی‌گرداند.</b><span>قبل از خروج، proxy از <span class="kbd">settings.json</span> حذف می‌شود تا Claude Code دوباره مستقیم وصل شود. crash کردن front-end باعث خراب شدن Claude نمی‌شود.</span></div>
+        <div class="f"><b>نه از طریق shell، نه داخل ترافیک شما.</b><span>routing فقط <span class="kbd">settings.json</span> را تغییر می‌دهد؛ passive، قابل برگشت، و با backup قبل از اولین تغییر. proxy ترافیک HTTPS را با CONNECT تونل می‌کند: hostnameها را می‌بیند و هیچ byteای را decrypt نمی‌کند.</span></div>
+        <div class="f"><b>نسبت به sessionهای شما read-only است.</b><span>Tower داخل <span class="kbd">~/.claude</span> چیزی نمی‌نویسد و در session تایپ نمی‌کند. process table و network table را می‌خواند و transcriptها را tail می‌کند. همین.</span></div>
       </div>
     </div>
     <div class="proc rv">
-      <h3>Flight rule · a block is pending, not failed</h3>
-      <div class="step bad"><span class="n">1</span><div><b>403 would kill the turn.</b><span>Claude Code reads it as broken auth — "run /login" — and the work is gone.</span></div></div>
-      <div class="step ok"><span class="n">2</span><div><b>So Tower answers 503 + Retry-After.</b><span>The request is held a few seconds first, re-checking, so a sub-second blip clears with no visible retry at all.</span></div></div>
-      <div class="step ok"><span class="n">3</span><div><b>Claude shows its own spinner.</b><span>"Retrying · attempt 2/10" — its native, durable pending state. Nothing is lost.</span></div></div>
-      <div class="step ok"><span class="n">4</span><div><b>It resumes on its own.</b><span>The moment the guard clears, the turn continues where it stopped.</span></div></div>
+      <h3>Flight rule · block یعنی pending، نه failed</h3>
+      <div class="step bad"><span class="n">1</span><div><b>403 کار را می‌کشد.</b><span>Claude Code آن را auth خراب می‌خواند؛ «run /login»؛ و کار از دست می‌رود.</span></div></div>
+      <div class="step ok"><span class="n">2</span><div><b>پس Tower با 503 + Retry-After جواب می‌دهد.</b><span>درخواست اول چند ثانیه نگه داشته و دوباره بررسی می‌شود؛ بنابراین اختلال خیلی کوتاه اصلا retry قابل مشاهده نمی‌سازد.</span></div></div>
+      <div class="step ok"><span class="n">3</span><div><b>Claude spinner خودش را نشان می‌دهد.</b><span>«Retrying · attempt 2/10»؛ همان حالت pending بومی و پایدار خودش. چیزی از دست نمی‌رود.</span></div></div>
+      <div class="step ok"><span class="n">4</span><div><b>خودش ادامه می‌دهد.</b><span>به‌محض clear شدن guard، turn از همان‌جا ادامه پیدا می‌کند.</span></div></div>
     </div>
   </div>
 </section>
 
-<div class="brule"><b>Inbound</b></div>
+<div class="brule"><b>در راه</b></div>
 
 <!-- ═══════════════════════════ roadmap ═══════════════════════════ -->
 <section class="band" id="roadmap">
   <div class="head-2 rv">
-    <h2>On the radar.</h2>
-    <p class="lede">Tower is open source — use it, fork it, port it. One portable daemon with thin front-ends is what makes each of these tractable.</p>
+    <h2>روی رادار.</h2>
+    <p class="lede">Tower متن‌باز است: استفاده کنید، fork کنید، port کنید. یک daemon قابل حمل با front-endهای سبک باعث می‌شود هرکدام از این مسیرها قابل انجام باشد.</p>
   </div>
   <div class="road rv stag">
-    <div class="r next"><span class="tag">Next</span><h3>Windows tray app</h3>
-      <p>Half done: the daemon and the terminal dashboard already run on Windows — same guard, same JSON, still dependency-free (experimental, untested on real hardware). Routing ported for free, since Claude Code reads the same settings.json everywhere. What's left is the native piece: a C#/.NET tray to stand in for the menubar.</p></div>
-    <div class="r"><span class="tag">Planned</span><h3>Linux front-end</h3>
-      <p>A tray via AppIndicator, and the curses dashboard already runs. The daemon is stdlib-portable as-is.</p></div>
-    <div class="r"><span class="tag">Idea</span><h3>Deeper collisions</h3>
-      <p>Past same-repo and same-file: the exact lines two agents are about to fight over, and one tap to pause the other.</p></div>
-    <div class="r"><span class="tag">Idea</span><h3>Usage history</h3>
-      <p>A longer memory for plan usage — weekly burn-down, and a heads-up before you hit a limit rather than after.</p></div>
-    <div class="r"><span class="tag">Idea</span><h3>More fences</h3>
-      <p>Beyond country: time-of-day windows, per-project rules, allowlists. The same fail-closed proxy, more ways to draw a fence.</p></div>
+    <div class="r next"><span class="tag">بعدی</span><h3>Windows tray app</h3>
+      <p>نصف مسیر انجام شده: daemon و terminal dashboard همین حالا روی Windows اجرا می‌شوند؛ همان guard، همان JSON و همچنان بدون dependency. فعلا experimental است و روی سخت‌افزار واقعی تست نشده. routing تقریبا آماده است، چون Claude Code همه‌جا همان settings.json را می‌خواند. بخش باقی‌مانده یک tray native با C#/.NET است که جای menubar را بگیرد.</p></div>
+    <div class="r"><span class="tag">برنامه</span><h3>Linux front-end</h3>
+      <p>یک tray از طریق AppIndicator؛ curses dashboard از همین حالا باید اجرا شود. daemon با stdlib قابل حمل است.</p></div>
+    <div class="r"><span class="tag">ایده</span><h3>برخوردهای دقیق‌تر</h3>
+      <p>فراتر از same-repo و same-file: خط‌های دقیقی که دو Agent ممکن است روی آن‌ها به هم بخورند، با یک tap برای pause کردن دیگری.</p></div>
+    <div class="r"><span class="tag">ایده</span><h3>تاریخچه مصرف</h3>
+      <p>حافظه طولانی‌تر برای plan usage: burn-down هفتگی و هشدار قبل از رسیدن به سقف، نه بعد از آن.</p></div>
+    <div class="r"><span class="tag">ایده</span><h3>Fenceهای بیشتر</h3>
+      <p>فراتر از کشور: بازه‌های زمانی، ruleهای per-project و allowlist. همان proxy به شکل fail-closed، با راه‌های بیشتر برای مرزبندی.</p></div>
   </div>
 </section>
 
-<div class="brule"><b>Questions</b></div>
+<div class="brule"><b>سوال‌ها</b></div>
 
 <!-- ═══════════════════════════ faq ═══════════════════════════ -->
 <section class="band" id="faq">
-  <div class="head-2 rv"><h2>Before you install&nbsp;it.</h2></div>
+  <div class="head-2 rv"><h2>قبل از نصب.</h2></div>
   <div class="faq rv">
-    <div class="q"><h3>macOS says Tower is from an “unidentified developer.” What now?</h3>
-      <p>Use the one-line install and you'll never see that. Tower isn't notarized with Apple, and macOS quarantines anything you download <i>in a browser</i> — so it checks the signature, doesn't recognize it, and refuses to open the app. A file fetched with <span class="kbd">curl</span> is never quarantined, so macOS doesn't run that check and Tower opens normally. If you'd rather download the zip by hand, clear the flag yourself with <span class="kbd">xattr -rd com.apple.quarantine /Applications/Tower.app</span>, or open it once and choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. (Right-click → Open used to work; macOS 15 removed it.)</p></div>
-    <div class="q"><h3>Piping a script from the internet into <span class="kbd">sh</span> — should I be nervous?</h3>
-      <p>You're right to ask, and you shouldn't take anyone's word for it. <a href="https://ghhrmnzdh.github.io/tower/install.sh" rel="noopener">Read the script first</a> — it's short, and it's the same file the command fetches. It downloads the release from GitHub, unpacks it to <span class="kbd">/Applications</span>, links the <span class="kbd">tower</span> command, and opens the app. It asks for no password and never uses <span class="kbd">sudo</span>. If you'd still rather not, download the zip from Releases and do it by hand.</p></div>
-    <div class="q"><h3>Does Tower read my Anthropic API key or tokens?</h3>
-      <p>No. Real plan usage is mirrored from Claude Code's own <span class="kbd">claude -p /usage</span> — Claude does its own auth, and Tower never reads a token. The proxy tunnels HTTPS with CONNECT, so it sees hostnames and never decrypts your traffic.</p></div>
-    <div class="q"><h3>How does Tower pin Claude Code to a country?</h3>
-      <p>It runs a small local proxy and points Claude Code at it through the <span class="kbd">HTTPS_PROXY</span> key in <span class="kbd">~/.claude/settings.json</span> — never through your shell. When you are confirmed outside your target country, a Claude request is held and answered <span class="kbd">503</span> with <span class="kbd">Retry-After</span>, so Claude retries it into its own spinner. The request is pending, not failed, and it resumes the moment you are back on-country.</p></div>
-    <div class="q"><h3>What happens if Tower quits or crashes?</h3>
-      <p>Quitting removes the proxy from settings.json first, so Claude Code returns to a direct connection. The guard un-routes on every clean exit and via <span class="kbd">atexit</span>, and the daemon is single-instance. A crashed front-end can't break Claude.</p></div>
-    <div class="q"><h3>How do I tell whether an outage is my internet or Anthropic?</h3>
-      <p>Tower probes both, passively and continuously: your link, and a timed TLS handshake to <span class="kbd">api.anthropic.com</span>. It reports online, degraded, offline, captive portal, or an Anthropic-side problem — plus an on-demand speed test. No guessing, and no Claude request is spent finding out.</p></div>
-    <div class="q"><h3>Is Tower free? Does it run on Windows or Linux?</h3>
-      <p>Tower is free and open source. The full experience — menubar app plus terminal dashboard — runs on macOS 14 or later, on Apple Silicon.</p>
-      <p>On <b>Windows 10/11</b>, the daemon and the terminal dashboard already run — same guard, same fail-closed proxy, no dependencies. Treat it as <b>experimental</b>: it's written and reviewed, but not yet tested on real Windows hardware, so expect rough edges (and please <a href="https://github.com/ghhrmnzdh/tower/issues" rel="noopener">report them</a>). The native tray app is next. A Linux front-end is planned — the curses dashboard should already run there.</p></div>
+    <div class="q"><h3>macOS می‌گوید Tower از یک “unidentified developer” است. چه کار کنم؟</h3>
+      <p>اگر نصب تک‌خطی را استفاده کنید معمولا این پیام را نمی‌بینید. Tower فعلا توسط Apple notarize نشده و macOS فایل‌هایی را که <i>از browser</i> دانلود می‌شوند quarantine می‌کند؛ بعد signature را چک می‌کند، آن را نمی‌شناسد و اجازه باز کردن app را نمی‌دهد. فایلی که با <span class="kbd">curl</span> گرفته شود quarantine نمی‌شود، پس macOS آن check را اجرا نمی‌کند و Tower معمولی باز می‌شود. اگر zip را دستی دانلود می‌کنید، flag را با <span class="kbd">xattr -rd com.apple.quarantine /Applications/Tower.app</span> پاک کنید، یا یک‌بار app را باز کنید و در System Settings → Privacy &amp; Security گزینه <b>Open Anyway</b> را بزنید. روش Right-click → Open در macOS 15 حذف شده است.</p></div>
+    <div class="q"><h3>اجرای script اینترنتی با pipe به <span class="kbd">sh</span> خطرناک نیست؟</h3>
+      <p>سوال درستی است. <a href="https://ghhrmnzdh.github.io/tower/install.sh" rel="noopener">اول script را بخوانید</a>؛ کوتاه است و همان فایلی است که command اجرا می‌کند. release را از GitHub می‌گیرد، داخل <span class="kbd">/Applications</span> باز می‌کند، command به نام <span class="kbd">tower</span> را link می‌کند و app را باز می‌کند. password نمی‌خواهد و از <span class="kbd">sudo</span> استفاده نمی‌کند. اگر باز هم نمی‌خواهید، zip را از Releases بگیرید و دستی نصب کنید.</p></div>
+    <div class="q"><h3>آیا Tower کلید API یا tokenهای Anthropic را می‌خواند؟</h3>
+      <p>نه. مصرف واقعی پلن از خروجی خود Claude Code یعنی <span class="kbd">claude -p /usage</span> می‌آید. احراز هویت را خود Claude انجام می‌دهد و Tower هیچ tokenای را نمی‌خواند. proxy ترافیک HTTPS را با CONNECT تونل می‌کند؛ فقط hostnameها را می‌بیند و ترافیک شما را decrypt نمی‌کند.</p></div>
+    <div class="q"><h3>Tower چطور Claude Code را روی یک کشور قفل می‌کند؟</h3>
+      <p>Tower یک proxy محلی کوچک اجرا می‌کند و Claude Code را از طریق کلید <span class="kbd">HTTPS_PROXY</span> در <span class="kbd">~/.claude/settings.json</span> به آن وصل می‌کند، نه از طریق shell شما. وقتی قطعا بیرون از کشور هدف باشید، درخواست Claude نگه داشته می‌شود و با <span class="kbd">503</span> و <span class="kbd">Retry-After</span> جواب می‌گیرد؛ بنابراین Claude آن را در spinner خودش retry می‌کند. درخواست pending می‌ماند، failed نمی‌شود، و وقتی دوباره داخل کشور هدف باشید ادامه پیدا می‌کند.</p></div>
+    <div class="q"><h3>اگر Tower بسته شود یا crash کند چه می‌شود؟</h3>
+      <p>قبل از خروج، proxy از settings.json حذف می‌شود تا Claude Code دوباره مستقیم وصل شود. guard در هر خروج سالم و از طریق <span class="kbd">atexit</span> مسیر را برمی‌گرداند و daemon تک‌نمونه‌ای است. crash کردن front-end باعث خراب شدن Claude نمی‌شود.</p></div>
+    <div class="q"><h3>از کجا بفهمم قطعی از اینترنت من است یا از Anthropic؟</h3>
+      <p>Tower هر دو را پیوسته و بی‌سروصدا بررسی می‌کند: لینک شما و یک TLS handshake زمان‌گیری‌شده با <span class="kbd">api.anthropic.com</span>. نتیجه را به شکل online، degraded، offline، captive portal یا مشکل سمت Anthropic نشان می‌دهد و یک speed test دستی هم دارد. حدس لازم نیست و برای فهمیدن وضعیت، هیچ درخواست Claude مصرف نمی‌شود.</p></div>
+    <div class="q"><h3>Tower رایگان است؟ روی Windows یا Linux اجرا می‌شود؟</h3>
+      <p>Tower رایگان و متن‌باز است. تجربه کامل، یعنی menubar app به‌همراه terminal dashboard، روی macOS 14 یا جدیدتر و Apple Silicon اجرا می‌شود.</p>
+      <p>روی <b>Windows 10/11</b>، daemon و terminal dashboard همین حالا اجرا می‌شوند: همان guard، همان proxy fail-closed و بدون dependency. فعلا <b>experimental</b> است؛ نوشته و review شده، اما هنوز روی سخت‌افزار واقعی Windows تست نشده است. native tray app برای Windows مرحله بعدی است. front-end لینوکس هم برنامه‌ریزی شده و curses dashboard باید از حالا روی Linux اجرا شود.</p></div>
   </div>
 </section>
 
@@ -1270,33 +1308,33 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 <section class="band" id="get" style="padding-top:40px">
   <div class="get rv">
     <div class="cap" style="color:var(--txt2)">Get Tower</div>
-    <h2>Give your agents a tower.</h2>
-    <p class="lede">One line. It installs the app, puts <span class="kbd">tower</span> on your PATH, and starts the guard — no password, no Gatekeeper warning, nothing to drag.</p>
+    <h2>برای Agentها یک Tower داشته باشید.</h2>
+    <p class="lede">فقط یک خط: app را نصب می‌کند، دستور <span class="kbd">tower</span> را روی PATH می‌گذارد و guard را روشن می‌کند — بدون password، بدون Gatekeeper warning و بدون drag کردن.</p>
     <div class="clone clone--hero"><code><span class="p">$</span> curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh</code>
-      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh" aria-label="Copy command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>copy</span></button></div>
-    <div class="hint">then: type <span class="kbd">tower</span> in any terminal — the dashboard opens right there · run the same line again to upgrade</div>
+      <button class="copy" data-copy="curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh" aria-label="کپی دستور"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>کپی</span></button></div>
+    <div class="hint">بعد از نصب: در هر terminal فقط بنویسید <span class="kbd">tower</span> — داشبورد همان‌جا باز می‌شود · برای upgrade همین خط را دوباره اجرا کنید</div>
     <div class="btn-row">
       <a class="btn" href="https://github.com/ghhrmnzdh/tower/releases/latest" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Download Tower.app</a>
-      <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">View on GitHub</a>
+      <a class="btn" href="https://github.com/ghhrmnzdh/tower" rel="noopener">مشاهده در GitHub</a>
     </div>
     <div class="gmore rv">
       <details>
-        <summary>What exactly does that line run?</summary>
-        <div class="gbody"><p><a href="https://ghhrmnzdh.github.io/tower/install.sh" rel="noopener">Read the script first</a> — it's short, and it's the same file the command fetches. It downloads the latest release from GitHub, unpacks it to <span class="kbd">/Applications</span>, links the <span class="kbd">tower</span> command, and opens the app. It never asks for a password and never uses <span class="kbd">sudo</span>.</p></div>
+        <summary>این خط دقیقا چه کار می‌کند؟</summary>
+        <div class="gbody"><p><a href="https://ghhrmnzdh.github.io/tower/install.sh" rel="noopener">اول خود اسکریپت را بخوانید</a> — کوتاه است و دقیقا همان فایلی است که این دستور دانلود می‌کند. آخرین release را از GitHub می‌گیرد، در <span class="kbd">/Applications</span> باز می‌کند، دستور <span class="kbd">tower</span> را لینک می‌کند و app را اجرا می‌کند. هیچ‌وقت password نمی‌خواهد و از <span class="kbd">sudo</span> استفاده نمی‌کند.</p></div>
       </details>
       <details>
-        <summary>Install by hand, or build from source</summary>
+        <summary>نصب دستی، یا build از source</summary>
         <div class="gbody">
-          <p>Grab <b>Tower.app.zip</b> from <a href="https://github.com/ghhrmnzdh/tower/releases" rel="noopener">Releases</a> — not GitHub's “Source code (zip)”, which has no built app inside. macOS quarantines browser downloads and will call the app unidentified; clear it with <span class="kbd">xattr -rd com.apple.quarantine /Applications/Tower.app</span>, or choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security. The one-liner above never hits this.</p>
-          <p>Building from source needs the Xcode Command Line Tools:</p>
+          <p><b>Tower.app.zip</b> را از <a href="https://github.com/ghhrmnzdh/tower/releases" rel="noopener">Releases</a> بگیرید — نه “Source code (zip)” که app ساخته‌شده ندارد. macOS دانلودهای browser را quarantine می‌کند و app را unidentified می‌خواند؛ با <span class="kbd">xattr -rd com.apple.quarantine /Applications/Tower.app</span> پاکش کنید یا در System Settings → Privacy &amp; Security گزینه <b>Open Anyway</b> را بزنید. خط نصب بالا اصلا به این مسئله نمی‌خورد.</p>
+          <p>ساختن از source به Xcode Command Line Tools نیاز دارد:</p>
           <div class="clone"><code><span class="p">$</span> git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh</code>
-            <button class="copy" data-copy="git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh" aria-label="Copy command"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>copy</span></button></div>
+            <button class="copy" data-copy="git clone https://github.com/ghhrmnzdh/tower &amp;&amp; cd tower &amp;&amp; ./build.sh" aria-label="کپی دستور"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect class="cbd" x="9" y="9" width="11" height="12" rx="2"/><path class="cbd" d="M5 15V5a2 2 0 0 1 2-2h8"/><path class="cchk" d="M7.5 13l3.2 3.2 6-7.4" pathLength="100"/></svg><span>کپی</span></button></div>
         </div>
       </details>
       <details>
-        <summary>Requirements</summary>
-        <div class="gbody"><p><b>macOS 14+</b> on Apple Silicon · <b>Claude Code</b> installed · <b>Python 3.8+</b> at runtime (macOS ships it). On <b>Windows 10/11</b> the daemon and the terminal dashboard already run — experimental, tray app next. Linux is planned.</p></div>
+        <summary>پیش‌نیازها</summary>
+        <div class="gbody"><p><b>macOS 14+</b> روی Apple Silicon · <b>Claude Code</b> نصب‌شده · <b>Python 3.8+</b> در runtime (خود macOS دارد). روی <b>Windows 10/11</b>، daemon و داشبورد terminal همین حالا اجرا می‌شوند — experimental؛ tray app مرحله بعد است. Linux هم در برنامه است.</p></div>
       </details>
     </div>
   </div>
@@ -1307,14 +1345,14 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
   <div class="foot-in">
     <div>
       <div class="brand"><svg id="footMark" viewBox="0 0 100 100" aria-hidden="true" focusable="false"></svg>Tower</div>
-      <p>A control tower for your Claude agents. One daemon, two front-ends, one source of truth — and a single living mark whose state is the guard.</p>
+      <p>برج مراقبت برای Agentهای Claude. یک daemon، دو front-end، یک source of truth و یک نشان زنده که state آن همان guard است.</p>
     </div>
     <div class="col">
       <h3>Docs</h3>
       <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/ARCHITECTURE.md" rel="noopener">Architecture</a>
       <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/DESIGN.md" rel="noopener">Design system</a>
-      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/APP.md" rel="noopener">The menu bar app</a>
-      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/TUI.md" rel="noopener">The terminal UI</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/APP.md" rel="noopener">Menu bar app</a>
+      <a href="https://github.com/ghhrmnzdh/tower/blob/main/docs/TUI.md" rel="noopener">Terminal UI</a>
     </div>
     <div class="col">
       <h3>Project</h3>
@@ -1470,11 +1508,11 @@ const rings=document.getElementById('rings');
   rings.innerHTML=g; }
 
 const STATES=[
-  ['clear','Cleared','var(--white)',"In-country · the path to Anthropic is open",'→ api.anthropic.com · allowed','ok'],
-  ['verify','Verifying','var(--white)',"Confirming your location — held until it's sure",'→ holding · re-checking','warn'],
-  ['holdNet','Hold · connection',AMBER,'No usable path to Anthropic — offline, or a captive portal','← 503 · Retry-After · retrying 2/10','warn'],
-  ['holdGeo','Hold · location',AMBER,'Off-country. A VPN hopped, and you left the fence','← 503 · Retry-After · retrying 1/10','warn'],
-  ['off','Unguarded',RED,'Routing is off — Claude connects directly, with no guard at all','→ direct · unguarded','bad'],
+  ['clear','مجاز','var(--white)',"داخل کشور هدف · مسیر Anthropic باز است",'→ api.anthropic.com · مجاز','ok'],
+  ['verify','در حال بررسی','var(--white)',"در حال تایید location؛ تا قطعی نشود نگه داشته می‌شود",'→ hold · بررسی دوباره','warn'],
+  ['holdNet','Hold · اتصال',AMBER,'مسیر قابل استفاده‌ای تا Anthropic نیست؛ offline یا captive portal','← 503 · Retry-After · retrying 2/10','warn'],
+  ['holdGeo','Hold · location',AMBER,'بیرون از کشور هدف. VPN جابه‌جا شده و از fence خارج شده‌اید','← 503 · Retry-After · retrying 1/10','warn'],
+  ['off','بدون guard',RED,'Routing خاموش است؛ Claude مستقیم و بدون guard وصل می‌شود','→ direct · unguarded','bad'],
 ];
 let sIdx=0, touched=false;
 mountRadar(document.getElementById('heroMark'),()=>STATES[sIdx][0]);
@@ -1524,10 +1562,10 @@ document.getElementById('beacon').innerHTML=
    Model marks + the popover roster.
    ══════════════════════════════════════════════════════════════════════ */
 const MODELS=[
-  ['haiku','Haiku','var(--crayon)','three ticks · fast &amp; spare'],
-  ['sonnet','Sonnet','var(--steel)','one stroke · balanced'],
-  ['opus','Opus','var(--rosso)','three rings · deep'],
-  ['fable','Fable','var(--gold)','a spiral · mythic'],
+  ['haiku','Haiku','var(--crayon)','سه tick · سریع و سبک'],
+  ['sonnet','Sonnet','var(--steel)','یک stroke · متعادل'],
+  ['opus','Opus','var(--rosso)','سه ring · عمیق'],
+  ['fable','Fable','var(--gold)','یک spiral · روایی'],
 ];
 const spec=document.getElementById('spec');
 MODELS.forEach(([m,name,ac,ds])=>{
@@ -1851,10 +1889,10 @@ document.querySelectorAll('button.copy').forEach(btn=>btn.addEventListener('clic
   const lb=this.querySelector('span');
   try{
     await navigator.clipboard.writeText(this.dataset.copy);
-    this.classList.add('ok'); lb.textContent='copied';
+    this.classList.add('ok'); lb.textContent='کپی شد';
     clearTimeout(this._t);
-    this._t=setTimeout(()=>{this.classList.remove('ok');lb.textContent='copy';},1900);
-  }catch(e){ lb.textContent='press ⌘C'; }
+    this._t=setTimeout(()=>{this.classList.remove('ok');lb.textContent='کپی';},1900);
+  }catch(e){ lb.textContent='⌘C بزنید'; }
 }));
 </script>
 </body>

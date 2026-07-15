@@ -1,27 +1,42 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<!-- The 1200×630 social card. Not published — the deploy workflow strips it.
-     Regenerate og.png / apple-touch-icon.png with the commands in README.md. -->
-<title>Tower — og card</title>
+<!-- The 1200×630 Persian social card. Not published — the deploy workflow strips it.
+     The Persian edition is its own edition, not a translation laid over Latin metrics:
+     Persian is set in Vazirmatn (self-hosted), the "Tower" wordmark stays Latin (Inter),
+     and Latin product terms (Agent, Claude) inside the Persian run fall through to Inter
+     via unicode-range. Regenerate og-fa.png with the command in README.md. -->
+<title>Tower — og card (fa)</title>
 <style>
+/* Vazirmatn carries the Persian text; restricted to the Arabic block so that
+   Latin runs (Tower, Agent, Claude) fall through to Inter within the RTL flow. */
+@font-face{font-family:"Vazirmatn";src:url("fonts/vazirmatn-arabic.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;
+  unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200C-200E,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"Estedad";src:url("fonts/estedad-arabic.woff2") format("woff2");
+  font-weight:100 900;font-style:normal;
+  unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200C-200E,U+FB50-FDFF,U+FE70-FEFF}
 @font-face{font-family:"JetBrains Mono";src:url("fonts/jetbrainsmono-700.woff2") format("woff2");font-weight:700}
 @font-face{font-family:"Inter";src:url("fonts/inter-latin.woff2") format("woff2");font-weight:300 800}
 *{box-sizing:border-box;margin:0}
 html,body{width:1200px;height:630px;overflow:hidden}
 body{background:#000;color:#ececf1;display:flex;align-items:center;gap:60px;padding:0 78px;
-  font-family:-apple-system,"Inter",sans-serif;-webkit-font-smoothing:antialiased}
-.txt{flex:1;min-width:0}
+  font-family:"Vazirmatn","Inter",-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+.txt{flex:1;min-width:0;text-align:right}
 .cap{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;letter-spacing:.28em;
-  text-transform:uppercase;color:#5f5f68}
-h1{font-size:104px;font-weight:600;letter-spacing:-.05em;line-height:1;margin:26px 0 0}
-.sub{font-size:31px;line-height:1.35;font-weight:300;letter-spacing:-.025em;color:#96969e;margin-top:22px;
-  max-width:19ch}
-.strip{margin-top:44px;padding-top:22px;border-top:1px solid rgba(255,255,255,.1);display:flex;gap:26px;
-  font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:700;letter-spacing:.14em;
-  text-transform:uppercase;color:#6e6e76}
+  text-transform:uppercase;color:#5f5f68;direction:ltr}
+/* The wordmark stays Latin — the brand is "Tower". Latin tracking, LTR. */
+h1{font-family:"Inter",sans-serif;font-size:104px;font-weight:600;letter-spacing:-.05em;
+  line-height:1;margin:26px 0 0;direction:ltr}
+/* Persian body: no negative tracking (it would break the cursive joins), a touch
+   more line so the taller Persian ascenders/descenders can breathe. */
+.sub{font-family:"Estedad","Vazirmatn","Inter",sans-serif;font-size:34px;line-height:1.5;font-weight:500;color:#a8a8b0;margin-top:20px}
+.strip{margin-top:44px;padding-top:22px;border-top:1px solid rgba(255,255,255,.1);
+  display:flex;justify-content:flex-end;gap:14px;font-size:19px;font-weight:400;color:#6e6e76}
+.strip span{display:flex;align-items:center;gap:14px}
 .strip b{color:#ececf1;font-weight:700}
+.strip i{color:#3a3a42;font-style:normal;font-weight:400}
 .scope{flex:none;width:400px;height:400px;position:relative}
 .scope::before{content:"";position:absolute;inset:-90px;border-radius:50%;
   background:radial-gradient(circle,rgba(255,255,255,.075),transparent 62%)}
@@ -33,8 +48,12 @@ h1{font-size:104px;font-weight:600;letter-spacing:-.05em;line-height:1;margin:26
   <div class="txt">
     <div class="cap">macOS menu bar + terminal</div>
     <h1>Tower</h1>
-    <div class="sub">A control tower for your Claude agents.</div>
-    <div class="strip"><span><b>Every agent</b></span><span><b>Real usage</b></span><span><b>Pinned to one country</b></span></div>
+    <div class="sub">برج مراقبت<br>برای Agentهای Claude.</div>
+    <div class="strip">
+      <span><b>همه&nbsp;Agentها</b></span><i>·</i>
+      <span><b>مصرف واقعی</b></span><i>·</i>
+      <span><b>قفل روی کشور هدف</b></span>
+    </div>
   </div>
 
   <div class="scope">

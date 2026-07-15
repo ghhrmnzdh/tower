@@ -37,6 +37,7 @@ jobs:
           cp -R site/. "$work"/
           rm -f "$work/README.md"          # dev notes, not part of the public site
           rm -f "$work/og.html"            # source for og.png — rendered, not served
+          rm -f "$work/og-fa.html"         # source for og-fa.png — rendered, not served
           rm -f "$work/icon.html"          # source for apple-touch-icon.png
           touch "$work/.nojekyll"          # serve files verbatim, skip Jekyll
           cd "$work"

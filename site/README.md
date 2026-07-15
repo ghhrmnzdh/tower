@@ -13,16 +13,27 @@ here has to follow.
 ## What's in here
 
 ```
-index.html            the page
+index.html            the page (English)
+fa/index.html         the Persian edition (RTL)
 og.html               source for og.png            ← not published
+og-fa.html            source for og-fa.png         ← not published
 icon.html             source for apple-touch-icon  ← not published
 og.png                1200×630 social card
+og-fa.png             1200×630 social card (Persian)
 favicon.svg           the radar mark (theme-aware)
 apple-touch-icon.png  180×180, on ink
 robots.txt sitemap.xml
 fonts/                self-hosted woff2 + licenses
 README.md             this file                    ← not published
 ```
+
+The **Persian edition** (`fa/`) is its own edition, not a translation laid over
+Latin metrics: body text is set in **Vazirmatn** and display headings in
+**Estedad** (both self-hosted, OFL), and headings run at normal tracking —
+Latin's negative letter-spacing would pinch the cursive joins. Both faces are
+scoped to the Arabic Unicode block, so Latin product terms (Agent, Claude,
+macOS) inside the RTL flow fall through to SF Pro / Inter, and the "Tower"
+wordmark stays Latin.
 
 ## Design notes
 
@@ -59,10 +70,12 @@ One-off asset steps, not a build step. Run from the repo root.
 ```bash
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-# og.png — 1200×630 social card
-"$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
-  --virtual-time-budget=3000 --window-size=1200,630 \
-  --screenshot="$PWD/site/og.png" "file://$PWD/site/og.html"
+# og.png / og-fa.png — 1200×630 social cards (English, Persian)
+for L in "" "-fa"; do
+  "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+    --virtual-time-budget=3000 --window-size=1200,630 \
+    --screenshot="$PWD/site/og$L.png" "file://$PWD/site/og$L.html"
+done
 
 # apple-touch-icon.png — 180×180
 "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
@@ -75,7 +88,27 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 **Sans** is the system stack first (`-apple-system` → SF Pro), because that is
 what the app itself renders in; **Inter** is self-hosted and only fetched where
 SF Pro doesn't exist. **Mono** is JetBrains Mono, subset from the very TTFs the
-app bundles.
+app bundles. **Persian** (`fa/`) leads with **Vazirmatn** — a variable OFL face,
+Arabic subset only (`fonts/vazirmatn-arabic.woff2`, ~46 KB, weights 100–900) —
+so the Persian edition has one consistent, premium face on every platform and in
+the OG render, not whatever Arabic fallback the OS happens to ship.
+
+```bash
+# Vazirmatn — Arabic-subset variable woff2 (SIL OFL). Ships in @fontsource-variable.
+curl -o site/fonts/vazirmatn-arabic.woff2 \
+  "https://cdn.jsdelivr.net/npm/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2"
+```
+
+```bash
+# Estedad — the Persian display face (SIL OFL), subset to the Arabic block
+curl -sL -o /tmp/estedad.zip \
+  "https://github.com/aminabedi68/Estedad/releases/download/8.5/Estedad-v8.5.zip"
+unzip -o /tmp/estedad.zip -d /tmp/estedad-x
+python3 -m fontTools.subset "/tmp/estedad-x/Estedad-v8.5/Estedad[wght].woff2" \
+  --unicodes="U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200C-200E,U+FB50-FDFF,U+FE70-FEFF" \
+  --layout-features='*' --flavor=woff2 \
+  --output-file=site/fonts/estedad-arabic.woff2
+```
 
 ```bash
 # Inter — Google's own latin-subset variable woff2, saved locally
