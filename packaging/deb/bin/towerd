@@ -1,0 +1,12 @@
+#!/bin/sh
+#
+# towerd — run the Tower daemon in the foreground.
+#
+# You normally do not run this by hand: `tower` starts it on demand, and the
+# systemd user unit (tower.service) starts it at login. It is here for
+# debugging, and because the unit's ExecStart should name a real command.
+#
+# One daemon per user (an flock on ~/.tower/daemon.lock); a second one exits
+# immediately with "towerd: already running".
+set -eu
+exec python3 /usr/lib/tower/towerd.py "$@"

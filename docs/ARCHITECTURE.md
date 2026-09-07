@@ -158,8 +158,14 @@ reflects the outcome within a tick.
 ## Background processes (seeable + killable)
 `state.json.procs` reports the live PIDs (`daemon_pid`, `keepawake_pid`). Both
 front-ends surface these and offer "stop the guard & everything", which sends
-`quit` — the daemon then removes routing, kills `caffeinate`, and exits.
+`quit` — the daemon then removes routing, kills the keep-awake holder
+(`caffeinate` on macOS, `systemd-inhibit` on Linux), and exits.
 
-See **[APP.md](APP.md)** and **[TUI.md](TUI.md)** for the two front-ends,
-**[DESIGN.md](DESIGN.md)** for the design system, and
+`state.json.platform` says which OS wrote the state — `"macos"`, `"linux"` or
+`"windows"` — so a front-end can adapt without guessing from its own platform.
+
+See **[APP.md](APP.md)** and **[TUI.md](TUI.md)** for two of the three
+front-ends, **[DESIGN.md](DESIGN.md)** for the design system,
+**[LINUX.md](LINUX.md)** for the Debian/Ubuntu packages, the Linux top-bar
+radar and the four Linux edges, and
 **[../windows_plan.md](../windows_plan.md)** for the Windows port plan.

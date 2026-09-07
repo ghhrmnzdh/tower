@@ -15,6 +15,7 @@ Run:  python3 tower-tui.py
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -30,8 +31,11 @@ else:
     import curses
 
 # Platform noun for user-facing copy — "Mac" on macOS (unchanged), "PC" on
-# Windows. Keeps the macOS wording byte-identical while reading right on Windows.
-DEVICE = "PC" if os.name == "nt" else "Mac"
+# Windows, "machine" on Linux (it may be a laptop, a desktop or a server, and
+# only "machine" reads right in all three: "Keep the machine awake", "Claude
+# agents on this machine"). Keeps the macOS wording byte-identical.
+DEVICE = ("PC" if os.name == "nt"
+          else "Mac" if sys.platform == "darwin" else "machine")
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
@@ -1022,7 +1026,10 @@ def onboarding(win):
                cp(C_DIM))
         center.y += 1
         center("Open this dashboard anytime with:", cp(C_TITLE))
-        cmd = f'python3 "{SELF}"'
+        # Prefer the one word when it really is on PATH — the .deb always
+        # installs it, and the macOS installer symlinks it out of the bundle.
+        # The python3 invocation stays as the fallback because it always works.
+        cmd = "tower" if shutil.which("tower") else f'python3 "{SELF}"'
         center(cmd if len(cmd) < w - 4 else "python3 …/tower-tui.py",
                cp(C_GOOD) | curses.A_BOLD)
         center.y += 1

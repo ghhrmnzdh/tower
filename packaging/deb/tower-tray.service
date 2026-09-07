@@ -1,0 +1,24 @@
+# The tray, as a systemd user unit — the "login item" for Tower's top-bar
+# radar. Not enabled by installing the package; one command arms it:
+#
+#     systemctl --user enable --now tower-tray.service
+#
+# It starts the daemon itself on first poll, so enabling this alone is enough
+# to have the guard running and visible from login.
+[Unit]
+Description=Tower — the radar in your top bar
+Documentation=https://github.com/imanimen/tower
+# A tray icon needs a session to live in: without this the unit would start at
+# login on a headless boot and exit immediately.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tower-tray
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:%h/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

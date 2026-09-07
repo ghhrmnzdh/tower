@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  remove|purge)
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
+    fi
+    # Per-user state and caches are left alone on purpose — ~/.tower holds your
+    # country, theme and plan settings, ~/.cache/tower the rendered radar
+    # frames, and purging a package must not reach into homes. To clear them:
+    #   rm -rf ~/.tower ~/.cache/tower
+    #
+    # ~/.claude/settings.json was already restored by the daemon's own exit
+    # path (prerm sends it SIGTERM); there is nothing here to undo.
+    ;;
+esac
+
+exit 0

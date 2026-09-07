@@ -1,0 +1,65 @@
+.TH TOWERD 1 "" "tower @VERSION@" "User Commands"
+.SH NAME
+towerd \- the Tower daemon: guard proxy, geo check, usage and agent monitor
+.SH SYNOPSIS
+.B towerd
+.SH DESCRIPTION
+.B towerd
+runs Tower's single background process: a local HTTP CONNECT proxy for Claude
+Code, the multi-source location check, the network-health probe, the plan-usage
+reader, and the Claude Code agent monitor. It owns all state; the dashboard is
+a thin reader.
+.PP
+You do not normally start it by hand.
+.BR tower (1)
+starts it on demand, and the packaged systemd user unit starts it at login:
+.PP
+.RS
+.B systemctl --user enable --now tower.service
+.RE
+.PP
+One daemon per user, enforced by an
+.BR flock (2)
+on
+.IR ~/.tower/daemon.lock ;
+a second invocation prints
+.I towerd: already running
+and exits.
+.SH ROUTING
+Routing is installed by writing
+.BR HTTPS_PROXY / HTTP_PROXY
+(plus Claude's retry-budget variables) into the
+.B env
+block of
+.IR ~/.claude/settings.json ,
+and nowhere else — never a shell alias. It is removed again on every clean
+exit, including on
+.BR SIGTERM ,
+so a stopped Tower always leaves Claude Code on a working direct connection.
+.PP
+A Claude Code session captures the proxy address once at launch, so the daemon
+keeps the same port across restarts (remembered in
+.IR ~/.tower/config.json ).
+.SH ENVIRONMENT
+.TP
+.B TOWER_PORT
+preferred proxy port (default 8888; the daemon picks a nearby free one if it
+is taken)
+.SH LINUX NOTES
+Keep-awake uses
+.BR systemd-inhibit (1),
+which covers idle, sleep and the lid switch with no administrator password —
+so the lid-closed mode that costs a password on macOS is free here. Reading
+another process's working directory and finding which processes are connected
+to the guard both go through
+.IR /proc ,
+so
+.B lsof
+is not needed. Focusing an agent's terminal tab works only under
+.BR tmux ;
+elsewhere the dashboard offers the
+.B claude --resume
+command instead.
+.SH SEE ALSO
+.BR tower (1),
+.BR systemd-inhibit (1)

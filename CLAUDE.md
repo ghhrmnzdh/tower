@@ -23,13 +23,41 @@ condition (your location or your connection) recovers.
   five animated states) and the still per-model marks. One geometry backs both
   the live SwiftUI `Canvas` views and the menu-bar `ImageRenderer` templates.
 - `src/tower-tui.py` — terminal dashboard (curses, stdlib only).
+- `src/tower-tray.py` — the Linux top-bar front-end (the menu-bar app's
+  counterpart): GTK3 + AyatanaAppIndicator3 via the distro's `python3-gi`, a
+  StatusNotifierItem whose radar is a **Cairo port of `drawRadar()`** (same
+  0…100 box, same five states, same lamp — port changes, don't reinvent them).
+  Frames are pre-rendered per (state, awake) into `~/.cache/tower/icons`
+  because SNI carries an icon *name*, not a surface, and the host only reloads
+  when the name changes.
+- `src/_linux.py` / `src/_win.py` + `src/_wincurses.py` — the per-OS edges,
+  imported only on their own platform. Linux: `systemd-inhibit` keep-awake
+  (idle **and** the lid, no admin), `/proc/<pid>/cwd` instead of `lsof -d cwd`,
+  `/proc/net/tcp` + `/proc/<pid>/fd` instead of `lsof -iTCP`, and tmux-only tab
+  focus (no `osascript`). No TCC there, so `_PROTECTED_ROOTS` is empty.
 - `Tower Identity Study.html` — the radar + model marks, live (design reference).
 - `build.sh` — compiles the app bundle from `src/` (`-target arm64-apple-macos14.0`).
-- `docs/` — ARCHITECTURE.md, DESIGN.md, APP.md, TUI.md.
+- `packaging/deb/` — the Debian/Ubuntu package: `build.sh` (plain `dpkg-deb`,
+  no debhelper), the systemd **user** unit, wrappers, man pages, and
+  `ci-smoke.sh` (install → run → SIGTERM un-routes → remove, in a container).
+- `docs/` — ARCHITECTURE.md, DESIGN.md, APP.md, TUI.md, LINUX.md.
+- One Debian package with all three parts. GTK3 + the indicator bindings are
+  **Recommends, never Depends** — that is what lets the same .deb install on a
+  headless box (`--no-install-recommends`) and still arm the guard there. So
+  `tower-tray` must degrade in words, not a traceback, when they are absent;
+  `ci-smoke.sh` tests both halves of that bargain.
 
 ## Build / run
 - `./build.sh` then `open "Tower.app"`.
 - TUI: `python3 "Tower.app/Contents/Resources/tower-tui.py"`.
+- Deb: `packaging/deb/build.sh` → `dist/tower_<version>_all.deb`. Verify on a
+  release you claim: `docker run --rm -v "$PWD:/pkg" -w /pkg ubuntu:22.04 bash
+  packaging/deb/ci-smoke.sh dist/tower_<v>_all.deb`. The version comes from
+  `src/Info.plist`, same as `release.sh` — one place to bump.
+- Tray, live: `python3 src/tower-tray.py`. To *see* the panel without a
+  session, reparent its child into a `Gtk.OffscreenWindow` and
+  `get_surface().write_to_png(...)` — X11/Wayland screen grabs of it come back
+  black, and GNOME refuses `org.gnome.Shell.Screenshot` to plain callers.
 
 ## Invariants — don't break these
 - **Never route Claude via the shell.** Routing edits `~/.claude/settings.json`
@@ -94,7 +122,17 @@ condition (your location or your connection) recovers.
   additionally calls out how many chats are *pinned to the proxy* (they lose their
   connection until restarted). Turning the guard *on* stays one tap; only the
   off-direction is gated. App: `TowerModel.requestDanger` + `DangerAlerts` +
-  `proxyPinnedCount`; TUI: `danger_confirm` + `_pinned_note`.
+  `proxyPinnedCount`; TUI: `danger_confirm` + `_pinned_note`; tray:
+  `TowerTray.danger` (two `_ask` dialogs) + `proxy_pinned_count`. A toggle in
+  the off-direction must snap back to ON until the second confirmation lands —
+  never leave a switch showing a state the daemon isn't in.
+- **The package starts nothing; the dashboard does.** The `.deb`'s `postinst`
+  never enables or starts the daemon (root has no user session to enable it in,
+  and a proxy that rewrites `~/.claude/settings.json` should be a knowing
+  choice). "On by default" is preserved by `tower` → `ensure_daemon()`, exactly
+  as opening the app preserves it on macOS; the systemd **user** unit is the
+  opt-in login-item analog. `prerm` must SIGTERM every running daemon before
+  the files go, so each one un-routes on its way out.
 - **Never trip a macOS permission prompt.** Tower must never make macOS ask for
   Photos / Music / Contacts / Desktop / Documents / Downloads. Two rules keep it
   hermetic: (1) the daemon NEVER opens or enumerates anything under a

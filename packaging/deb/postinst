@@ -1,0 +1,56 @@
+#!/bin/sh
+# Tower postinst. Deliberately does NOT enable or start anything: the daemon
+# opens a local proxy and rewrites ~/.claude/settings.json, which is a thing a
+# person should switch on knowingly, and it is per-user state anyway (a package
+# script runs as root and has no user session to enable it in).
+#
+# "On by default" still holds where it matters: either front-end starts the
+# daemon on demand, so opening one is enough. The units are only for having it
+# already running at login.
+set -e
+
+case "$1" in
+  configure)
+    # Refresh the desktop/icon caches so the launchers show up without a
+    # re-login. Both are optional tools; a missing one is not an error.
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
+    fi
+
+    cat <<'MSG'
+
+  Tower installed.
+
+    tower-tray                                     the radar in your top bar
+    tower                                          the terminal dashboard
+    systemctl --user enable --now tower-tray       have the radar from login
+    systemctl --user enable --now tower            the guard alone, no session
+
+  Either front-end starts the guard daemon, so one command is the whole setup.
+
+  Tower guards Claude Code by putting a proxy into the "env" block of
+  ~/.claude/settings.json, and takes it back out on every clean exit. It is
+  fail-closed: while it cannot confirm both your country and a usable path to
+  Anthropic, Claude requests are held and answered 503, which Claude Code
+  shows as its own "Retrying" spinner. That is Tower working, not Tower broken.
+
+  Set your country in either front-end — it defaults to CA.
+
+  On GNOME the top-bar icon needs the shipped appindicator extension. Ubuntu's
+  session enables it by default; if you see no radar:
+
+    sudo apt install gnome-shell-extension-appindicator
+    gnome-extensions enable ubuntu-appindicators@ubuntu.com
+
+  KDE, XFCE, Cinnamon and Budgie show it with nothing extra.
+
+MSG
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+esac
+
+exit 0

@@ -35,7 +35,15 @@ TMP=""
 cleanup() { [ -n "$TMP" ] && rm -rf "$TMP"; }
 
 preflight() {
-  [ "$(uname -s)" = "Darwin" ] || die "Tower's app is macOS-only. (Windows/Linux: the terminal dashboard runs from source — see https://github.com/$REPO)"
+  if [ "$(uname -s)" != "Darwin" ]; then
+    if [ -r /etc/debian_version ]; then
+      die "Tower's app is macOS-only — but the daemon and terminal dashboard
+       are packaged for Debian/Ubuntu. How to get the .deb (download it, or
+       build it with one command from a checkout):
+       https://github.com/$REPO/blob/main/docs/LINUX.md"
+    fi
+    die "Tower's app is macOS-only. (Linux: Debian/Ubuntu have a .deb — see docs/LINUX.md; elsewhere the terminal dashboard runs from source — https://github.com/$REPO)"
+  fi
 
   [ "$(uname -m)" = "arm64" ] || die "Tower.app is built for Apple Silicon (arm64) and this Mac is $(uname -m).
        Build it from source instead: git clone https://github.com/$REPO && cd tower && ./build.sh"

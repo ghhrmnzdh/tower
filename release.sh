@@ -25,6 +25,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$HERE/Tower.app"
 ZIP="$HERE/Tower.app.zip"
+# Where the release notes' links point. Read from the origin remote so a fork
+# links to itself rather than sending its users upstream.
+REPO="$(git -C "$HERE" remote get-url origin 2>/dev/null \
+        | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')"
+REPO="${REPO:-imanimen/tower}"
 
 DRAFT=""
 [ "${1:-}" = "--draft" ] && DRAFT="--draft"
@@ -52,6 +57,10 @@ echo "▸ packaging $ZIP"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
+# Create-if-missing, then upload with --clobber. The deb workflow does exactly
+# the same from CI for tower_all.deb, so the Mac app and the Debian package land
+# on one release in whichever order they finish, and re-running either side
+# replaces only its own asset.
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "▸ $TAG exists — replacing its asset"
   gh release upload "$TAG" "$ZIP" --clobber
@@ -72,6 +81,19 @@ quarantined, so macOS doesn't assess it.
 
 Menu bar: the radar appears at the top right.
 Terminal dashboard: type \`tower\`, or click **Terminal Dashboard…** in the popover.
+
+## Debian / Ubuntu
+
+\`tower_all.deb\` below — the daemon, the terminal dashboard, and the radar for
+your top bar, in one package (Ubuntu 22.04 → 26.04, amd64 and arm64).
+
+\`\`\`sh
+sudo apt install ./tower_all.deb
+tower-tray
+\`\`\`
+
+It is attached by CI on the tag, so it may appear a few minutes after this
+release does. Details and the full requirement list: [docs/LINUX.md](https://github.com/$REPO/blob/main/docs/LINUX.md).
 
 ### Downloading by hand instead?
 
