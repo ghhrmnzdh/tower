@@ -26,9 +26,34 @@ func menubarIcon(for model: TowerModel, phase: Double) -> MenubarIcon {
                             awake: awake, reduce: reduce)
         ?? NSImage(systemSymbolName: "dot.radiowaves.left.and.right",
                    accessibilityDescription: nil)
+    return MenubarIcon(image: image, describe: menubarDescription(for: model))
+}
+
+/// The status in words — tooltip and VoiceOver.
+@MainActor
+func menubarDescription(for model: TowerModel) -> String {
     // The lamp is the only awake signal in the bar — no number, no badge. The
     // tooltip still says it plainly for VoiceOver and on hover.
+    let awake = model.awakeGlow
     let awakeSuffix = awake == .clamshell ? " · staying awake (lid closed)"
                     : awake == .idle ? " · staying awake" : ""
-    return MenubarIcon(image: image, describe: model.status.title + awakeSuffix)
+    return model.status.title + awakeSuffix
+}
+
+/// Everything a still (phase 0) menu-bar radar depends on. While it's unchanged,
+/// the frame already in the bar is exactly the one we would render.
+struct StillIconKey: Equatable {
+    let state: RadarState
+    let awake: AwakeGlow
+    let reduce: Bool
+    let appearance: NSAppearance.Name
+    let scale: CGFloat
+
+    @MainActor init(model: TowerModel) {
+        state = model.radarState
+        awake = model.awakeGlow
+        reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        appearance = NSApp.effectiveAppearance.name
+        scale = NSScreen.main?.backingScaleFactor ?? 2
+    }
 }

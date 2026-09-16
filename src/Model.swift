@@ -335,8 +335,31 @@ struct DangerRequest: Identifiable {
 // Model: polls state.json, exposes it, sends commands
 // --------------------------------------------------------------------------- //
 final class TowerModel: ObservableObject {
-    @Published var state: GState?
-    @Published var alive = false          // daemon producing fresh state?
+    // The daemon snapshot, re-read every second. Deliberately NOT @Published: the
+    // status item and notifier read it directly on each poll, and SwiftUI is told
+    // about a change only while one of its surfaces is on screen. The popover and
+    // dashboard stay mounted when closed, so publishing every poll re-laid-out and
+    // re-rendered both whole trees each second for windows nobody could see — the
+    // bulk of the app's CPU over a long session.
+    var state: GState?
+    var alive = false          // daemon producing fresh state?
+
+    /// Whether each SwiftUI surface is on screen (popover shown; dashboard open
+    /// and not fully covered). Flipping one publishes, so a surface catches up to
+    /// the latest snapshot the moment it appears.
+    @Published var popoverVisible = false
+    @Published var dashboardVisible = false
+    var anySurfaceVisible: Bool { popoverVisible || dashboardVisible }
+
+    /// Bring a surface on screen without animating its catch-up: what changed
+    /// while it was hidden already happened (the old always-live view absorbed
+    /// those reorders and fades unseen), so it opens showing the present rather
+    /// than replaying the diff.
+    func reveal(_ show: () -> Void) {
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t, show)
+    }
 
     private var timer: Timer?
 
@@ -348,8 +371,10 @@ final class TowerModel: ObservableObject {
     }
 
     func refresh() {
-        guard let data = try? Data(contentsOf: Paths.state),
-              let s = try? JSONDecoder().decode(GState.self, from: data) else {
+        let s = (try? Data(contentsOf: Paths.state))
+            .flatMap { try? JSONDecoder().decode(GState.self, from: $0) }
+        if anySurfaceVisible { objectWillChange.send() }
+        guard let s else {
             alive = false
             return
         }

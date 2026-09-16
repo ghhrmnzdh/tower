@@ -319,12 +319,13 @@ struct TowerRadar: View {
     var awake: AwakeGlow = .none
     var animated: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.surfaceVisible) private var visible
 
     var body: some View {
         // Animate while the state has motion to spend frames on, OR while the
         // Mac is on a lid-closed vigil (the lamp breathes). A still context
         // (animated:false) still shows a static *lit* lamp when awake.
-        let live = (animated || awake == .clamshell) && !reduceMotion
+        let live = (animated || awake == .clamshell) && !reduceMotion && visible
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
             Canvas { ctx, sz in
                 drawRadar(ctx, size: sz.width, state: state,
@@ -343,9 +344,10 @@ struct ModelGlyphView: View {
     var size: CGFloat = TowerDesign.Size.rowGlyph
     var color: Color = .primary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.surfaceVisible) private var visible
 
     var body: some View {
-        let live = working && !reduceMotion
+        let live = working && !reduceMotion && visible
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
             Canvas { ctx, sz in
                 drawModelMark(ctx, size: sz.width, tier: tier, color: color,
@@ -365,10 +367,11 @@ struct BeaconView: View {
     var size: CGFloat = 26
     var color: Color = .primary
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.surfaceVisible) private var visible
 
     var body: some View {
         // Only the lid-closed vigil breathes; idle is a still, lit lamp.
-        let live = mode == .clamshell && !reduceMotion
+        let live = mode == .clamshell && !reduceMotion && visible
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live)) { tl in
             Canvas { ctx, sz in
                 drawBeacon(ctx, size: sz.width, mode: mode,

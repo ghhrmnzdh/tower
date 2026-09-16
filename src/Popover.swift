@@ -14,6 +14,9 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var model: TowerModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The embedding surface's visibility — only meaningful for the Settings
+    /// preview, which lives in the dashboard. The real popover uses its own.
+    @Environment(\.surfaceVisible) private var hostVisible
     @Namespace private var agentSpace
     /// Rendered small & inert inside Settings → Popover as a live preview: it
     /// drops the footer nav and the danger alerts (which must not double up with
@@ -105,6 +108,7 @@ struct PopoverView: View {
         }
         .frame(width: TowerDesign.Size.popoverWidth)
         .environment(\.popoverCompact, density == "compact")
+        .environment(\.surfaceVisible, isPreview ? hostVisible : model.popoverVisible)
         .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion), value: model.alive)
         .modifier(ConditionalDanger(model: model, active: !isPreview))
     }
@@ -551,6 +555,7 @@ struct AgentRow: View {
     @ObservedObject var model: TowerModel
     let session: GAgentSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.surfaceVisible) private var visible
     @State private var hovering = false
 
     var body: some View {
@@ -574,7 +579,7 @@ struct AgentRow: View {
                     }
                 }
                 HStack(spacing: 4) {
-                    if tooling {
+                    if tooling && visible {     // a spinner animates even off screen
                         ProgressView().controlSize(.mini)
                     }
                     Text(session.activity ?? "thinking…")

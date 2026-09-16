@@ -38,7 +38,11 @@ Runs these threads:
   (`_upstream_connect`) sets a **long, bounded idle timeout** (`TUNNEL_IDLE_S`,
   not the connect timeout `create_connection` would otherwise strand on the
   socket) and `TCP_NODELAY`, so slow-first-byte and idle keep-alive tunnels aren't
-  guillotined mid-session and streamed tokens aren't Nagle-batched.
+  guillotined mid-session and streamed tokens aren't Nagle-batched. It also sets
+  TCP keepalive (60s idle, 4×15s probes) and a 120s retransmission drop time, so a
+  path that died silently — a VPN reconnect, a NAT dropping an idle flow — is cut
+  and surfaces to Claude as a closed connection (normal retry budget) instead of
+  a request that vanishes into a pooled tunnel.
 - **geo** — checks the public IP's country every ~15s from **multiple
   independent sources** (`ip-api.com` → `ipwho.is` → `ipapi.co`, first hit
   wins; all proxy-bypassed so they read your real egress IP). Multi-source so
@@ -47,9 +51,19 @@ Runs these threads:
   display on launch (display only — a cached reading never allows traffic).
 - **usage** — reads Claude Code's own transcripts under
   `~/.claude/projects/**/*.jsonl` to compute **local** token/cost estimates.
+  Offset-tailed (only appended lines are parsed), limited to files written inside
+  the 7-day window, and counted once per message id — Claude writes a line per
+  content block, each repeating the message's usage, with the final output count
+  on the last one.
 - **plan** — every **60s** runs `claude -p /usage` and parses it for the
   **real** plan limits (session / weekly / Fable %, reset times). Claude Code
-  does its own auth; we never read a token.
+  does its own auth; we never read a token. The probe runs with
+  `--no-session-persistence` (it used to leave ~1,400 transcripts a day in
+  `projects/<CONFIG_DIR encoded>`, which both indexes now skip). `find_claude`
+  looks past the app's bare launchd PATH: `claude_path` in config.json, then
+  PATH, then known install locations (`~/.local/bin`, Homebrew, npm prefixes,
+  fnm / nvm / volta / bun / pnpm / asdf / mise), then any absolute path seen in
+  the process table.
 - **net** — passive network health. Every 10s (3s while unhealthy) it probes
   `1.1.1.1:443` + `8.8.8.8:53` (IP literals — no DNS dependence) and does a
   timed TCP+TLS handshake to `api.anthropic.com:443` (no HTTP request, no
@@ -110,7 +124,11 @@ Runs these threads:
   `CLAUDE_CODE_MAX_RETRIES` (`RETRY_ENV`) into settings.json so the agent rides
   out a whole network switch and resumes on its own — the hold stays short
   because it's *pre-CONNECT* and a long one risks the client's tunnel connect
-  timeout. There is no allow-through fallback; the defense against false blocks
+  timeout. `RETRY_ENV` also raises `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` to
+  Claude's own 10-minute request ceiling: on a slow link a long chat's
+  multi-megabyte upload plus prefill can outlast the default ~3-minute wait for
+  response headers, and that path aborts the upload and fails the turn after a
+  single retry. There is no allow-through fallback; the defense against false blocks
   is **durable, accurate detection**, so `geo_loop` queries
   multiple independent sources (ip-api → ipwho.is → ipapi.co, proxy-bypassed) and
   a merely-slow ("degraded") link still counts as reachable. `claude -p /usage`

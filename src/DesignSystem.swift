@@ -208,3 +208,16 @@ extension EnvironmentValues {
         set { self[PopoverCompactKey.self] = newValue }
     }
 }
+
+// Whether the surface hosting this view is on screen. The popover and dashboard
+// stay mounted while closed, and a TimelineView / repeatForever animation inside
+// them keeps drawing frames nobody can see — so every continuous motion (model
+// marks, radar, beacon, shimmer, spinners) runs only while this is true.
+// Motion = state change: a hidden mark has nothing to say.
+private struct SurfaceVisibleKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    var surfaceVisible: Bool {
+        get { self[SurfaceVisibleKey.self] }
+        set { self[SurfaceVisibleKey.self] = newValue }
+    }
+}

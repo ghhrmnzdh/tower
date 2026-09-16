@@ -5,10 +5,15 @@ import CoreText
 import SwiftUI
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let model = TowerModel()
     var statusItem: NSStatusItem!
     var popover = NSPopover()
+    /// What the status button currently shows. Assigning a title or tooltip
+    /// re-lays-out the menu bar item even when the value is identical, so the
+    /// poll only touches what actually changed.
+    private var shownBadge: [String]?          // nil until first applied
+    private var shownStill: StillIconKey?
     var pollTimer: Timer?
     /// App-lifetime App Nap exemption. As an accessory app with no window, Tower
     /// is a prime App Nap target, and a napped 1s pollTimer is throttled for
@@ -40,10 +45,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
+        statusItem.button?.contentTintColor = nil   // the radar carries its own colors
         updateIcon()
 
         popover.behavior = .transient
         popover.animates = true
+        popover.delegate = self
         // Let SwiftUI's own layout size drive the popover. `.preferredContentSize`
         // makes the hosting controller publish its fitting size (and keep
         // republishing it as the content reflows), which NSPopover observes and —
@@ -71,9 +78,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.refreshAnimClock()     // first, so the icon knows if it's live
                 self.updateIcon()
                 self.notifier.process()
-                self.refreshAnimClock()
                 self.superviseDaemon()
             }
         }
@@ -114,7 +121,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let want = radarShouldAnimate
         if want, animTimer == nil {
             let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateIcon() }
+                MainActor.assumeIsolated { self?.tickIcon() }
             }
             RunLoop.main.add(t, forMode: .common)   // keep ticking during menu tracking
             animTimer = t
@@ -130,16 +137,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // ---- Menubar icon ---- //
-    // The Tower radar (see StatusIcon.swift), refreshed at the current phase.
-    // Badge text: needs-you count, then optional usage %.
+    // The Tower radar (see StatusIcon.swift). Badge text: needs-you count, then
+    // optional usage %.
+
+    /// One animation frame (~30fps, only while the radar has motion): repaint the
+    /// radar and nothing else. The badge, tooltip and title belong to the 1 Hz
+    /// poll — re-assigning them every frame re-laid-out the menu bar item 30×/s.
+    private func tickIcon() {
+        guard let button = statusItem.button else { return }
+        // A bar nobody can see (a full-screen app, a sleeping or locked display)
+        // needs no frames; the next visible tick resumes at the live phase.
+        if let w = button.window, !w.occlusionState.contains(.visible) { return }
+        let icon = menubarIcon(for: model, phase: Date().timeIntervalSinceReferenceDate)
+        button.image = icon.image
+        button.image?.accessibilityDescription = icon.describe
+    }
+
+    /// The 1 Hz refresh: radar, tooltip, badge — each assigned only on change.
     func updateIcon() {
         guard let button = statusItem.button else { return }
-        let phase = Date().timeIntervalSinceReferenceDate
-        let icon = menubarIcon(for: model, phase: phase)
-        button.image = icon.image
-        button.contentTintColor = nil   // the radar image carries its own colors
-        button.image?.accessibilityDescription = icon.describe
-        button.toolTip = "Tower — \(icon.describe)"
+        let describe: String
+        if animTimer != nil {
+            // Live: tickIcon owns the frames; paint this one too so a state
+            // change lands within the poll even if the bar was just occluded.
+            let icon = menubarIcon(for: model, phase: Date().timeIntervalSinceReferenceDate)
+            button.image = icon.image
+            button.image?.accessibilityDescription = icon.describe
+            describe = icon.describe
+            shownStill = nil
+        } else {
+            // Still: the legible frame the popover shows when its radar is paused
+            // (phase 0) — the quiet state is completely still, and the same frame
+            // is only rendered again when something it depends on changes.
+            let key = StillIconKey(model: model)
+            if key != shownStill || button.image == nil {
+                let icon = menubarIcon(for: model, phase: 0)
+                button.image = icon.image
+                button.image?.accessibilityDescription = icon.describe
+                shownStill = key
+            }
+            describe = menubarDescription(for: model)
+        }
+        let tip = "Tower — \(describe)"
+        if button.toolTip != tip { button.toolTip = tip }
 
         // Freeze the button's WIDTH while the popover is open. The status item is
         // variableLength, so changing the badge text (needs-you count / usage %)
@@ -170,6 +210,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 parts.append((needs > 0 ? " · \(p)%" : " \(p)%", levelNSColor(p)))
             }
         }
+        let badge = parts.map { "\($0.0)\u{1F}\($0.1)" }
+        guard badge != shownBadge else { return }
+        shownBadge = badge
         if parts.isEmpty {
             button.attributedTitle = NSAttributedString(string: "")
             button.title = ""
@@ -221,11 +264,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown { popover.performClose(nil); return }
         guard let b = statusItem.button else { return }
         notifier.lastPopoverOpen = Date()
+        // The closed popover doesn't follow the model (TowerModel.popoverVisible),
+        // so wake it first. show() lays the content out synchronously, so it opens
+        // at its up-to-date size — no stale-height open followed by a resize.
+        model.reveal { model.popoverVisible = true }
         // Standard status-item anchor: hang off the bottom edge of the button.
         // (The popover itself is height-capped in PopoverView so it can never
         // grow taller than the screen and get shoved out of place / clipped.)
         popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        model.popoverVisible = false    // pauses its motion; stops following polls
     }
 
     // ---- Terminal dashboard (the popover's footer item) ---- //

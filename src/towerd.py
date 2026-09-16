@@ -14,6 +14,7 @@ stdlib only. Single instance (flock). Proxy fixed on :8888 so settings stay stab
 """
 
 import atexit
+import bisect
 import errno
 import json
 import os
@@ -24,6 +25,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -59,6 +61,13 @@ LOG_FILE = os.path.join(CONFIG_DIR, "daemon.log")
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude", "projects")
 CLAUDE_SETTINGS = os.path.join(HOME, ".claude", "settings.json")
 SETTINGS_BAK = CLAUDE_SETTINGS + ".tower.bak"
+# Tower's own `claude -p /usage` probes run with cwd=CONFIG_DIR, so Claude Code
+# files them under projects/<CONFIG_DIR with every non-alphanumeric char → "-">
+# (e.g. -Users-me--tower). They are never agents and carry no model usage. Older
+# probes also persisted a session per run — ~1,400 transcripts a day that every
+# scan then had to stat forever, so the monitor grew its own workload without
+# bound. Both transcript indexes skip this directory outright.
+PROBE_PROJECT_DIR = re.sub(r"[^A-Za-z0-9]", "-", CONFIG_DIR)
 
 # TCC-protected locations. Tower is a *monitor*, not a file manager: it must
 # NEVER open or enumerate anything under these, because the first read triggers
@@ -648,6 +657,32 @@ TUNNEL_IDLE_S = 600.0       # relay I/O timeout on an ESTABLISHED tunnel. create
                             # and idle keep-alive sockets mid-session. Long-but-bounded:
                             # never kills a live turn, but a vanished peer (sleep/wake,
                             # NAT drop) can't leak the relay thread + fds forever.
+# Dead-path detection on the UPSTREAM leg. Claude Code reuses pooled tunnels, and
+# the localhost leg to us never breaks — so when the path beyond us dies silently
+# (VPN reconnect, NAT/middlebox drops an idle flow; no FIN, no RST), nothing
+# tells Claude. Its next request vanishes into the dead flow and it waits out the
+# whole first-byte window ("No response from the API after …") before retrying.
+# The kernel can notice instead, and each rule only fires on a path that is GONE,
+# never on one that is merely slow:
+#   · keepalive probes an idle tunnel (a server busy computing a reply still ACKs
+#     them), cutting a dead one after IDLE + INTVL×CNT ≈ 2 min — macOS's own
+#     default would wait 2 h;
+#   · the retransmission drop time cuts a tunnel whose in-flight bytes get NO ACK
+#     at all for this long (a slow but live upload keeps ACKing, so it's safe).
+# A cut tunnel reaches Claude as a closed connection, which rides its normal
+# retry budget (RETRY_ENV) instead of the one-retry first-byte path.
+UPSTREAM_KEEPIDLE_S = 60
+UPSTREAM_KEEPINTVL_S = 15
+UPSTREAM_KEEPCNT = 4
+UPSTREAM_RXT_DROP_S = 120
+# Darwin <netinet/tcp.h> values, pinned: the socket module never exports
+# TCP_RXT_CONNDROPTIME, and /usr/bin/python3 (3.9, the app's last-resort
+# interpreter) lacks TCP_KEEPALIVE too — without it the idle probe would silently
+# stay at the 2 h default.
+_DARWIN_TCP_KEEPALIVE = 0x10
+_DARWIN_TCP_RXT_CONNDROPTIME = 0x80
+_DARWIN_TCP_KEEPINTVL = 0x101
+_DARWIN_TCP_KEEPCNT = 0x102
 HEADER_TIMEOUT_S = 10.0     # a client must present its request headers within this,
                             # else the accept thread + fd is pinned forever on a silent
                             # socket (accepted sockets don't inherit the listener timeout)
@@ -701,19 +736,42 @@ def _decide_block(conn, state, host):
     return True
 
 
+def _upstream_sockopts():
+    """(level, option, value) for the upstream leg, per platform: TCP_NODELAY plus
+    the dead-path rules above. Options the platform lacks are simply absent."""
+    tcp = socket.IPPROTO_TCP
+    opts = [(tcp, socket.TCP_NODELAY, 1),
+            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    if sys.platform == "darwin":
+        return opts + [(tcp, _DARWIN_TCP_KEEPALIVE, UPSTREAM_KEEPIDLE_S),
+                       (tcp, _DARWIN_TCP_KEEPINTVL, UPSTREAM_KEEPINTVL_S),
+                       (tcp, _DARWIN_TCP_KEEPCNT, UPSTREAM_KEEPCNT),
+                       (tcp, _DARWIN_TCP_RXT_CONNDROPTIME, UPSTREAM_RXT_DROP_S)]
+    for name, val in (("TCP_KEEPIDLE", UPSTREAM_KEEPIDLE_S),
+                      ("TCP_KEEPINTVL", UPSTREAM_KEEPINTVL_S),
+                      ("TCP_KEEPCNT", UPSTREAM_KEEPCNT),
+                      # Linux's analogue of the drop time, in milliseconds
+                      ("TCP_USER_TIMEOUT", UPSTREAM_RXT_DROP_S * 1000)):
+        if hasattr(socket, name):
+            opts.append((tcp, getattr(socket, name), val))
+    return opts
+
+
 def _upstream_connect(host, port):
     """Open the upstream leg of a tunnel. create_connection applies its timeout to
     the CONNECT only in spirit but leaves it ON the returned socket, so we reset it
     to a long-but-bounded idle timeout (TUNNEL_IDLE_S) — otherwise every relay recv
     inherits the short connect deadline and a slow-first-byte or idle keep-alive
     tunnel dies mid-session. TCP_NODELAY kills Nagle so streamed SSE token frames
-    and small request bodies aren't batched behind delayed ACKs."""
+    and small request bodies aren't batched behind delayed ACKs; keepalive + the
+    retransmission drop time cut a silently dead path (see UPSTREAM_KEEPIDLE_S)."""
     up = socket.create_connection((host, port), timeout=UPSTREAM_CONNECT_S)
     up.settimeout(TUNNEL_IDLE_S)
-    try:
-        up.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    except OSError:
-        pass
+    for level, opt, val in _upstream_sockopts():
+        try:
+            up.setsockopt(level, opt, val)
+        except OSError:
+            pass
     return up
 
 
@@ -1451,6 +1509,7 @@ class ProcScanner:
             exe = args.split(None, 1)[0]
             if os.path.basename(exe) not in ("claude", "claude.exe"):
                 continue
+            _note_claude_exe(exe)       # a full path here helps find_claude()
             try:
                 pid, ppid = int(parts[0]), int(parts[1])
             except ValueError:
@@ -1544,6 +1603,75 @@ class ProcScanner:
         return cwd
 
 
+def _is_dir_entry(entry, follow=True):
+    try:
+        return entry.is_dir(follow_symlinks=follow)
+    except OSError:
+        return False
+
+
+def _project_dirs():
+    """Every ~/.claude/projects/<encoded> directory except Tower's own probe
+    directory (PROBE_PROJECT_DIR). Raises OSError when projects/ can't be listed,
+    so callers can keep their last view instead of treating it as 'no files'."""
+    with os.scandir(CLAUDE_PROJECTS) as it:
+        return [e.path for e in it
+                if e.name != PROBE_PROJECT_DIR and _is_dir_entry(e)]
+
+
+def _iter_transcripts(dirs, nested=False):
+    """Yield (path, stat) for each *.jsonl directly inside `dirs` — and, with
+    nested=True, anywhere below them (subagent runs). One scandir per directory
+    and one stat per file: the agent monitor walks this every second, and the old
+    listdir + isfile + stat paid two syscalls per file. Symlinked subdirectories
+    aren't descended, matching os.walk."""
+    pending = list(dirs)
+    while pending:
+        d = pending.pop()
+        try:
+            with os.scandir(d) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        for e in entries:
+            if e.name.endswith(".jsonl"):
+                try:
+                    if not e.is_file():
+                        continue
+                    st = e.stat()
+                except OSError:
+                    continue
+                yield e.path, st
+            elif nested and _is_dir_entry(e, follow=False):
+                pending.append(e.path)
+
+
+def _read_new_lines(path, offset):
+    """Yield (line, next_offset) for every complete line after byte `offset` (the
+    line keeps its trailing newline, which JSON ignores). A trailing partial line
+    is left for the next call; commit `next_offset` as each line is used.
+
+    Reads line by line on purpose. Slurping the file — or even fixed 4 MB chunks —
+    makes large, variously-sized transient buffers that macOS's allocator keeps
+    after they're freed: a first pass over ~1 GB of transcripts left the daemon's
+    memory footprint at ~230 MB (the old slurp: ~415 MB), versus ~50 MB this way,
+    for the same CPU."""
+    try:
+        f = open(path, "rb")
+    except OSError:
+        return
+    with f:
+        try:
+            f.seek(offset)
+            for line in f:
+                if not line.endswith(b"\n"):
+                    return
+                offset += len(line)
+                yield line, offset
+        except OSError:
+            return
+
+
 class TranscriptIndex:
     """Offset-tailing reader of ~/.claude/projects/<encoded>/*.jsonl (depth 1
     only — subagents/ etc. skipped). Per file keeps {mtime, size, offset,
@@ -1558,41 +1686,24 @@ class TranscriptIndex:
     def scan(self):
         seen = set()
         try:
-            dirs = os.listdir(CLAUDE_PROJECTS)
+            dirs = _project_dirs()
         except OSError:
             return
-        for d in dirs:
-            pdir = os.path.join(CLAUDE_PROJECTS, d)
-            if not os.path.isdir(pdir):
+        for path, st in _iter_transcripts(dirs):
+            seen.add(path)
+            rec = self._files.get(path)
+            if (rec and rec["mtime"] == st.st_mtime
+                    and rec["size"] == st.st_size):
                 continue
-            try:
-                names = os.listdir(pdir)
-            except OSError:
-                continue
-            for name in names:
-                if not name.endswith(".jsonl"):
-                    continue
-                path = os.path.join(pdir, name)
-                if not os.path.isfile(path):
-                    continue
-                try:
-                    st = os.stat(path)
-                except OSError:
-                    continue
-                seen.add(path)
-                rec = self._files.get(path)
-                if (rec and rec["mtime"] == st.st_mtime
-                        and rec["size"] == st.st_size):
-                    continue
-                if rec is None or st.st_size < rec["size"]:
-                    # new file, or shrunk/replaced (compaction): reparse
-                    rec = {"mtime": 0.0, "size": 0, "offset": 0,
-                           "summary": self._new_summary(path)}
-                    self._files[path] = rec
-                self._tail(path, rec)
-                rec["mtime"] = st.st_mtime
-                rec["size"] = st.st_size
-                rec["summary"]["mtime"] = st.st_mtime
+            if rec is None or st.st_size < rec["size"]:
+                # new file, or shrunk/replaced (compaction): reparse
+                rec = {"mtime": 0.0, "size": 0, "offset": 0,
+                       "summary": self._new_summary(path)}
+                self._files[path] = rec
+            self._tail(path, rec)
+            rec["mtime"] = st.st_mtime
+            rec["size"] = st.st_size
+            rec["summary"]["mtime"] = st.st_mtime
         for path in list(self._files):
             if path not in seen:
                 self._files.pop(path, None)
@@ -1645,21 +1756,10 @@ class TranscriptIndex:
                 "recent_edits": deque(maxlen=100), "mtime": 0.0}
 
     def _tail(self, path, rec):
-        try:
-            with open(path, "rb") as f:
-                f.seek(rec["offset"])
-                data = f.read()
-        except OSError:
-            return
-        if not data:
-            return
-        end = data.rfind(b"\n")
-        if end < 0:
-            return                      # no complete new line yet
-        for line in data[:end].split(b"\n"):
+        for line, nxt in _read_new_lines(path, rec["offset"]):
             if line.strip():
                 self._feed(rec["summary"], line)
-        rec["offset"] += end + 1
+            rec["offset"] = nxt
 
     def _feed(self, s, line):
         try:
@@ -2504,12 +2604,30 @@ class AgentMonitor:
 # --------------------------------------------------------------------------- #
 # Usage (reads Claude Code transcripts)
 # --------------------------------------------------------------------------- #
+USAGE_SERIES_DAYS = 7   # the day series; the week (since Monday) always fits inside
+
+
 class UsageIndex:
+    """The local token / cost estimate, read from Claude Code's transcripts.
+
+    Work is proportional to what CHANGED, never to history — this runs every 8s
+    for weeks, over a corpus that only grows:
+      · each transcript is offset-tailed: only newly appended lines are parsed
+        (the old reader re-parsed a whole 50 MB live transcript on every append);
+      · a file untouched since the reporting window opened can't move any number
+        we report (its rows are all older), so it is never parsed or held;
+      · rows are bucketed by comparing epochs against precomputed local-midnight
+        boundaries — no datetime conversion per row.
+    Claude Code writes one JSONL line per content block (thinking / text /
+    tool_use), each repeating the message's usage — and output_tokens grows on
+    later lines of the same message. So rows are keyed by message id, last line
+    wins; summing every line counted a turn two to five times over."""
+
     def __init__(self, state):
         self.state = state
         self.lock = threading.Lock()
-        self._mtime = {}
-        self._rows = {}
+        # path -> {"mtime", "size", "ino", "offset", "rows": {key: row}}
+        self._files = {}
         self.snapshot = self._empty()
 
     @staticmethod
@@ -2536,85 +2654,111 @@ class UsageIndex:
                 time.sleep(0.5)
                 waited += 0.5
 
-    def _scan(self):
-        rows = []
-        if not os.path.isdir(CLAUDE_PROJECTS):
-            return rows
-        for root, _d, files in os.walk(CLAUDE_PROJECTS):
-            for name in files:
-                if not name.endswith(".jsonl"):
-                    continue
-                path = os.path.join(root, name)
-                try:
-                    mt = os.path.getmtime(path)
-                except OSError:
-                    continue
-                if self._mtime.get(path) != mt:
-                    self._mtime[path] = mt
-                    self._rows[path] = self._parse(path)
-                rows.extend(self._rows.get(path, ()))
-        return rows
+    def _scan(self, window_start):
+        """Bring every transcript written since `window_start` up to date and
+        forget the rest (their rows all predate the window)."""
+        try:
+            dirs = _project_dirs()
+        except OSError:
+            return                      # keep the last view on a transient error
+        seen = set()
+        for path, st in _iter_transcripts(dirs, nested=True):
+            if st.st_mtime < window_start:
+                continue
+            seen.add(path)
+            rec = self._files.get(path)
+            if (rec is not None and rec["mtime"] == st.st_mtime
+                    and rec["size"] == st.st_size):
+                continue
+            if (rec is None or st.st_size < rec["offset"]
+                    or st.st_ino != rec["ino"]):
+                # new, shrunk, or replaced by another file: read from the top
+                rec = {"mtime": 0.0, "size": 0, "ino": st.st_ino, "offset": 0,
+                       "rows": {}}
+                self._files[path] = rec
+            self._tail(path, rec)
+            rec["mtime"] = st.st_mtime
+            rec["size"] = st.st_size
+        for path in list(self._files):
+            if path not in seen:
+                del self._files[path]
+
+    def _tail(self, path, rec):
+        rows = rec["rows"]
+        for line, nxt in _read_new_lines(path, rec["offset"]):
+            start, rec["offset"] = rec["offset"], nxt
+            if b'"usage"' not in line:
+                continue
+            try:
+                key, row = self._row(json.loads(line.decode("utf-8", "replace")))
+            except Exception:  # noqa: BLE001 — drifting format: skip the line
+                continue
+            if row is not None:
+                # later lines of a message carry its final usage → last wins
+                rows[key if key is not None else ("@", start)] = row
 
     @staticmethod
-    def _parse(path):
-        out = []
-        try:
-            with open(path, "r", errors="replace") as f:
-                for line in f:
-                    if '"usage"' not in line:
-                        continue
-                    try:
-                        o = json.loads(line)
-                    except Exception:
-                        continue
-                    if not isinstance(o, dict):
-                        continue
-                    msg = o.get("message")
-                    if not isinstance(msg, dict):
-                        continue
-                    u = msg.get("usage")
-                    if not isinstance(u, dict):
-                        continue
-                    epoch = _parse_ts(o.get("timestamp"))
-                    if epoch is None:
-                        continue
-                    out.append((epoch, msg.get("model") or "unknown",
-                                int(u.get("input_tokens", 0) or 0),
-                                int(u.get("output_tokens", 0) or 0),
-                                int(u.get("cache_creation_input_tokens", 0) or 0),
-                                int(u.get("cache_read_input_tokens", 0) or 0),
-                                o.get("sessionId") or ""))
-        except OSError:
-            pass
-        return out
+    def _row(o):
+        """(message id or None, row) for a line carrying real model usage, else
+        (None, None). row = (epoch, model, total, cost, in, out, cache, sid)."""
+        if not isinstance(o, dict):
+            return None, None
+        msg = o.get("message")
+        if not isinstance(msg, dict):
+            return None, None
+        u = msg.get("usage")
+        if not isinstance(u, dict):
+            return None, None
+        epoch = _parse_ts(o.get("timestamp"))
+        model = msg.get("model") or "unknown"
+        if epoch is None or model.startswith("<"):     # <synthetic> error notice
+            return None, None
+        ti = int(u.get("input_tokens", 0) or 0)
+        to = int(u.get("output_tokens", 0) or 0)
+        cw = int(u.get("cache_creation_input_tokens", 0) or 0)
+        cr = int(u.get("cache_read_input_tokens", 0) or 0)
+        mid = msg.get("id")
+        return (mid if isinstance(mid, str) and mid else None,
+                (epoch, model, ti + to + cw + cr, _cost(model, ti, to, cw, cr),
+                 ti, to, cw + cr, o.get("sessionId") or ""))
 
     def refresh(self):
-        rows = self._scan()
-        now = datetime.now().astimezone()
-        now_e = now.timestamp()
-        today_start = now.replace(hour=0, minute=0, second=0,
-                                  microsecond=0).timestamp()
-        week_start = (now - timedelta(days=now.weekday())).replace(
-            hour=0, minute=0, second=0, microsecond=0).timestamp()
+        # Local-midnight boundaries via mktime, so a DST change inside the window
+        # still buckets every row on its true local day.
+        today = datetime.now().date()
+        days = [today - timedelta(days=i)
+                for i in range(USAGE_SERIES_DAYS - 1, -1, -1)]
+        day_starts = [time.mktime(d.timetuple()) for d in days]
+        tomorrow = time.mktime((today + timedelta(days=1)).timetuple())
+        today_start = day_starts[-1]
+        week_start = time.mktime(
+            (today - timedelta(days=today.weekday())).timetuple())
+        self._scan(min(day_starts[0], week_start))
+        now_e = time.time()
         elapsed_frac = max((now_e - week_start) / (7 * 86400.0), 1e-3)
+
+        # One row per message: a subagent transcript can repeat a message its
+        # parent logged too — keep the most complete copy.
+        merged = {}
+        for path, rec in self._files.items():
+            for key, row in rec["rows"].items():
+                if isinstance(key, tuple):          # no message id: line-unique
+                    key = (path, key[1])
+                cur = merged.get(key)
+                if cur is None or row[5] >= cur[5]:
+                    merged[key] = row
 
         snap = self._empty()
         bm_tok = defaultdict(int)
         bm_cost = defaultdict(float)
         active = set()
-        s_tok = defaultdict(int)
-        s_cost = defaultdict(float)
+        s_tok = [0] * len(days)
+        s_cost = [0.0] * len(days)
         live = 0
         latest_sid, latest_e = None, -1.0
-        for r in rows:
-            if r[0] > latest_e:
-                latest_e, latest_sid = r[0], r[6]
-
-        for epoch, model, ti, to, cw, cr, sid in rows:
-            if model.startswith("<"):
-                continue
-            total = ti + to + cw + cr
-            cost = _cost(model, ti, to, cw, cr)
+        for epoch, model, total, cost, _ti, _to, _cache, sid in merged.values():
+            if epoch > latest_e:
+                latest_e, latest_sid = epoch, sid
             if epoch >= week_start:
                 snap["week"]["tokens"] += total
                 snap["week"]["cost"] += cost
@@ -2626,19 +2770,22 @@ class UsageIndex:
                 snap["today"]["cost"] += cost
             if epoch >= now_e - 60:
                 live += total
-            day = datetime.fromtimestamp(epoch).astimezone().strftime("%Y-%m-%d")
-            s_tok[day] += total
-            s_cost[day] += cost
-            if sid == latest_sid:
-                s = snap["session"]
-                s["tokens"] += total
-                s["input"] += ti
-                s["output"] += to
-                s["cache"] += cw + cr
-                s["cost"] += cost
-                s["msgs"] += 1
-                if s["since"] is None or epoch < s["since"]:
-                    s["since"] = epoch
+            if day_starts[0] <= epoch < tomorrow:
+                i = bisect.bisect_right(day_starts, epoch) - 1
+                s_tok[i] += total
+                s_cost[i] += cost
+        s = snap["session"]
+        for epoch, _model, total, cost, ti, to, cache, sid in merged.values():
+            if sid != latest_sid:
+                continue
+            s["tokens"] += total
+            s["input"] += ti
+            s["output"] += to
+            s["cache"] += cache
+            s["cost"] += cost
+            s["msgs"] += 1
+            if s["since"] is None or epoch < s["since"]:
+                s["since"] = epoch
 
         ahrs = len(active)
         snap["pace"] = {
@@ -2656,12 +2803,9 @@ class UsageIndex:
             ({"model": m, "tokens": bm_tok[m], "cost": round(bm_cost[m], 2),
               "pct": round(100.0 * bm_tok[m] / tot, 1)} for m in bm_tok),
             key=lambda x: -x["tokens"])[:6]
-        series = []
-        for i in range(6, -1, -1):
-            day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-            series.append({"day": day, "tokens": s_tok.get(day, 0),
-                           "cost": round(s_cost.get(day, 0.0), 2)})
-        snap["series"] = series
+        snap["series"] = [{"day": d.strftime("%Y-%m-%d"), "tokens": s_tok[i],
+                           "cost": round(s_cost[i], 2)}
+                          for i, d in enumerate(days)]
         for k in ("today", "week"):
             snap[k]["cost"] = round(snap[k]["cost"], 2)
         snap["session"]["cost"] = round(snap["session"]["cost"], 2)
@@ -2691,7 +2835,81 @@ def _cost(model, ti, to, cw, cr):
 # Real plan usage — driven via `claude -p /usage` (Claude Code does the auth;
 # we never read the token). This mirrors the Settings → Usage page exactly.
 # --------------------------------------------------------------------------- #
-def find_claude():
+# Absolute claude executables seen in the process table — the Chrome native host,
+# for one, is always launched by full path. The last-resort lookup hint below.
+_SEEN_CLAUDE_EXES = deque(maxlen=8)
+_seen_exes_lock = threading.Lock()
+
+
+def _note_claude_exe(exe):
+    if os.path.isabs(exe):
+        with _seen_exes_lock:
+            if exe not in _SEEN_CLAUDE_EXES:
+                _SEEN_CLAUDE_EXES.append(exe)
+
+
+def _version_dirs(parent):
+    """Version-named subdirectories of `parent` (v24.18.1, 22.3.0 …), newest
+    first; [] when `parent` doesn't exist."""
+    try:
+        names = [n for n in os.listdir(parent) if re.search(r"\d", n)]
+    except OSError:
+        return []
+    names.sort(key=lambda n: tuple(int(x) for x in re.findall(r"\d+", n)),
+               reverse=True)
+    return [os.path.join(parent, n) for n in names]
+
+
+def _claude_candidates():
+    """Where Claude Code actually gets installed, most specific first. The menu-bar
+    app launches the daemon with launchd's bare PATH (/usr/bin:/bin:/usr/sbin:
+    /sbin), so shutil.which can't see a CLI in ~/.local/bin or a Node version
+    manager — and asking a login shell is out: sourcing the user's rc is exactly
+    what trips TCC prompts. So look where installers put it (plain stats only)."""
+    h = HOME
+    out = [os.path.join(h, ".local", "bin", "claude"),      # native installer
+           os.path.join(h, ".claude", "local", "claude"),   # legacy local install
+           "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude",
+           os.path.join(h, ".npm-global", "bin", "claude"),
+           os.path.join(h, ".volta", "bin", "claude"),
+           os.path.join(h, ".bun", "bin", "claude"),
+           os.path.join(h, "Library", "pnpm", "claude"),
+           os.path.join(h, ".local", "share", "pnpm", "claude"),
+           os.path.join(h, ".yarn", "bin", "claude")]
+    # npm installs under a Node version manager: its default alias, then every
+    # installed Node, newest first.
+    fnm_roots = (os.environ.get("FNM_DIR"),
+                 os.path.join(h, ".local", "share", "fnm"),
+                 os.path.join(h, "Library", "Application Support", "fnm"),
+                 os.path.join(h, ".fnm"))
+    for root in dict.fromkeys(r for r in fnm_roots if r):
+        out.append(os.path.join(root, "aliases", "default", "bin", "claude"))
+        out += [os.path.join(v, "installation", "bin", "claude")
+                for v in _version_dirs(os.path.join(root, "node-versions"))]
+    nvm = os.environ.get("NVM_DIR") or os.path.join(h, ".nvm")
+    out += [os.path.join(v, "bin", "claude")
+            for v in _version_dirs(os.path.join(nvm, "versions", "node"))]
+    out += [os.path.join(h, ".asdf", "shims", "claude"),
+            os.path.join(h, ".local", "share", "mise", "shims", "claude")]
+    with _seen_exes_lock:
+        out += list(_SEEN_CLAUDE_EXES)
+    return out
+
+
+def _is_exe(p):
+    return os.path.isfile(p) and os.access(p, os.X_OK)
+
+
+def find_claude(cfg=None):
+    """The claude CLI to run /usage with. Resolved fresh on every fetch (a few
+    stats), so an upgrade, a Node version switch, or a PATH entry that only lived
+    as long as its shell (fnm's per-shell links) never strands the plan meters.
+    `claude_path` in ~/.tower/config.json overrides the search."""
+    override = (cfg or {}).get("claude_path")
+    if isinstance(override, str) and override:
+        override = os.path.expanduser(override)
+        if _is_exe(override):
+            return override
     p = shutil.which("claude")
     if p:
         return p
@@ -2701,10 +2919,8 @@ def find_claude():
             if os.path.exists(c):
                 return c
         return None
-    for c in ("/opt/homebrew/bin/claude", "/usr/local/bin/claude",
-              os.path.join(HOME, ".claude", "local", "claude"),
-              "/usr/bin/claude"):
-        if os.path.exists(c):
+    for c in _claude_candidates():
+        if _is_exe(c):
             return c
     return None
 
@@ -2809,13 +3025,15 @@ def _ensure_usage_sandbox():
         log(f"usage sandbox setup failed: {e}")
 
 
-def _claude_env():
+def _claude_env(claude=None):
     """Env for a hermetic `claude -p /usage` (see USAGE_NORC_DIR above):
     - strip Claude-Code *nesting* vars (else a nested /usage prints run-stats
       instead of the usage report),
     - neutralise every shell's rc sourcing — the Photos/Music/Contacts TCC
       trigger — via an empty ZDOTDIR and blanked ENV/BASH_ENV,
-    - keep a sane PATH (helpers) and HOME (claude's own auth in ~/.claude)."""
+    - keep a sane PATH (helpers, plus the CLI's own directory: a JS-shim install
+      under nvm/fnm/volta runs `#!/usr/bin/env node`, and that node lives beside
+      it) and HOME (claude's own auth in ~/.claude)."""
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("CLAUDE_CODE") and k != "CLAUDECODE"
            and k != "CLAUDE_EFFORT"}
@@ -2828,18 +3046,30 @@ def _claude_env():
     env["ENV"] = ""                     # sh: no startup file
     env["BASH_ENV"] = ""                # bash non-interactive: no startup file
     extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    if claude:
+        own = [os.path.dirname(claude), os.path.dirname(os.path.realpath(claude))]
+        extra = list(dict.fromkeys(own + extra))
     have = env.get("PATH", "").split(os.pathsep)
     env["PATH"] = os.pathsep.join([p for p in extra if p not in have] + have)
     return env
 
 
-def fetch_plan():
-    claude = find_claude()
+# CLIs that rejected --no-session-persistence (older builds): probe those without
+# it rather than failing /usage forever.
+_NO_PERSIST_UNSUPPORTED = set()
+
+
+def fetch_plan(cfg=None):
+    claude = find_claude(cfg)
     if not claude:
         return {"ok": False, "error": "claude CLI not found"}
-    env = _claude_env()
+    env = _claude_env(claude)
     argv = [claude, "-p", "/usage",
             "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE]
+    # Never save the probe as a session: persisted, each run left a transcript in
+    # ~/.claude/projects (PROBE_PROJECT_DIR) — about 1,400 a day, forever.
+    if claude not in _NO_PERSIST_UNSUPPORTED:
+        argv.append("--no-session-persistence")
     # A Windows `claude` on PATH is usually a `claude.cmd` npm shim; CreateProcess
     # can't exec a batch file directly (WinError 193), so run it through cmd /c.
     if IS_WINDOWS and claude.lower().endswith((".cmd", ".bat")):
@@ -2861,7 +3091,14 @@ def fetch_plan():
                     "encoding": "utf-8", "errors": "replace"}
                    if IS_WINDOWS else {"text": True}))
 
-            res = parse_usage((r.stdout or "") + "\n" + (r.stderr or ""))
+            out = (r.stdout or "") + "\n" + (r.stderr or "")
+            if ("--no-session-persistence" in argv
+                    and "unknown option" in out.lower()
+                    and "no-session-persistence" in out):
+                _NO_PERSIST_UNSUPPORTED.add(claude)
+                argv = [a for a in argv if a != "--no-session-persistence"]
+                continue
+            res = parse_usage(out)
             if res.get("ok"):
                 return res
             last = res
@@ -2874,6 +3111,7 @@ def fetch_plan():
 
 
 def plan_loop(state, interval=60):
+    logged = None           # log a fetch outcome only when it changes, not 1,440×/day
     while not state.stop.is_set():
         if not state.plan_enabled:
             # Live plan-fetching off → never run claude (no Photos/Music prompts).
@@ -2909,7 +3147,7 @@ def plan_loop(state, interval=60):
         with state.lock:
             if state.plan and state.plan.get("ok"):
                 state.plan = {**state.plan, "refreshing": True}
-        res = fetch_plan()
+        res = fetch_plan(state.cfg)
         with state.lock:
             if res.get("ok"):
                 state.plan = res                       # fresh; flags cleared
@@ -2919,7 +3157,10 @@ def plan_loop(state, interval=60):
             else:
                 state.plan = {"ok": False, "refreshing": False,
                               "error": res.get("error"), "checked": time.time()}
-        log(f"plan fetch: {'ok' if res.get('ok') else res.get('error')}")
+        outcome = "ok" if res.get("ok") else res.get("error")
+        if outcome != logged:
+            log(f"plan fetch: {outcome}")
+            logged = outcome
         waited = 0.0
         while waited < interval and not state.stop.is_set():
             if state._refreshplan:
@@ -2948,9 +3189,22 @@ def _read_settings():
 # PENDING across a whole network switch and resumes on its own when the guard
 # clears. Installed non-destructively (setdefault) and removed on route_off only
 # if the value is still ours — a user-set value is left untouched.
+#
+# The first-byte window is the same idea for slow paths. A long chat sends a
+# multi-megabyte request; over a high-latency link (a far VPN exit) the upload
+# plus prefill can outlast Claude Code's default wait for response headers
+# (3 min + 1 s per 32 KB of body). It then ABORTS the attempt — discarding the
+# upload — and allows only one retry before failing the turn: "No response from
+# the API after … A proxy or gateway that buffers streaming responses can cause
+# this". Tower's tunnel relays bytes as they arrive (it can't buffer TLS), so the
+# honest fix is patience: wait up to Claude's own request ceiling (API_TIMEOUT_MS,
+# 10 min by default, which caps this value). A tunnel that is actually dead is
+# still cut within ~2 min at the TCP layer (UPSTREAM_KEEPIDLE_S), so the long
+# wait only ever applies to a path that is slow, never to one that is gone.
 RETRY_ENV = {
     "CLAUDE_CODE_RETRY_WATCHDOG": "1",     # unlock the long retry budget
     "CLAUDE_CODE_MAX_RETRIES": "300",      # attempts before the turn finally errors
+    "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS": "600000",   # slow ≠ dead: see above
 }
 
 

@@ -44,7 +44,15 @@ The menu bar is a single mark, the **radar**, whose state *is* the guard
 
 It animates smoothly (~30fps) only while a state has motion to show — a hold, a
 verify sweep, or a calm scan while agents are working — and freezes under Reduce
-Motion.
+Motion. It also skips frames while the menu bar itself is hidden (a full-screen
+app, a sleeping or locked display).
+
+The popover and dashboard stay mounted when closed, so they are kept idle off
+screen: `TowerModel` publishes its once-a-second snapshot to SwiftUI only while
+one of them is visible (`popoverVisible` / `dashboardVisible`), and every
+continuous animation — model marks, radar, beacon, shimmer, spinners — pauses on
+`\.surfaceVisible`. Opening a surface catches it up, without animation, before it
+is shown.
 
 When **keep-awake** is on, the radar's core lights — a soft, neutral **vigil
 lamp** meaning "the tower is holding your Device awake." It's subliminal and never

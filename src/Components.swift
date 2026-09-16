@@ -19,9 +19,12 @@ struct Card<Content: View>: View {
 struct Shimmer: ViewModifier {
     var active: Bool
     @State private var phase: CGFloat = -1
+    @Environment(\.surfaceVisible) private var visible
     func body(content: Content) -> some View {
         content.overlay {
-            if active {
+            // Off screen the sweep is dropped (not just hidden) so its
+            // repeatForever animation stops; it restarts on the next appearance.
+            if active && visible {
                 GeometryReader { g in
                     LinearGradient(colors: [.clear, Color.white.opacity(0.85), .clear],
                                    startPoint: .leading, endPoint: .trailing)

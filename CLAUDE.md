@@ -35,7 +35,9 @@ condition (your location or your connection) recovers.
 - **Never route Claude via the shell.** Routing edits `~/.claude/settings.json`
   `env` only (`HTTPS_PROXY`/`HTTP_PROXY`, plus `CLAUDE_CODE_RETRY_WATCHDOG` /
   `CLAUDE_CODE_MAX_RETRIES` so a blocked/outaged request stays PENDING in
-  Claude's native retry spinner instead of erroring). Shell aliases broke the
+  Claude's native retry spinner instead of erroring, and
+  `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` so a long chat's multi-MB request on a
+  slow link isn't aborted before its first byte). Shell aliases broke the
   `claude` command before. `route_off` removes those keys, but leaves a
   retry value the user customised themselves (`RETRY_ENV`).
 - **Fail-closed:** a Claude request is allowed ONLY when *confirmed* inside the
@@ -85,6 +87,10 @@ condition (your location or your connection) recovers.
   (`_upstream_connect` → `settimeout(TUNNEL_IDLE_S)`); a short idle timeout
   silently guillotines slow-first-byte and idle keep-alive tunnels mid-session.
   Sockets on the hot path also set `TCP_NODELAY` (Nagle batches streamed tokens).
+  The flip side — cut what is *dead*, never what is *slow*: the upstream leg
+  carries TCP keepalive + a retransmission drop time (`UPSTREAM_KEEPIDLE_S`…),
+  so a silently dead path (VPN reconnect, dropped NAT flow) reaches Claude as a
+  closed connection within ~2 min instead of a full first-byte-window stall.
 - **Dangerous switch-offs are double-confirmed.** Anything that lets Claude
   reach the API *without* the guard — turning routing off, disabling
   enforcement, quitting/stopping the guard — is a destructive action. Both
@@ -103,7 +109,9 @@ condition (your location or your connection) recovers.
   fields from the path string, not I/O (no git-root/branch/collision reads).
   (2) Every `claude -p /usage` runs sandboxed — empty `ZDOTDIR` (no shell rc is
   sourced), `--strict-mcp-config` + empty `--mcp-config` (no MCP servers spawn),
-  and a neutral `cwd=CONFIG_DIR`. The only prompts Tower may ever cause are
+  a neutral `cwd=CONFIG_DIR`, and `--no-session-persistence`. The CLI itself is
+  located by plain stats of known install paths (`find_claude`), never by asking
+  a login shell. The only prompts Tower may ever cause are
   Notifications (lazy, first real alert), Terminal/iTerm control (only on a
   user-initiated focus), and the keep-awake admin password (opt-in, pre-explained).
 - **Read-only toward Claude Code sessions:** the agent monitor never writes
@@ -118,6 +126,15 @@ condition (your location or your connection) recovers.
   read the token). Local token/cost is a separate, clearly-labeled estimate.
 - **Transcript parsing is defensive:** the JSONL format is undocumented and
   drifts; per-line try/except, surface `meta.parse_errors`, never crash.
+- **Cost scales with change, never with history.** Tower runs for weeks over a
+  transcript corpus that only grows, and it once heated the laptop doing exactly
+  that. Periodic work must be proportional to what changed: offset-tail
+  transcripts (never re-read a file from the top), keep only what the numbers
+  need (the usage index drops files older than its window and counts each message
+  id once), skip Tower's own probe directory (`PROBE_PROJECT_DIR`), and never let
+  a probe write artifacts that later scans must walk. Front-ends likewise do no
+  work off screen: the model publishes only while a surface is visible, and every
+  continuous animation honors `\.surfaceVisible`.
 - **The design system is law:** docs/DESIGN.md — the mark is the state (radar =
   guard, model mark = model), motion = state change (failure never bounces),
   one loudest thing at a time, Reduce Motion always honored.

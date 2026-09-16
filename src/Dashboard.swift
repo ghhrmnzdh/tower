@@ -27,7 +27,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
     }
 }
 
-final class DashboardWindowController {
+final class DashboardWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let model: TowerModel
     private let selected = SelectedTab()
@@ -47,10 +47,27 @@ final class DashboardWindowController {
             w.center()
             w.contentViewController = NSHostingController(
                 rootView: DashboardView(model: model, selected: selected))
+            w.delegate = self
             window = w
         }
+        setVisible(true)            // publish before ordering front: no stale frame
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    // The window outlives a close (isReleasedWhenClosed = false), so without these
+    // a closed, minimized or fully covered dashboard kept re-rendering every poll.
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let w = window else { return }
+        setVisible(w.isVisible && w.occlusionState.contains(.visible))
+    }
+
+    func windowWillClose(_ notification: Notification) { setVisible(false) }
+
+    private func setVisible(_ on: Bool) {
+        guard model.dashboardVisible != on else { return }
+        if on { model.reveal { model.dashboardVisible = true } }
+        else { model.dashboardVisible = false }
     }
 }
 
@@ -87,6 +104,7 @@ struct DashboardView: View {
             .transition(.opacity)
             .animation(.easeInOut(duration: 0.15), value: selected.tab)
         }
+        .environment(\.surfaceVisible, model.dashboardVisible)
         .dangerAlerts(model)
     }
 }
