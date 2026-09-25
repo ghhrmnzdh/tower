@@ -52,7 +52,8 @@ condition (your location or your connection) recovers.
   fail-closed, but a double-confirmed route-OFF sets `State.routed = False`, which
   makes `should_block` a pass-through for sessions still pinned to the proxy —
   the same direct, unguarded connection new sessions get. "Off means off," not
-  "stuck-gated." `state.routed` may only be flipped by the double-confirmed route
+  "stuck-gated." A double-confirmed quit is the same off: its lingering relay
+  passes pinned sessions through rather than stranding them on ECONNREFUSED. `state.routed` may only be flipped by the double-confirmed route
   command or the persisted `cfg["routed"]`; it never fails open on its own.
 - **Block with 503, never 403 — the block is PENDING, not FAILED.** A blocked
   Claude request is *held* a few seconds (re-checking so a sub-second blip
@@ -79,9 +80,13 @@ condition (your location or your connection) recovers.
   `bind_proxy` prefers the *same* port every run (persisted `cfg["proxy_port"]`,
   retrying briefly for a dying predecessor) so a pinned session survives a daemon
   restart; the app's pollTimer respawns a daemon that dies unexpectedly (kill -9);
-  and `route_off` runs on every clean exit *and* via `atexit`. Don't reintroduce
-  port drift or an endpoint that vanishes mid-session — that is the "only a new
-  chat works" bug.
+  and `route_off` runs on every clean exit *and* via `atexit`. A confirmed quit
+  doesn't close the port either: the daemon releases its lock and lingers as a
+  pass-through **relay** (`_relay_for_pinned`) until every claude process launched
+  while routed has exited; the next daemon evicts it (`_evict_relay`, gated on the
+  relay's flock) and reclaims the same port. Don't reintroduce port drift or an
+  endpoint that vanishes mid-session — that is the "only a new chat works" /
+  ECONNREFUSED-after-quit bug.
 - **Never let a live tunnel carry a short timeout.** `socket.create_connection`
   leaves its connect timeout ON the socket, so the relay must reset it
   (`_upstream_connect` → `settimeout(TUNNEL_IDLE_S)`); a short idle timeout
@@ -97,9 +102,9 @@ condition (your location or your connection) recovers.
   front-ends must **warn hard and require a second, explicit confirmation**
   before it takes effect, and the warning must call out how many agents are
   *working right now* (they'd immediately send unguarded requests), and quit/stop
-  additionally calls out how many chats are *pinned to the proxy* (they lose their
-  connection until restarted). Turning the guard *on* stays one tap; only the
-  off-direction is gated. App: `TowerModel.requestDanger` + `DangerAlerts` +
+  additionally calls out how many chats are *pinned to the proxy* (they keep
+  working through the relay, but unguarded, until Tower is reopened). Turning the
+  guard *on* stays one tap; only the off-direction is gated. App: `TowerModel.requestDanger` + `DangerAlerts` +
   `proxyPinnedCount`; TUI: `danger_confirm` + `_pinned_note`.
 - **Never trip a macOS permission prompt.** Tower must never make macOS ask for
   Photos / Music / Contacts / Desktop / Documents / Downloads. Two rules keep it

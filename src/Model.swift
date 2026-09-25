@@ -558,8 +558,8 @@ final class TowerModel: ObservableObject {
             && $0.kind != "infra" && $0.status != "gone" }.count
     }
     /// Live agents currently reaching the API THROUGH Tower's proxy (regardless of
-    /// routing intent). They lose their connection until restarted if the guard
-    /// stops — used to warn on quit.
+    /// routing intent). On quit the daemon keeps their proxy port open as an
+    /// unguarded pass-through until they exit — used to warn on quit.
     var proxyPinnedCount: Int {
         agentSessions.filter { $0.guarded == true && $0.pid != nil
             && $0.kind != "infra" && $0.status != "gone" }.count

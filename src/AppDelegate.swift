@@ -345,9 +345,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 + "location guard."
         }
         if pinned > 0 {
-            clauses += "\n\n⚠︎ \(pinned) chat\(pinned == 1 ? "" : "s") route through "
-                + "Tower now and will lose their connection until you restart "
-                + "each one."
+            clauses += "\n\n⚠︎ \(pinned) open chat\(pinned == 1 ? "" : "s") route through "
+                + "Tower now. They keep working, but go DIRECT with no guard "
+                + "until you reopen Tower."
         }
         let agentClause = clauses
         let a = NSAlert()

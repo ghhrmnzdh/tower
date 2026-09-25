@@ -818,13 +818,17 @@ def _agents_working(s):
 
 
 def _pinned_note(s):
-    """Extra warning for STOP/QUIT: sessions still pinned to the proxy keep working
-    while the guard runs, but lose their connection the moment it stops."""
-    n = ((s.get("agents") or {}).get("summary") or {}).get("pinned", 0) or 0
+    """Extra warning for STOP/QUIT: live sessions reaching the API through the
+    proxy (regardless of routing intent — matches the app's proxyPinnedCount).
+    On stop the daemon keeps their port open as an unguarded pass-through until
+    they exit, so they keep working, but with no guard."""
+    n = sum(1 for r in (s.get("agents") or {}).get("sessions") or []
+            if r.get("guarded") is True and r.get("pid")
+            and r.get("kind") != "infra" and r.get("status") != "gone")
     if not n:
         return ""
-    return (f" {n} chat{'s' if n != 1 else ''} still pinned to the proxy will "
-            "lose their connection until restarted.")
+    return (f" {n} open chat{'s' if n != 1 else ''} route through Tower — they "
+            "keep working, but go DIRECT with no guard until you reopen it.")
 
 
 def danger_confirm(win, s, headline, detail):

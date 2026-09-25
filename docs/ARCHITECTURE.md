@@ -145,6 +145,15 @@ Runs these threads:
   `should_block` is a pure pass-through for those pinned tunnels (same direct
   access new sessions get), never a stuck gate. `state.routed` is set only by the
   route command or persisted `cfg["routed"]`; it never fails open on its own.
+- **Quit keeps the endpoint alive (relay).** A confirmed `quit` removes routing
+  and releases `daemon.lock`, but if any claude process launched while routed is
+  still alive, the daemon keeps only its proxy listener running as a pass-through
+  (`_relay_for_pinned`, `~/.tower/relay.pid` held under flock) — without it, every
+  open chat dies with ECONNREFUSED until restarted. It exits once those pids are
+  gone (checked every `RELAY_POLL_S`) or when a new daemon starts: `_evict_relay`
+  SIGTERMs it (only while its flock is held) and reclaims the same sticky port, so
+  the pinned chats come back under the guard. A signal (SIGTERM/SIGINT) still
+  means a full exit — no relay.
 - **Transcript parsing is defensive.** The session JSONL format is
   undocumented and drifts between Claude Code versions (observed mid-file).
   Every line parse is wrapped; unknown types are skipped;

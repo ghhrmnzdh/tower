@@ -56,6 +56,9 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
 LOCK_FILE = os.path.join(CONFIG_DIR, "daemon.lock")
 CMD_DIR = os.path.join(CONFIG_DIR, "cmd")
+# Pid of a quit daemon still holding the proxy port open for pinned chats (see
+# _relay_for_pinned). The next daemon evicts it and takes the port back.
+RELAY_FILE = os.path.join(CONFIG_DIR, "relay.pid")
 LOG_FILE = os.path.join(CONFIG_DIR, "daemon.log")
 
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude", "projects")
@@ -307,6 +310,10 @@ class State:
         self._refreshplan = False
 
         self.stop = threading.Event()
+        # The proxy listener has its own stop: after a confirmed quit it outlives
+        # the rest of the daemon so pinned chats keep a live endpoint (relay mode).
+        self.proxy_stop = threading.Event()
+        self.relay_on_exit = False
         self.lock = threading.Lock()
 
         # Ground-truth path health: monotonic timestamps of recent Claude tunnels
@@ -877,7 +884,7 @@ def _handle_proxy_client(conn, state):
 
 def proxy_loop(state, srv):
     srv.settimeout(0.5)
-    while not state.stop.is_set():
+    while not state.proxy_stop.is_set():
         try:
             conn, _ = srv.accept()
         except socket.timeout:
@@ -3564,6 +3571,9 @@ def dispatch(state, usage, net, agents, req):
         save_config(state.cfg)
         return {"theme": state.theme}
     if cmd == "quit":
+        # A confirmed quit keeps the proxy port open for pinned chats until they
+        # exit (POSIX; Windows has no safe pid-liveness probe here).
+        state.relay_on_exit = not IS_WINDOWS
         state.stop.set()
         return {"bye": True}
     return {"error": f"unknown cmd {cmd!r}"}
@@ -3675,6 +3685,116 @@ def _route_off_idempotent(reason):
         log(f"route_off on {reason} failed: {e}")
 
 
+RELAY_POLL_S = 5.0       # how often a relay checks whether its pinned chats exited
+RELAY_EVICT_S = 3.0      # how long a starting daemon waits for a relay to let go
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _pinned_pids(agents):
+    """Live Claude processes that may hold our HTTPS_PROXY env: every claude
+    process (from the raw process table, not agent rows — a chat with no
+    transcript yet has no row, and headless `-p` runs are pinned too) that was
+    launched while routing was installed,
+    or that we've seen connected to the proxy. An unknown launch verdict counts
+    as pinned: keeping an idle listener a little longer is free, while dropping
+    it strands a chat on ECONNREFUSED."""
+    try:
+        procs = agents.procs.scan()     # fresh: catch a chat launched just now
+    except Exception:  # noqa: BLE001
+        procs = None
+    if not procs:
+        procs = agents._procs_cache or {}
+    seen = set(agents._proxy_seen)
+    pids = {pid for pid, p in procs.items()
+            if pid in seen
+            or guarded_at(agents.state.cfg, p.get("lstart")) is not False}
+    pids.discard(os.getpid())
+    return {p for p in pids if _pid_alive(p)}
+
+
+def _relay_for_pinned(state, pids, proxy_thread):
+    """After a confirmed quit: a Claude session captures HTTPS_PROXY once at
+    launch, so closing the port strands every chat started while routed on
+    ECONNREFUSED until it is restarted ("only a new chat works"). Instead the
+    quit daemon — routing already removed, lock already released — keeps the
+    listener as a pure pass-through (state.routed False: the same direct,
+    unguarded connection new chats get; off means off) until the last pinned
+    chat exits, or until the next daemon evicts it with SIGTERM to take the port
+    back and guard those chats again. Everything else has already stopped."""
+    state.routed = False
+    # Hold an flock on the relay file for our whole life: a held lock is the
+    # proof a starting daemon needs that the pid inside is a live relay.
+    relayf = None
+    try:
+        relayf = open(RELAY_FILE, "w")
+        fcntl.flock(relayf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        relayf.write(str(os.getpid()))
+        relayf.flush()
+    except OSError:
+        pass
+    log(f"relay: keeping :{state.proxy_port} open as a pass-through for "
+        f"{len(pids)} pinned chat(s)")
+    while not state.proxy_stop.wait(RELAY_POLL_S):
+        pids = {p for p in pids if _pid_alive(p)}
+        if not pids:
+            break
+    state.proxy_stop.set()
+    proxy_thread.join(2.0)
+    if relayf is not None:
+        try:
+            os.remove(RELAY_FILE)
+        except OSError:
+            pass
+        relayf.close()
+    log("relay: released")
+
+
+def _evict_relay():
+    """Take the proxy port back from a quit daemon still relaying for pinned
+    chats (see _relay_for_pinned), so those chats come back under the guard.
+    The relay holds an flock on RELAY_FILE while alive, so we signal the pid
+    inside only when that lock is held — a stale file (relay killed -9) can
+    never make us SIGTERM an unrelated process that reused the pid."""
+    try:
+        f = open(RELAY_FILE)
+    except OSError:
+        return
+    with f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except OSError:
+            pass                        # held → a live relay
+        else:
+            try:
+                os.remove(RELAY_FILE)   # free → stale file, nobody to evict
+            except OSError:
+                pass
+            return
+        try:
+            pid = int(f.read().strip())
+        except ValueError:
+            return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.monotonic() + RELAY_EVICT_S
+    while _pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    log(f"evicted relay pid={pid}")
+
+
 def main():
     # Detach into our own session so we're an independent daemon, not a
     # responsibility-child of whatever launched us (the menu-bar app). This
@@ -3712,6 +3832,9 @@ def main():
         lockf.write(str(os.getpid()))
         lockf.flush()
 
+    if not IS_WINDOWS:
+        _evict_relay()      # a quit daemon may still hold the sticky port
+
     cfg = load_config()
     state = State(cfg)
     state._mutex = _mutex       # keep the single-instance mutex alive (Windows)
@@ -3728,8 +3851,9 @@ def main():
     state.proxy_port = proxy_port
 
     threading.Thread(target=geo_loop, args=(state,), daemon=True).start()
-    threading.Thread(target=proxy_loop, args=(state, proxy_sock),
-                     daemon=True).start()
+    proxy_thread = threading.Thread(target=proxy_loop,
+                                    args=(state, proxy_sock), daemon=True)
+    proxy_thread.start()
     threading.Thread(target=usage.loop, daemon=True).start()
     threading.Thread(target=plan_loop, args=(state,), daemon=True).start()
     threading.Thread(target=net.loop, daemon=True).start()
@@ -3759,7 +3883,10 @@ def main():
     atexit.register(_route_off_idempotent, "atexit")
 
     def _sig(*_a):
+        # A signal means exit for real — also ends relay mode (a new daemon
+        # evicting us, or the user killing the pass-through).
         state.stop.set()
+        state.proxy_stop.set()
     # SIGINT (Ctrl-C) works everywhere. SIGTERM is POSIX; on Windows the
     # catchable console-close signal is SIGBREAK. The primary, cross-platform
     # shutdown is the {"cmd":"quit"} command file (dispatch sets state.stop),
@@ -3783,6 +3910,14 @@ def main():
             os.remove(STATE_FILE)
         except OSError:
             pass
+        pids = _pinned_pids(agents) if state.relay_on_exit else set()
+        if pids and not state.proxy_stop.is_set():
+            # Free the single-instance lock first so reopening Tower can start a
+            # fresh daemon, which then evicts us and takes the port back.
+            if lockf is not None:
+                lockf.close()
+            _relay_for_pinned(state, pids, proxy_thread)
+        state.proxy_stop.set()
         log("stopped")
 
 
