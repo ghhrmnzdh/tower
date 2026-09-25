@@ -1,0 +1,440 @@
+{
+  "product": "Tower",
+  "tagline": "A control tower for your Claude agents.",
+  "philosophy": "Quiet tower, clear signal.",
+  "sources": [
+    "docs/DESIGN.md",
+    "docs/APP.md",
+    "docs/TUI.md",
+    "README.md",
+    "CLAUDE.md",
+    "src/DesignSystem.swift",
+    "src/Glyph.swift",
+    "src/tower-tui.py",
+    "Tower Identity Study.html",
+    "src/towerd.py"
+  ],
+
+  "colors": {
+    "note": "Every value below is read from source. Brand amber/red are hard-coded in src/Glyph.swift and Tower Identity Study.html. Neutrals (ink/paper/surface/muted) are from the identity study CSS :root. macOS system colors are the literal sRGB values NSColor resolves to (app uses Color(nsColor:...)), captured for Dark and Light appearance.",
+    "brand": {
+      "amber_hold": {
+        "hex": "#E6A93C",
+        "role": "warn / held-pending (holdNet, holdGeo); TUI C_WARN semantic",
+        "source": "src/Glyph.swift towerAmber; HTML --amber; DESIGN.md"
+      },
+      "red_danger": {
+        "hex": "#E5484D",
+        "role": "danger / unguarded (radar off state), destructive confirm",
+        "source": "src/Glyph.swift towerRed; HTML --red; DESIGN.md"
+      },
+      "ink_background": {
+        "hex": "#0C0C0E",
+        "role": "background (page/canvas)",
+        "source": "HTML --ink"
+      },
+      "surface": {
+        "hex": "#141416",
+        "role": "card / panel surface",
+        "source": "HTML .card background"
+      },
+      "surface_border": {
+        "rgba": "rgba(255,255,255,0.08)",
+        "hex_approx": "#242426",
+        "role": "hairline border on surfaces",
+        "source": "HTML .card border"
+      },
+      "text_primary": {
+        "hex": "#E7E6E2",
+        "role": "primary text / paper; also the default glyph currentColor",
+        "source": "HTML --paper, .glyph color"
+      },
+      "text_secondary": {
+        "hex": "#9A9A95",
+        "role": "secondary text (lede/body)",
+        "source": "HTML p.lede"
+      },
+      "text_muted": {
+        "hex": "#8B8B86",
+        "role": "sub-headline / caption",
+        "source": "HTML --mut"
+      },
+      "text_dim": {
+        "hex": "#7C7C77",
+        "role": "dim label / uppercase description",
+        "source": "HTML .desc"
+      },
+      "text_kicker": {
+        "hex": "#6E6E6A",
+        "role": "eyebrow / kicker, lowest-contrast legible tier",
+        "source": "HTML .kicker"
+      }
+    },
+    "model_tier_accents": {
+      "note": "Text-label only. DESIGN.md: 'appears only in the row's small text label — never on the mark itself.' Marks are monochrome.",
+      "fable_gold": "#C9A227",
+      "opus_rosso": "#B0343C",
+      "sonnet_steel": "#3B6FB5",
+      "haiku_crayon": "#E8842C",
+      "other": "systemGray",
+      "source": "src/DesignSystem.swift ModelTier.accent; HTML ACCENT"
+    },
+    "status_semantics": {
+      "note": "src/DesignSystem.swift AgentStatus.color uses NSColor system colors; hexes are the resolved sRGB values on this machine (macOS 26 / Darwin 25.5).",
+      "failed": { "token": "systemRed", "dark": "#FF4245", "light": "#FF383C" },
+      "blocked_approval": { "token": "systemOrange", "dark": "#FF9230", "light": "#FF8D28" },
+      "asking": { "token": "systemIndigo", "dark": "#6D7CFF", "light": "#6155F5" },
+      "done_ok": { "token": "systemGreen", "dark": "#30D158", "light": "#34C759" },
+      "stall_loop": { "token": "systemYellow", "dark": "#FFD600", "light": "#FFCC00" },
+      "label_primary": { "token": "labelColor", "dark": "#FFFFFF @85%", "light": "#000000 @85%" },
+      "label_secondary": { "token": "secondaryLabelColor", "dark": "#FFFFFF @55%", "light": "#000000 @50%" },
+      "label_tertiary_idle": { "token": "tertiaryLabelColor", "dark": "#FFFFFF @25%", "light": "#000000 @26%" },
+      "window_background": { "token": "windowBackgroundColor", "dark": "#1E1E1E", "light": "#FFFFFF" }
+    },
+    "tui_palette": {
+      "note": "src/tower-tui.py init_colors() — 8-color curses pairs on the terminal's own default background (use_default_colors, bg = -1). These are role names, not hexes; render with the terminal-ANSI equivalents below if the video shows the TUI.",
+      "C_TITLE": { "curses": "COLOR_WHITE", "role": "text primary / section titles (bold)" },
+      "C_GOOD": { "curses": "COLOR_GREEN", "role": "ok" },
+      "C_WARN": { "curses": "COLOR_YELLOW", "role": "warn / held" },
+      "C_DIM": { "curses": "COLOR_CYAN", "role": "dim section headers (NETWORK LOCATION, GUARD)" },
+      "C_ACCENT": { "curses": "COLOR_MAGENTA", "role": "accent / selection (often A_REVERSE)" },
+      "C_BAD": { "curses": "COLOR_RED", "role": "danger (INTERNET DOWN, ANTHROPIC API ISSUE)" },
+      "section_headers_verbatim": [
+        "TOWER", "NETWORK LOCATION", "GUARD", "KEEP AWAKE", "NETWORK", "AGENTS",
+        "PLAN LIMITS", "LIVE TRAFFIC", "ACTIONS", "PIN A COUNTRY",
+        "HELP · WHAT EACH KEY DOES", "ESTIMATED API COST", "BACKGROUND PROCESSES",
+        "INTERNET DOWN", "ANTHROPIC API ISSUE"
+      ]
+    },
+    "video_palette_recommendation": {
+      "bg": "#0C0C0E",
+      "surface": "#141416",
+      "hairline": "#242426",
+      "text": "#E7E6E2",
+      "text_2": "#9A9A95",
+      "text_dim": "#7C7C77",
+      "ok": "#30D158",
+      "warn": "#E6A93C",
+      "danger": "#E5484D",
+      "accent": "#E6A93C",
+      "rule": "amber and red are load-bearing (hold vs unguarded) — never use them decoratively"
+    }
+  },
+
+  "radar_glyph": {
+    "summary": "Tower's mark: a radar on a control tower. One geometry, five states = the guard. Drawn in a 0..100 box; identical in src/Glyph.swift drawRadar() and the SVG in Tower Identity Study.html.",
+    "coordinate_system": {
+      "box": [0, 0, 100, 100],
+      "y_axis": "down (SVG/CoreGraphics-style; Pillow matches natively)",
+      "hub": [50, 50],
+      "scale": "multiply all values by size/100",
+      "angles": "degrees, 0 deg = +x axis, increasing clockwise on screen (because y is down). Pillow arc() uses the same convention."
+    },
+    "static_parts": {
+      "outer_ring": {
+        "r_ratio": 0.33,
+        "r": 33,
+        "stroke_width": 6,
+        "color": "state-dependent (see states)",
+        "dash": "state-dependent"
+      },
+      "blips": {
+        "points": [[64, 41], [38, 58], [58, 66]],
+        "r": 3.6,
+        "fill": "neutral (currentColor)",
+        "opacity": "state-dependent; 0 in holdNet/holdGeo"
+      },
+      "core": {
+        "filled": { "r": 4.5, "r_when_awake": 5.6, "fill": "amber if holdNet else neutral" },
+        "hollow_off": { "r": 5.5, "stroke_width": 4, "color": "#E5484D", "no_fill": true }
+      }
+    },
+    "states": [
+      {
+        "name": "clear",
+        "means": "guarding · in-country + path to Anthropic open",
+        "ring": { "color": "neutral", "dash": null },
+        "core": "filled neutral r=4.5",
+        "blips": { "opacity": "0.8 + 0.2*sin(P*1.6 + i*1.3)", "still": 0.8 },
+        "motion": {
+          "name": "calm outward pulse",
+          "pr": "(P*0.42) mod 1",
+          "circle_r": "8 + pr*26",
+          "opacity": "(1 - pr)*0.5",
+          "stroke_width": 3,
+          "color": "neutral",
+          "reduce_motion_still": { "r": 22, "opacity": 0.3 }
+        }
+      },
+      {
+        "name": "verify",
+        "means": "confirming location; held until sure",
+        "ring": { "color": "neutral", "dash": null },
+        "core": "filled neutral r=4.5",
+        "blips": { "opacity": "0.3 + 0.12*sin(P*2.2 + i)", "still": 0.3 },
+        "motion": {
+          "name": "rotating sweep with a soft trail",
+          "rotation_deg": "(P*150) mod 360 about the hub",
+          "needle": { "from": [50, 50], "to": [50, 17], "stroke_width": 4, "cap": "round", "color": "neutral" },
+          "trail": {
+            "shape": "wedge: hub -> arc of r=33 sampled at 13 points from 270deg to 208.5deg -> close",
+            "fill": "neutral @ 0.16 alpha"
+          },
+          "reduce_motion_still": "sweep frozen at rotation 0 (needle straight up)"
+        }
+      },
+      {
+        "name": "holdNet",
+        "means": "no usable path (offline / captive / edge unreachable) — held pending, self-clears",
+        "ring": { "color": "#E6A93C", "dash": [5, 6] },
+        "core": "filled AMBER r=4.5",
+        "blips": { "opacity": 0 },
+        "motion": {
+          "name": "amber sonar pings, 2 concentric, phase-offset 0.5",
+          "for_i_in": [0, 1],
+          "pr": "((P*0.7) + i*0.5) mod 1",
+          "circle_r": "7 + pr*15",
+          "opacity": "max(0, 1 - pr)*0.7",
+          "stroke_width": 3.5,
+          "color": "#E6A93C",
+          "reduce_motion_still": { "r": "11 + i*7", "opacity": "0.55 - i*0.25" }
+        }
+      },
+      {
+        "name": "holdGeo",
+        "means": "wrong country / VPN — held, not failed",
+        "ring": { "color": "#E6A93C", "dash": null },
+        "core": "filled neutral r=4.5",
+        "blips": { "opacity": 0 },
+        "motion": {
+          "fence": { "r": 15, "stroke_width": 3, "dash": [4, 5], "color": "#E6A93C", "rotation_deg": "(P*45) mod 360 about hub" },
+          "ray": { "from": [50, 50], "to": [72, 32], "stroke_width": 2.5, "cap": "round", "dash": [2, 4], "color": "#E6A93C" },
+          "off_country_blip": {
+            "base_center": [72, 32],
+            "r": 5,
+            "fill": "#E6A93C",
+            "lunge_dir": [-0.773, 0.634],
+            "lunge": "6 * (0.5 + 0.5*sin(P*2.2))",
+            "center": "[72 + dx*lunge, 32 + dy*lunge]",
+            "scale_about_base": "1 + 0.16*sin(P*3.0)"
+          },
+          "halo": {
+            "center": "same as lunged blip center",
+            "hp": "(P*1.1) mod 1",
+            "r": "5 + hp*9",
+            "opacity": "(1 - hp)*0.8",
+            "stroke_width": 2.5,
+            "color": "#E6A93C"
+          },
+          "reduce_motion_still": { "fence_rotation": 0, "lunge": 0, "scale": 1, "halo_r": 10, "halo_opacity": 0.5 }
+        }
+      },
+      {
+        "name": "off",
+        "means": "routing off — Claude connects directly, UNGUARDED. Danger.",
+        "ring": { "color": "#E5484D", "dash": [5, 7] },
+        "core": "HOLLOW red: stroke circle r=5.5, width 4, #E5484D (no fill)",
+        "blips": { "opacity": 0.22 },
+        "motion": { "name": "none — the off state is still", "reduce_motion_still": "identical" }
+      }
+    ],
+    "awake_vigil_overlay": {
+      "note": "Keep-awake rides ANY radar state; deliberately NEUTRAL (never amber/red) so a hold always outranks it. Drawn under the core.",
+      "modes": ["none", "idle (still lit lamp)", "clamshell (breathes, 2.4s period)"],
+      "amp": { "idle": 0.6, "clamshell": 1.0 },
+      "br": "clamshell&&animating ? 0.5 + 0.5*sin(P*2*pi/2.4) : 0.7",
+      "bloom_fills": [
+        { "r": 15, "base_opacity": 0.09 },
+        { "r": 11, "base_opacity": 0.15 },
+        { "r": 7.5, "base_opacity": 0.22 }
+      ],
+      "bloom_opacity_formula": "base_opacity * (0.75 + 0.35*br*amp)",
+      "halo": { "r": "9.5 + 1.7*br*amp", "stroke_width": 2.2, "opacity": "0.44 + 0.30*br*amp" },
+      "core_grows_to": 5.6
+    },
+    "beacon_standalone": {
+      "note": "src/Glyph.swift drawBeacon — the same lamp without the radar ring, 0..100 box.",
+      "on": {
+        "bloom_fills": [[30, 0.10], [21, 0.17], [13, 0.26]],
+        "bloom_opacity_formula": "op * (0.75 + 0.35*br*amp)",
+        "ring": { "r": "17 + 2*br*amp", "stroke_width": 4.5, "opacity": "0.30 + 0.25*br*amp" },
+        "core": { "r": 11, "fill": "neutral" }
+      },
+      "off": {
+        "ring": { "r": 15, "stroke_width": 4.5, "opacity": 0.34 },
+        "core": { "r": 6, "opacity": 0.30 }
+      }
+    },
+    "phase_variable": "P = seconds (timeIntervalSinceReferenceDate). For a rendered video, P = frame_index / fps; all formulas are pure functions of (state, P).",
+    "render_sizes": { "menubar_pt": 18, "row_glyph_pt": 28, "popover_width_pt": 360, "identity_study_card_px": 120 },
+    "pillow_notes": [
+      "Draw at 4-8x supersample then LANCZOS-downsample: Pillow has no native antialiasing for ellipse/arc.",
+      "Dashes: Pillow has no dash support — synthesize by drawing arc() segments; e.g. dash [5,7] on r=33 means arc-length 5 on, 7 off, converted to degrees via deg = 360*len/(2*pi*r).",
+      "Strokes: ImageDraw.ellipse(..., width=w) strokes inward-centered; for exactness draw arcs with width=w on the r circle.",
+      "Alpha: composite each element as its own RGBA layer so overlapping opacities match the SwiftUI/SVG result."
+    ]
+  },
+
+  "model_marks": {
+    "rule": "Monochrome, drawn in the same 0..100 box (drawModelMark). Still at rest; alive only while that agent is working. The tier accent lives in the text label only.",
+    "haiku": { "form": "three ticks at -90/30/150 deg from (16) to (34) radius, stroke 8 round + core circle r=7", "motion": "ticks breathe outward (osc = 0.5+0.5*sin(P*2.3 + k*2.094), offset E*3.4*osc); whole mark sways E*6*sin(P*0.7); core scales 1 + E*0.22*sin(P*3.0)" },
+    "sonnet": { "form": "one S stroke: upper arc center (50,37.5) r=12.5 bulging right, lower arc center (50,62.5) r=12.5 bulging left; stroke 8 round", "motion": "slow continuous turn rot = E*(P*16) + E*4*sin(P*1.3); scale 1 + E*0.05*sin(P*1.3)" },
+    "opus": { "form": "three 300-deg open arcs at radii [16,27,38], gap starts [90,210,330] deg, stroke 6.5 + core r=5", "motion": "each ring rotates at its own rate [14,-10,8] deg-units*P*E; core pulses 1 + E*0.18*sin(P*2.1)" },
+    "fable": { "form": "Archimedean-ish spiral, 120 steps, f in 0..1: angle = f*2.35*2pi - pi/2, r = 2.5 + 32.5*f; stroke 8 round + core r=4", "motion": "a highlight segment winds up it: head = (P*0.22) mod 1, tail = head-0.16, stroke 8.6 at alpha 0.95, plus a dot r=5 at the head" }
+  },
+
+  "typography": {
+    "what_the_product_uses": {
+      "ui": "SF (San Francisco) via SwiftUI Font.system — header 13 semibold · row title 13 · activity 11 secondary · counters 11 monospacedDigit · section headers 11 semibold secondary · caption 9 (src/DesignSystem.swift TowerDesign.Font)",
+      "mono_bundled": "JetBrains Mono — PostScript names JetBrainsMono-Medium / JetBrainsMono-Bold, bundled in Resources/Fonts and registered at launch; used for technical model/effort tokens; falls back to system monospaced if registration fails",
+      "counters": "monospacedDigit() with .contentTransition(.numericText()) so numbers tick without reflow",
+      "tui": "whatever the terminal's monospace face is (curses); headers are UPPERCASE + A_BOLD",
+      "identity_study_html": "headings 'Newsreader', Georgia, serif; mono 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo; kicker 11px / letter-spacing .24em / uppercase; desc 11px uppercase / letter-spacing .03em (.14em when mono)"
+    },
+    "video_pairing_verified_paths": {
+      "display_serif": {
+        "family": "New York (matches the study's Newsreader/Georgia serif register)",
+        "path": "/System/Library/Fonts/NewYork.ttf",
+        "exists": true,
+        "variable_axes": ["Optical Size", "Weight", "GRAD"],
+        "pillow": "ImageFont.truetype(path, size); font.set_variation_by_axes([opsz, wght, grad]) for weight",
+        "italic_path": "/System/Library/Fonts/NewYorkItalic.ttf"
+      },
+      "ui_sans": {
+        "family": "SF Pro / System Font — the app's actual UI face",
+        "path": "/System/Library/Fonts/SFNS.ttf",
+        "exists": true,
+        "variable_axes": ["Width", "Optical Size", "GRAD", "Weight"],
+        "italic_path": "/System/Library/Fonts/SFNSItalic.ttf",
+        "note": "Pillow reads it fine; use set_variation_by_name/axes for semibold (wght ~590) since only Regular is the default instance"
+      },
+      "mono": {
+        "family": "JetBrains Mono — the product's own bundled mono, preferred for on-screen code/tokens",
+        "path_medium": "/Users/omega/room/mainprojects/tower/src/Fonts/JetBrainsMono-Medium.ttf",
+        "path_bold": "/Users/omega/room/mainprojects/tower/src/Fonts/JetBrainsMono-Bold.ttf",
+        "exists": true,
+        "license": "OFL (src/Fonts/OFL.txt) — redistributable in a promo video"
+      },
+      "mono_system_fallbacks": [
+        { "family": "Menlo", "path": "/System/Library/Fonts/Menlo.ttc", "exists": true, "ttc_indexes": { "0": "Regular", "1": "Bold", "2": "Italic", "3": "Bold Italic" }, "note": "closest to the terminal look of the TUI" },
+        { "family": "SF Mono", "path": "/System/Library/Fonts/SFNSMono.ttf", "exists": true, "variable_axes": ["YAXS", "Weight"], "note": "default instance is Light — set wght explicitly" }
+      ],
+      "recommended_roles": {
+        "hero_headline": "New York, weight ~500-600, tight tracking (-0.01em)",
+        "body_lede": "SF (SFNS.ttf) regular, 17px/1.6 equivalent, #9A9A95",
+        "kicker_eyebrow": "JetBrains Mono Medium, uppercase, letter-spacing 0.24em, #6E6E6A",
+        "state_labels_and_code": "JetBrains Mono Medium/Bold, uppercase, letter-spacing 0.14em",
+        "numbers_meters": "JetBrains Mono (tabular by construction)"
+      }
+    }
+  },
+
+  "motion_laws": {
+    "three_rules": [
+      "The mark is the state — the radar IS the guard, a model mark IS the model. Nothing decorative signals status.",
+      "Motion = state change — celebration is earned (done), never granted (failure is sober). Nothing loops at full attention when all is well.",
+      "One loudest thing — a strict attention hierarchy; at most one element pulses at a time."
+    ],
+    "tokens": {
+      "settle": { "spring": [0.45, 0.85], "use": "any state swap" },
+      "arrive": { "spring": [0.55, 0.72], "use": "entrances, slight overshoot" },
+      "payoff": { "spring": [0.35, 0.60], "use": "the done pop" },
+      "sober": { "easeOut_s": 0.25, "use": "failure — no bounce, ever" },
+      "reorder": { "spring": [0.50, 0.80], "use": "queue re-ranking" },
+      "shimmerPeriod_s": 1.8,
+      "stagger_s_per_row": 0.04,
+      "glowHold_s": 0.9,
+      "done_payoff_total_s": 0.6,
+      "radar_fps": "~30fps only while the state warrants it; live views are 60fps TimelineView, paused when idle"
+    },
+    "must_never": [
+      "Failure must NEVER bounce — failed uses easeOut 0.25s, a sober fade. No spring, no overshoot, no shake.",
+      "Never more than one glowing/pulsing element at a time (newest wins).",
+      "The quiet state is completely still — nothing loops when all is well.",
+      "Never animate a state that has nothing to say (the radar freezes; the menu bar animates only for a hold, a verify sweep, or a calm scan while agents work).",
+      "Never reorder the popover sections — order encodes attention.",
+      "The menu bar never counts running agents (only the needs-you count, and optionally usage %)."
+    ],
+    "reduce_motion": "Always honored, no exceptions: loops stop, springs become 0.2s fades, counters set directly, and each radar state freezes at a legible STILL FRAME — never a blank. Every state above lists its reduce_motion_still values.",
+    "attention_hierarchy": "menubar badge > Needs-You order > collision banner > the radar's own motion",
+    "status_motion_table": [
+      { "state": "failed", "symbol": "xmark.octagon.fill", "motion": "sober fade, never bounces", "rank": 1 },
+      { "state": "blocked (approval)", "symbol": "hand.raised.fill", "motion": "one pulse on arrival", "rank": 2 },
+      { "state": "asking", "symbol": "questionmark.bubble.fill", "motion": "one pulse on arrival", "rank": 3 },
+      { "state": "done", "symbol": "checkmark draws on (trim 0->1)", "motion": "payoff spring + 0.9s glow", "rank": 4 },
+      { "state": "stall / loop", "symbol": "exclamationmark.triangle.fill", "motion": "none" },
+      { "state": "working — thinking", "symbol": "the model mark", "motion": "per-model motion, 60fps" },
+      { "state": "working — tool in flight", "symbol": "activity line", "motion": "shimmer sweep 1.8s" },
+      { "state": "idle", "symbol": "zzz", "motion": "none" }
+    ],
+    "dopamine_layer": "Summary line ('3 at work · 41 jobs done today · 1 needs you') and per-row 'n ✓' counters tick up with numericText as agents complete tools; then quiet."
+  },
+
+  "voice": {
+    "register": "Calm, factual, understated. Short declaratives. Says what is true, including when the news is bad. Never hypes.",
+    "lines": [
+      { "theme": "identity", "text": "Tower — a control tower for your Claude agents.", "source": "README.md", "verbatim": true },
+      { "theme": "identity", "text": "Quiet tower, clear signal.", "source": "docs/DESIGN.md", "verbatim": true },
+      { "theme": "identity", "text": "One daemon, four jobs: the agents, the weather, the fence, usage.", "source": "README.md", "verbatim": false },
+      { "theme": "fence", "text": "The fence — pin Claude Code to one country.", "source": "README.md", "verbatim": true },
+      { "theme": "fence", "text": "A tiny local proxy holds Claude's requests whenever you're not confirmed inside your target country.", "source": "README.md", "verbatim": true },
+      { "theme": "fence", "text": "Your country is confirmed every ~15 s against three independent geo providers.", "source": "README.md", "verbatim": true },
+      { "theme": "fence", "text": "A VPN drop is caught in about a quarter of a second, and a confirmation older than 60 s is never trusted.", "source": "README.md", "verbatim": true },
+      { "theme": "fail-closed", "text": "The guard is fail-closed. There is no allow-through fallback.", "source": "README.md", "verbatim": true },
+      { "theme": "fail-closed", "text": "An unconfirmed location never gets through.", "source": "README.md", "verbatim": true },
+      { "theme": "fail-closed", "text": "A Claude request proceeds only when Tower can affirmatively confirm two things at once: you are inside the target country, and the network has a usable path to Anthropic.", "source": "README.md", "verbatim": true },
+      { "theme": "fail-closed", "text": "A false hold is a pending retry that clears itself; a false allow is an off-country request you can't take back.", "source": "README.md", "verbatim": true },
+      { "theme": "503-pending", "text": "A held request is PENDING, not FAILED.", "source": "README.md", "verbatim": true },
+      { "theme": "503-pending", "text": "Tower holds it a few seconds, then answers 503 + Retry-After.", "source": "README.md", "verbatim": true },
+      { "theme": "503-pending", "text": "Claude Code turns a 503 into its own native \"Retrying · attempt x/y\" spinner.", "source": "README.md", "verbatim": true },
+      { "theme": "503-pending", "text": "The turn survives and resumes by itself the moment the guard clears.", "source": "README.md", "verbatim": true },
+      { "theme": "503-pending", "text": "Tower never returns 403 — Claude reads that as broken auth and kills the turn.", "source": "README.md", "verbatim": true },
+      { "theme": "weather", "text": "The weather — when Claude errors mid-session, Tower instantly answers: is it my internet, is it slow, or is it Anthropic?", "source": "README.md", "verbatim": true },
+      { "theme": "weather", "text": "Anthropic API unreachable — your internet is fine (23 ms).", "source": "docs/APP.md", "verbatim": true, "note": "example verdict banner copy" },
+      { "theme": "weather", "text": "A slow but reachable connection still gets through — degraded is not blocked.", "source": "README.md guard table", "verbatim": false },
+      { "theme": "agents", "text": "Every running Claude Code agent, live: status, activity, model, momentum.", "source": "README.md", "verbatim": true },
+      { "theme": "agents", "text": "A ranked needs-you queue — failed > blocked > asking > done — with notifications, and click-to-focus that agent's terminal.", "source": "README.md", "verbatim": true },
+      { "theme": "agents", "text": "So none run off unwatched.", "source": "README.md", "verbatim": true },
+      { "theme": "agents", "text": "Statuses are derived read-only from Claude Code's own session transcripts — Tower never writes into ~/.claude and never injects input.", "source": "README.md", "verbatim": true },
+      { "theme": "usage", "text": "Your real plan usage, mirrored from claude -p /usage, plus a clearly-labeled local token/cost estimate.", "source": "README.md", "verbatim": true },
+      { "theme": "privacy", "text": "The proxy tunnels HTTPS via CONNECT, so it sees each request's hostname — but never decrypts your traffic.", "source": "README.md", "verbatim": true },
+      { "theme": "safety", "text": "Turning the guard off is double-confirmed.", "source": "README.md", "verbatim": true },
+      { "theme": "safety", "text": "It always un-routes on shutdown, so Claude goes back to a direct connection.", "source": "README.md", "verbatim": true },
+      { "theme": "install", "text": "One line. No password, no sudo, no Gatekeeper warning, nothing to drag or un-quarantine.", "source": "README.md", "verbatim": true },
+      { "theme": "install", "text": "curl -fsSL https://ghhrmnzdh.github.io/tower/install.sh | sh", "source": "README.md", "verbatim": true }
+    ],
+    "state_captions_verbatim": {
+      "clear": "Guarding · in-country and a path to Anthropic is open",
+      "verify": "Confirming your location; held until sure",
+      "holdNet": "No usable path (offline / captive / API) — held pending",
+      "holdGeo": "Wrong country / VPN — held, not failed",
+      "off": "Routing off — Claude connects directly, unguarded",
+      "source": "README.md / docs/APP.md menu-bar tables; study labels: Cleared · Verifying · Hold · connection · Hold · location · Unguarded"
+    }
+  },
+
+  "do_not_claim": [
+    "Do NOT say Tower 'fails open', 'falls back to allowing', or 'lets traffic through when unsure'. It is fail-closed: uncertain = held. (CLAUDE.md, README.md)",
+    "Do NOT call Tower a VPN, proxy service, or IP changer. It does not change, hide, or relocate your IP — it only confirms where you already are and holds requests when you're not there.",
+    "Do NOT claim it guards anything other than Claude Code. It is Claude-Code-only; routing works because Claude Code obeys the proxy env in ~/.claude/settings.json. No browser Claude.ai, no other AI CLIs, no general apps.",
+    "Do NOT call it a firewall, kill switch, or OS-level protection. README: 'this is a proxy, not an OS-level kill switch… a program told to ignore the proxy could still reach the network.'",
+    "Do NOT say blocked requests 'fail', 'error out', or return 403. They are held, then answered 503 + Retry-After, and stay PENDING in Claude Code's own retry spinner. Tower never returns 403.",
+    "Do NOT say Tower inspects, decrypts, or reads your traffic or prompts. CONNECT tunneling means hostname only.",
+    "Do NOT say Tower reads your Claude token/credentials. Claude does the auth; network probes never touch credentials and never go through the proxy.",
+    "Do NOT say Tower controls, writes to, or injects into your Claude sessions. It is read-only toward ~/.claude session transcripts.",
+    "Do NOT say Tower edits your shell, adds aliases, or wraps the `claude` command. It only writes env keys into ~/.claude/settings.json.",
+    "Do NOT claim a slow connection is blocked. 'Degraded' (high-latency but reachable) still allows traffic; only offline / captive / edge-unreachable is a hold.",
+    "Do NOT claim the menu bar shows a running-agent count. It shows the needs-you count (switchable off) and optionally usage %.",
+    "Do NOT present 'waiting for approval' as certain — README calls it 'an honest heuristic (a pending tool call with a stalled transcript can also be a slow tool)'.",
+    "Do NOT claim it is notarized, App-Store-signed, or Apple-verified. It is ad-hoc signed and not notarized (that's why the install is a curl line).",
+    "Do NOT claim Windows support as shipped/stable. The daemon + TUI are experimental and have never been run on real Windows hardware; there is no native tray.",
+    "Do NOT claim Intel Mac, older macOS, or Linux support. Requirements: macOS 14+ on Apple Silicon, Python 3.8+, Claude Code installed.",
+    "Do NOT claim a cloud service, account, telemetry, or third-party dependencies. Stdlib + AppKit/SwiftUI only; nothing leaves the machine but the public-IP country lookup and network probes.",
+    "Do NOT claim it needs root or installs system-wide daemons (the only exception is the optional, opt-in keep-awake lid-closed mode, which asks for admin once and is fully removable).",
+    "Do NOT show plan-usage numbers while the guard is holding. When /usage is gated the front-ends show an honest message naming the cause (connection vs location) — never stale numbers.",
+    "Do NOT frame a hold, an amber radar, or a block as the app being broken. It is the app doing its job and reporting the truth; it clears itself when the condition recovers.",
+    "Do NOT show failure bouncing, springing, or celebrating. Failure is sober (easeOut 0.25s) — never a bounce.",
+    "Do NOT tint the model marks with their tier accent, and do NOT render the menu-bar radar as a flat monochrome template — the amber/red are the information.",
+    "Do NOT have two things pulsing at once, or any looping motion in the all-clear state."
+  ]
+}

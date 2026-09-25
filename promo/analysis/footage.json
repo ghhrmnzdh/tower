@@ -1,0 +1,236 @@
+{
+  "meta": {
+    "source": "/Users/omega/room/mainprojects/tower/promo/media/source.mov",
+    "width": 3032,
+    "height": 1490,
+    "duration_s": 87.405,
+    "fps": 240,
+    "audio": false,
+    "method": "ffmpeg fps=10 full-frame decode (874 frames) + per-region color/pixel classifiers, verified by reading cropped JPEGs; all timestamps frame-accurate to +/-0.1 s",
+    "layout": "LEFT = V2Box VPN client window. RIGHT = Terminal running tower-tui.py. Tower menubar popover opens over the top-right, partially covering the TUI's right edge.",
+    "wallclock_mapping": "TUI log clock ~= video_t + 17:43:09.5 (e.g. video t=8.9 -> 17:43:18 burst)"
+  },
+
+  "beats": [
+    { "t": 0.0,  "kind": "opening_state", "detail": "Clip opens mid-fault. Menubar popover is ALREADY OPEN: 'Tower / Reconnecting Claude…' with amber banner 'Internet is slow — ping — — expect Claude timeouts', AGENTS '55 jobs done today · 1 needs you', nocturne_project 'done — your turn' (Opus 5 · 1M · HIGH), 'Resting · 8', 'Sleep allowed', 'PLAN USAGE updated 24s ago', 'Usage paused — location not confirmed'. TUI header = 'Reconnecting Claude…' (dim, shimmering). NETWORK LOCATION = green '✓ inside target', Canada. NETWORK = amber 'degraded · net — · api 214ms · slow link'. LIVE TRAFFIC = 5 RED 'blocked Claude api.anthropic.com' rows (17:43:07–17:43:10). Counters: 124147 allowed · 21917 blocked. Frontmost app = V2Box. V2Box button = green 'Tap To Disconnect'." },
+    { "t": 8.2,  "kind": "popover", "detail": "Menubar popover dismisses (fully gone by 8.4)." },
+    { "t": 8.9,  "kind": "traffic_flip + header_flip", "detail": "MONEY: in one frame the whole LIVE TRAFFIC list flips from 5 RED 'blocked' rows to 6 GREEN '✓ allowed Claude api.anthropic.com' rows all stamped 17:43:18 — the held/pending requests land in a burst. Allowed counter 124147 -> 124153. TUI header flips amber 'Reconnecting Claude…' -> green 'Protected · target: Canada'. Blocked counter freezes at 21927." },
+    { "t": 13.5, "kind": "focus", "detail": "Frontmost app V2Box -> Terminal (V2Box title greys out)." },
+    { "t": 16.0, "kind": "focus", "detail": "Frontmost app Terminal -> V2Box (user going for the VPN button)." },
+    { "t": 19.1, "kind": "vpn", "detail": "VPN DISCONNECT. V2Box button flips green 'Tap To Disconnect' -> light-grey 'Tap To Connect', and a 'Disconnected!' toast appears to its right. Tower still reads Canada / Protected at this instant." },
+    { "t": 20.9, "kind": "focus", "detail": "Frontmost app V2Box -> Terminal." },
+    { "t": 24.0, "kind": "net_health", "detail": "NETWORK flips amber 'degraded · net 70ms · api 355ms · slow link' -> green 'online · net 102ms · api 310ms'. (Dropping the VPN made the raw link faster; guard is still passing.)" },
+    { "t": 24.9, "kind": "popover_flash", "detail": "Popover flashes open for 0.4 s (closes 25.2): 'Tower / Protected' in GREEN, blue toggle ON, 'Internet · API 102 ms · 309 ms', and a fully populated PLAN USAGE (Session 10% resets Jul 26 at 9pm, Weekly 53%, Fable 33%). Best healthy-state card in the whole clip, but only 4 frames at 10fps." },
+    { "t": 35.1, "kind": "geo_flip + header_flip", "detail": "MONEY: NETWORK LOCATION flips GREEN '✓ inside target / IP 104.234.138.96 / Canada (CA) / Toronto, Ontario / WorldStream B.V.' -> AMBER '× outside target — Claude blocked / IP 5.201.242.113 / IR (IR) / Tehran, Tehran / MCI'. Same frame: TUI header flips green 'Protected · target: Canada' -> amber 'Blocking Claude · target: Canada'. Simultaneously PLAN LIMITS switches to 'paused — guard not passing' + 'Usage paused — location not confirmed / You appear to be outside Canada…'." },
+    { "t": 35.6, "kind": "popover", "detail": "Menubar popover opens (stable and fully legible until 38.5): 'Tower / Blocking Claude' amber, BLUE toggle ON, '● Internet · API  81 ms · 273 ms', AGENTS '55 jobs done today · 1 needs you', nocturne_project done — your turn, 'Resting · 7', 'Sleep allowed', 'PLAN USAGE updated 59s ago', 'Usage paused — location not confirmed'." },
+    { "t": 38.5, "kind": "popover", "detail": "Popover dismisses (gone by 38.6)." },
+    { "t": 39.2, "kind": "header_flip", "detail": "TUI header 'Blocking Claude' -> dim shimmering 'Reconnecting Claude…' (stays this way until 81.4)." },
+    { "t": 44.1, "kind": "traffic", "detail": "First RED row enters LIVE TRAFFIC: '17:43:53 ⛔ blocked  Claude  api.anthropic.com' at the top of a still-green list. Blocked counter starts climbing (21927 -> 21928)." },
+    { "t": 47.0, "kind": "traffic", "detail": "Second red row stacks in." },
+    { "t": 48.0, "kind": "traffic", "detail": "Three red rows on top of two green ones — the log is visibly turning over." },
+    { "t": 49.6, "kind": "popover", "detail": "Popover opens (until 51.3): 'Tower / Reconnecting Claude…', blue toggle ON, '● Internet · API 140 ms · 261 ms', 'Resting · 6', 'PLAN USAGE updated 73s ago', 'Usage paused — location not confirmed'." },
+    { "t": 51.3, "kind": "popover", "detail": "Popover dismisses; a 4th red row lands the same beat." },
+    { "t": 53.0, "kind": "focus", "detail": "Frontmost app Terminal -> V2Box (user going for reconnect)." },
+    { "t": 54.0, "kind": "vpn", "detail": "VPN RECONNECT. V2Box button flips grey 'Tap To Connect' -> green 'Tap To Disconnect'; toast changes to 'Tap to ping!'." },
+    { "t": 56.2, "kind": "traffic", "detail": "LIVE TRAFFIC is now a solid run of 5 RED 'blocked Claude api.anthropic.com' rows (17:44:01–17:44:06). Stays essentially all-red until 81.4." },
+    { "t": 56.4, "kind": "focus", "detail": "Frontmost app V2Box -> Terminal." },
+    { "t": 57.8, "kind": "popover_flash", "detail": "Popover flashes open 0.4 s (closes 58.1): 'Tower / Reconnecting Claude…', blue toggle ON, '● Internet · API 64 ms · 898 ms', 'Resting · 6', 'updated 80s ago', 'Usage paused — location not confirmed'." },
+    { "t": 62.3, "kind": "traffic_detail", "detail": "SCOPE PROOF: green '✓ allowed  other  bridge.claudeusercontent.com' rows interleave with the red 'blocked Claude api.anthropic.com' rows — the guard blocks only the Claude API, not everything. Runs to ~69.3, again 75.4–77.4. (Earlier equivalents: 'allowed other http-intake.logs.us5.datadoghq.com', 'allowed other registry.npmjs.org'.)" },
+    { "t": 67.3, "kind": "geo_flip", "detail": "NETWORK LOCATION flips back AMBER -> GREEN '✓ inside target / 104.234.138.96 / Canada (CA) / Toronto, Ontario / WorldStream B.V.'. Header stays 'Reconnecting Claude…'; LIVE TRAFFIC is still all-red at this instant." },
+    { "t": 81.4, "kind": "recovery", "detail": "MONEY: header flips dim 'Reconnecting Claude…' -> green 'Protected · target: Canada' and the first green '✓ allowed Claude api.anthropic.com' rows push in above the red ones (17:44:31). Blocked counter stops at 21968." },
+    { "t": 82.4, "kind": "recovery", "detail": "Last red row scrolls out — LIVE TRAFFIC is fully green again. Allowed counter jumps 124178 -> 124188 (t=83) -> 124200 (t=86): a burst of resumed requests." },
+    { "t": 87.4, "kind": "end", "detail": "Ends steady-state green: Protected · target: Canada, inside target Canada, online · net 71ms · api 408ms, all-allowed traffic, 124200 allowed · 21968 blocked." }
+  ],
+
+  "vpn_state_changes": [
+    { "t_start": 0.0,  "t_end": 19.1, "state": "connected",    "button": "green 'Tap To Disconnect'", "hint": "'Tap to ping!'" },
+    { "t": 19.1, "change": "connected -> disconnected", "detail": "button goes light-grey 'Tap To Connect' + red-free 'Disconnected!' toast" },
+    { "t_start": 19.1, "t_end": 54.0, "state": "disconnected", "button": "grey 'Tap To Connect'", "hint": "'Disconnected!'" },
+    { "t": 54.0, "change": "disconnected -> connected", "detail": "button goes green 'Tap To Disconnect' + 'Tap to ping!'" },
+    { "t_start": 54.0, "t_end": 87.4, "state": "connected", "button": "green 'Tap To Disconnect'" }
+  ],
+
+  "network_location_timeline": [
+    { "t_start": 0.0,  "t_end": 35.1, "state": "inside", "color": "green", "line": "✓ inside target", "ip": "104.234.138.96", "country": "Canada (CA)", "location": "Toronto, Ontario", "isp": "WorldStream B.V." },
+    { "t_start": 35.1, "t_end": 67.3, "state": "outside", "color": "amber/olive (NOT red — brief assumed red)", "line": "× outside target — Claude blocked", "ip": "5.201.242.113", "country": "IR (IR)", "location": "Tehran, Tehran", "isp": "MCI" },
+    { "t_start": 67.3, "t_end": 87.4, "state": "inside", "color": "green", "line": "✓ inside target", "ip": "104.234.138.96", "country": "Canada (CA)", "location": "Toronto, Ontario", "isp": "WorldStream B.V." }
+  ],
+
+  "network_health_timeline": [
+    { "t_start": 0.0, "t_end": 24.0, "state": "degraded", "color": "amber", "samples": [
+      { "t": 0.0,  "text": "degraded · net — · api 214ms · slow link" },
+      { "t": 12.0, "text": "degraded · net — · api 475ms · slow link" },
+      { "t": 20.0, "text": "degraded · net 70ms · api 355ms · slow link" } ] },
+    { "t_start": 24.0, "t_end": 87.4, "state": "online", "color": "green", "samples": [
+      { "t": 24.0, "text": "online · net 102ms · api 310ms" },
+      { "t": 30.0, "text": "online · net 85ms · api 270ms" },
+      { "t": 40.0, "text": "online · net 82ms · api 273ms" },
+      { "t": 50.0, "text": "online · net 140ms · api 262ms" },
+      { "t": 60.0, "text": "online · net 107ms · api 1040ms" },
+      { "t": 70.0, "text": "online · net 69ms · api 612ms" },
+      { "t": 80.0, "text": "online · net 86ms · api 457ms" },
+      { "t": 86.0, "text": "online · net 71ms · api 408ms" } ] },
+    { "note": "NETWORK never goes offline/captive; it stays 'online' through the whole off-country window — i.e. the block is purely the geo fence, and the two indicators are visibly independent." }
+  ],
+
+  "live_traffic_windows": [
+    { "t_start": 0.0,  "t_end": 8.9,  "state": "all_blocked", "detail": "5 red rows 17:43:07–17:43:16; counters 124147 allowed · 21917 -> 21927 blocked" },
+    { "t_start": 8.9,  "t_end": 44.1, "state": "all_allowed", "detail": "green '✓ allowed Claude api.anthropic.com'; occasional 'allowed other http-intake.logs.us5.datadoghq.com' / 'registry.npmjs.org'" },
+    { "t_start": 44.1, "t_end": 56.2, "state": "turning_red", "detail": "red rows stack in one at a time: 44.1 (1), 47.0 (2), 48.0 (3), 51.3 (4), 56.2 (5 = full)" },
+    { "t_start": 56.2, "t_end": 81.4, "state": "mostly_all_blocked", "detail": "solid red run; broken only by green 'allowed other bridge.claudeusercontent.com' rows at 62.3–69.3 and 75.4–77.4" },
+    { "t_start": 81.4, "t_end": 82.4, "state": "turning_green", "detail": "green allowed rows push the red ones down" },
+    { "t_start": 82.4, "t_end": 87.4, "state": "all_allowed", "detail": "fully green; allowed 124188 -> 124200 in ~3 s" }
+  ],
+
+  "header_timeline": [
+    { "t_start": 0.0,  "t_end": 8.9,  "text": "Reconnecting Claude…", "style": "dim grey/amber with a left-to-right shimmer wipe" },
+    { "t_start": 8.9,  "t_end": 35.1, "text": "Protected · target: Canada", "style": "green, steady" },
+    { "t_start": 35.1, "t_end": 39.2, "text": "Blocking Claude · target: Canada", "style": "amber/olive, steady" },
+    { "t_start": 39.2, "t_end": 81.4, "text": "Reconnecting Claude… · target: Canada", "style": "dim, shimmering" },
+    { "t_start": 81.4, "t_end": 87.4, "text": "Protected · target: Canada", "style": "green, steady" }
+  ],
+
+  "popover_windows": [
+    { "t_start": 0.0, "t_end": 8.2, "duration_s": 8.2, "usable": true,
+      "content": "Tower / 'Reconnecting Claude…'; amber banner 'Internet is slow — ping — — expect Claude timeouts'; AGENTS 55 jobs done today · 1 needs you; nocturne_project (Opus 5 · 1M · HIGH) 'done — your turn · owhere in the tree.' + Dismiss · 2m; 'Resting · 8'; 'Sleep allowed'; PLAN USAGE updated 24s ago; 'Usage paused — location not confirmed' + 'You appear to be outside CA. If you're on a VPN, set it to CA…'; Open Dashboard… / Terminal Dashboard… / Settings… / Quit & Stop Guard…",
+      "warning": "the guard toggle renders GREY here (window not key) so it reads as OFF — do not use as the 'guard is on' hero" },
+    { "t_start": 24.9, "t_end": 25.2, "duration_s": 0.4, "usable": "freeze-frame only",
+      "content": "Tower / 'Protected' in GREEN, BLUE toggle ON, '● Internet · API 102 ms · 309 ms', PLAN USAGE fully populated: Session 10% (resets Jul 26 at 9pm), Weekly 53% (resets in 1d), Fable 33% (resets in 1d)" },
+    { "t_start": 35.6, "t_end": 38.5, "duration_s": 2.9, "usable": true,
+      "content": "Tower / 'Blocking Claude' amber, BLUE toggle ON, '● Internet · API 81 ms · 273 ms', AGENTS 55 jobs done today · 1 needs you, nocturne_project done — your turn, 'Resting · 7', 'Sleep allowed', PLAN USAGE updated 59s ago, 'Usage paused — location not confirmed'" },
+    { "t_start": 49.6, "t_end": 51.3, "duration_s": 1.7, "usable": true,
+      "content": "Tower / 'Reconnecting Claude…', BLUE toggle ON, '● Internet · API 140 ms · 261 ms', 'Resting · 6', PLAN USAGE updated 73s ago, 'Usage paused — location not confirmed'" },
+    { "t_start": 57.8, "t_end": 58.1, "duration_s": 0.4, "usable": "freeze-frame only",
+      "content": "Tower / 'Reconnecting Claude…', BLUE toggle ON, '● Internet · API 64 ms · 898 ms', 'Resting · 6', updated 80s ago, 'Usage paused — location not confirmed'" }
+  ],
+
+  "agents_and_errors": {
+    "agents_block_tui": "Static for the entire 87 s: 'AGENTS — 0 at work · 55 done today · 1 need you' and one row '✓ nocturne_project — done — owhere in the tree. · Opus 5 · 1M · HIGH · 2m' (the age ticks 2m -> 3m at ~t=57). Never changes state.",
+    "agents_block_popover": "'55 jobs done today · 1 needs you'; nocturne_project 'done — your turn'; 'Resting · 8' (t=0) -> 'Resting · 7' (t=37) -> 'Resting · 6' (t=50).",
+    "claude_code_session_visible": false,
+    "retry_or_pending_indicator_visible": false,
+    "retry_note": "No Claude Code terminal is ever in frame, so Claude's native 'Retrying · attempt x/y' spinner is NEVER shown. The PENDING story is carried only indirectly by Tower's own 'Reconnecting Claude…' header + the blocked-row run + the burst of allowed rows when it clears (t=8.9 and t=81.4–82.4).",
+    "error_or_failed_text_anywhere": false,
+    "error_scan_method": "Every 0.2 s, counted saturated-red pixels across the whole TUI window excluding the LIVE TRAFFIC block: exactly 0 for all 874 frames. The only red in the entire recording is the 'blocked' status column in LIVE TRAFFIC. No ERROR / FAILED / red banner ever appears — this supports the 'pending, never failed' pitch.",
+    "counters": {
+      "allowed": { "t0": 124147, "t8.9": 124153, "t35": 124168, "t70": 124173, "t83": 124188, "t86": 124200 },
+      "blocked": { "t0": 21917, "t8.0": 21927, "t44.1": 21928, "t56": 21936, "t67.3": 21947, "t81.4_final": 21968 }
+    }
+  },
+
+  "regions": {
+    "_units": "x, y, w, h in 3032x1490 source pixels",
+    "full_frame":            { "x": 0,    "y": 0,    "w": 3032, "h": 1490 },
+    "menubar":               { "x": 0,    "y": 0,    "w": 3032, "h": 76 },
+    "menubar_tower_icon":    { "x": 2558, "y": 8,    "w": 62,   "h": 60 },
+    "v2box_window":          { "x": 20,   "y": 78,   "w": 745,  "h": 1268 },
+    "v2box_button":          { "x": 58,   "y": 1112, "w": 432,  "h": 98 },
+    "v2box_button_plus_toast": { "x": 58, "y": 1098, "w": 660,  "h": 128 },
+    "v2box_config_list":     { "x": 20,   "y": 300,  "w": 745,  "h": 800 },
+    "tui_window":            { "x": 838,  "y": 76,   "w": 1876, "h": 1338 },
+    "tui_titlebar":          { "x": 838,  "y": 76,   "w": 1876, "h": 60 },
+    "tui_header":            { "x": 870,  "y": 140,  "w": 1830, "h": 50 },
+    "tui_header_status_only":{ "x": 1900, "y": 145,  "w": 790,  "h": 42 },
+    "network_location":      { "x": 870,  "y": 200,  "w": 530,  "h": 210 },
+    "guard":                 { "x": 1420, "y": 200,  "w": 570,  "h": 210 },
+    "keep_awake":            { "x": 870,  "y": 440,  "w": 1830, "h": 60 },
+    "network_health":        { "x": 870,  "y": 520,  "w": 1830, "h": 80 },
+    "agents":                { "x": 870,  "y": 620,  "w": 1830, "h": 100 },
+    "plan_limits":           { "x": 870,  "y": 760,  "w": 1830, "h": 160 },
+    "local_estimate":        { "x": 870,  "y": 940,  "w": 1830, "h": 140 },
+    "live_traffic":          { "x": 870,  "y": 1140, "w": 1830, "h": 200 },
+    "live_traffic_narrow":   { "x": 870,  "y": 1150, "w": 1200, "h": 180, "note": "timestamp + status + Claude + host, tightest legible crop" },
+    "menubar_popover":       { "x": 2277, "y": 83,   "w": 722,  "h": 980 },
+    "popover_title_row":     { "x": 2290, "y": 95,   "w": 700,  "h": 110, "note": "'Tower / <status>' + guard toggle" },
+    "popover_plan_usage":    { "x": 2290, "y": 560,  "w": 700,  "h": 340 },
+    "two_up_v2box_and_geo":  { "x": 20,   "y": 140,  "w": 1400, "h": 1210, "note": "VPN button + Tower NETWORK LOCATION in one frame — the cause/effect shot" },
+    "avoid_desktop_thumbnail": { "x": 2930, "y": 380, "w": 102, "h": 200, "note": "macOS screenshot thumbnail parked on the desktop; crop it out" }
+  },
+
+  "money_shots": [
+    { "rank": 1, "t_start": 34.4, "t_end": 38.8, "rating": 10,
+      "what": "The fence fires. At 35.1 NETWORK LOCATION flips green Canada/Toronto/WorldStream -> amber '× outside target — Claude blocked' / 5.201.242.113 / IR (IR) / Tehran / MCI, and in the SAME frame the TUI header flips 'Protected · target: Canada' -> 'Blocking Claude'. At 35.6 the menubar popover swings open reading 'Tower / Blocking Claude' with the blue toggle on and 'Usage paused — location not confirmed'.",
+      "why": "Three synchronized state changes in 0.5 s, then a 2.9 s stable hero card. Every word on screen is legible and on-message. Best single beat in the reel.",
+      "crop": "network_location + tui_header, then push out to full_frame at 35.6 for the popover" },
+
+    { "rank": 2, "t_start": 80.8, "t_end": 83.6, "rating": 10,
+      "what": "Recovery. Header flips dim 'Reconnecting Claude…' -> green 'Protected · target: Canada' at 81.4, green '✓ allowed' rows push the red 'blocked' rows down and off, fully green by 82.4, allowed counter running 124178 -> 124188 -> 124200.",
+      "why": "The payoff frame for 'it resumes by itself'. Red-to-green wipe down a log is inherently satisfying and needs no narration.",
+      "crop": "live_traffic + tui_header" },
+
+    { "rank": 3, "t_start": 8.4, "t_end": 10.2, "rating": 9,
+      "what": "Cold-open payoff: at 8.9 five RED 'blocked Claude api.anthropic.com' rows are replaced in one frame by six GREEN '✓ allowed' rows all stamped 17:43:18, and the header goes 'Reconnecting Claude…' -> 'Protected'.",
+      "why": "Literally the 'PENDING, not FAILED' claim on screen — held requests all land at the same second. Single-frame flip, perfect for a hard cut or a 4x slow-mo.",
+      "crop": "live_traffic_narrow" },
+
+    { "rank": 4, "t_start": 18.2, "t_end": 20.6, "rating": 8,
+      "what": "The inciting action: green 'Tap To Disconnect' -> grey 'Tap To Connect' + 'Disconnected!' toast at 19.1, with Tower still showing green Canada on the right.",
+      "why": "Clear human cause. Best framed two-up so the viewer holds 'nothing has happened to Tower yet' — then you cut to shot #1.",
+      "crop": "two_up_v2box_and_geo" },
+
+    { "rank": 5, "t_start": 43.6, "t_end": 48.8, "rating": 8,
+      "what": "The log turns over: red 'blocked Claude api.anthropic.com' rows stack in one at a time (44.1, 47.0, 48.0) on top of green ones; blocked counter starts ticking 21927 -> 21930.",
+      "why": "Slow, readable accumulation — ideal for a slow push-in with a counter tick. Better than the static all-red run.",
+      "crop": "live_traffic_narrow" },
+
+    { "rank": 6, "t_start": 53.4, "t_end": 55.4, "rating": 7,
+      "what": "VPN reconnect: grey 'Tap To Connect' -> green 'Tap To Disconnect' at 54.0 while the TUI on the right is a wall of red blocked rows.",
+      "why": "Sets up the resolution; the contrast between a green button and a red log is a good tension frame.",
+      "crop": "two_up_v2box_and_geo or full_frame" },
+
+    { "rank": 7, "t_start": 66.6, "t_end": 68.6, "rating": 7,
+      "what": "The fence clears before the traffic does: NETWORK LOCATION snaps amber -> green '✓ inside target / Canada / Toronto' at 67.3 while LIVE TRAFFIC is still solid red.",
+      "why": "Good 'the guard sees it first' beat — but see off-pitch flag about the 14 s gap that follows.",
+      "crop": "network_location + live_traffic" },
+
+    { "rank": 8, "t_start": 62.3, "t_end": 65.0, "rating": 7,
+      "what": "Scope proof: green '✓ allowed  other  bridge.claudeusercontent.com' rows interleaved with red '⛔ blocked  Claude  api.anthropic.com' rows, with GUARD reading 'Scope: Claude only'.",
+      "why": "Kills the 'it kills your whole internet' objection in one frame. Pair with the guard block crop.",
+      "crop": "live_traffic_narrow + guard" },
+
+    { "rank": 9, "t_start": 23.6, "t_end": 25.4, "rating": 6,
+      "what": "NETWORK flips amber 'degraded · net 70ms · api 355ms · slow link' -> green 'online · net 102ms · api 310ms' at 24.0, followed by a 0.4 s popover flash showing 'Tower / Protected' green with full PLAN USAGE bars (Session 10%, Weekly 53%, Fable 33%).",
+      "why": "The only shot in the reel where real plan-usage numbers are on screen — but the popover is open for 4 frames, so freeze it or speed-ramp into it.",
+      "crop": "network_health, then menubar_popover freeze at t=25.0" },
+
+    { "rank": 10, "t_start": 49.6, "t_end": 51.3, "rating": 6,
+      "what": "Popover 'Tower / Reconnecting Claude…' with blue toggle on, '● Internet · API 140 ms · 261 ms', 'Usage paused — location not confirmed'.",
+      "why": "A clean, stable 1.7 s card for the 'honest status layer' line; the app says exactly WHY usage is paused.",
+      "crop": "menubar_popover" }
+  ],
+
+  "dead_segments": [
+    { "t_start": 9.5,  "t_end": 18.2, "note": "8.7 s dead. All green, VPN connected, only 1-2 digit counter ticks. Cut or 8x." },
+    { "t_start": 25.5, "t_end": 34.4, "note": "8.9 s dead. Steady Protected/Canada/online. Cut or 8x." },
+    { "t_start": 39.5, "t_end": 43.9, "note": "Semi-dead. Only the header shimmer moves; LIVE TRAFFIC still shows stale allowed rows even though the guard is already blocking — confusing if held." },
+    { "t_start": 57.0, "t_end": 62.2, "note": "Static all-red log, nothing else moves." },
+    { "t_start": 69.5, "t_end": 75.3, "note": "Static all-red log while NETWORK LOCATION already reads inside target. Semi-dead and slightly off-message." },
+    { "t_start": 77.5, "t_end": 81.3, "note": "Same as above." },
+    { "t_start": 83.6, "t_end": 87.4, "note": "Steady-state green tail. Fine as a 1-2 s hold, then out." },
+    { "t_start": 0.0,  "t_end": 87.4, "note": "The AGENTS block (TUI and popover) never changes state for the entire clip — treat it as a static plate, not a beat." }
+  ],
+
+  "off_pitch_flags": [
+    { "severity": "high", "t": "whole clip",
+      "issue": "No Claude Code session is ever on screen, so there is no 'Retrying · attempt x/y' spinner and no PENDING indicator anywhere. The core pitch ('requests go PENDING, never FAILED') has no direct on-screen proof — only Tower's own 'Reconnecting Claude…' header and the burst-of-allowed-rows moments at 8.9 and 81.4. Strongly consider re-shooting with a Claude Code terminal visible, or build the claim on the burst frames + a VO line." },
+    { "severity": "high", "t": "whole clip",
+      "issue": "AGENTS reads '0 at work' for all 87 s and the only agent row says 'done — your turn'. Nothing supports 'your agents keep working through the fault'." },
+    { "severity": "medium", "t": "67.3 - 81.4",
+      "issue": "14 s where NETWORK LOCATION already says '✓ inside target / Canada' but the guard is still blocking and the Blocked counter keeps climbing (21947 -> 21968). Reads as 'it's broken / stuck'. Either cut 68 -> 81, or cover it with a line about Claude's own retry backoff." },
+    { "severity": "medium", "t": "0.0 - 8.2",
+      "issue": "In the opening popover the guard toggle renders GREY (the popover window isn't key), so the hero card looks like the guard is OFF. Use the t=35.6-38.5 or t=49.6-51.3 popover (blue toggle) for any 'guard is on' frame." },
+    { "severity": "medium", "t": "0.0 - 8.2",
+      "issue": "First frame is an amber fault banner: 'Internet is slow — ping — — expect Claude timeouts'. Honest per project doctrine, but as a cold open it reads as 'this app is broken'. If you open here, the VO must immediately frame it as the app telling the truth." },
+    { "severity": "medium", "t": "whole clip", "issue": "PRIVACY: legible real data — public IPs 104.234.138.96 (Toronto, WorldStream B.V.) and 5.201.242.113 (Tehran, MCI); the V2Box config list with server names (WS-Mohammad_Sina-CDN / -DIRECT, HTTP-Mohammad_Sina-CDN-137.35GB) and partial IPs 185.****:443 / 37.3****:443; account quota '362.65 GB / 500 GB'; and spend figures 'Session $255 / Week $7307 / ~2.96B projected'. Blur or crop before publishing." },
+    { "severity": "low", "t": "whole clip",
+      "issue": "The brief expected NETWORK LOCATION 'outside target' to be RED; it is actually AMBER/olive. Only the LIVE TRAFFIC 'blocked' column is red. Any 'red means blocked' motion-graphics language should follow the amber/red split, not invent red." },
+    { "severity": "low", "t": "24.9-25.2 and 57.8-58.1",
+      "issue": "Two popover openings last only ~0.4 s (4 frames at 10fps). They contain the best content (green 'Protected' + full plan bars at 25.0) but cannot be cut to at speed — freeze-frame or ramp." },
+    { "severity": "low", "t": "various",
+      "issue": "A macOS screenshot thumbnail is parked at the right edge of the desktop (~x 2930-3032, y 380-580) and is labelled 'Screenshot 2026-0…3PM' — crop it out; it dates the footage." },
+    { "severity": "low", "t": "13.5, 16.0, 20.9, 53.0, 56.4",
+      "issue": "Frontmost app bounces V2Box <-> Terminal; the inactive window's chrome greys out and the macOS menu bar text changes mid-shot. Avoid cuts that straddle a focus change unless you want the 'user clicked' read." },
+    { "severity": "low", "t": "60, 74, 83",
+      "issue": "The mouse cursor sits as a text I-beam over the TUI in several otherwise-clean frames; a cursor-hide pass or a crop that excludes it would help." }
+  ]
+}
