@@ -119,10 +119,14 @@ Runs these threads:
   with no visible retry), then replies **`503 Service Unavailable` +
   `Retry-After`** — never `403`. Claude Code retries 5xx into its native
   "Retrying · attempt x/y" spinner (403 it treats as broken auth → "Please run
-  /login" → dead turn). Long-outage tolerance comes from the **retry budget**,
+  /login" → dead turn). Because the 503 answers the CONNECT, Claude Code labels
+  it `Couldn't connect through your proxy (ERR_PROXY_TUNNEL)` in that spinner —
+  it is still retried (only a 407 or a TLS cert error is fatal). Long-outage tolerance comes from the **retry budget**,
   not the hold: routing also writes `CLAUDE_CODE_RETRY_WATCHDOG` /
   `CLAUDE_CODE_MAX_RETRIES` (`RETRY_ENV`) into settings.json so the agent rides
-  out a whole network switch and resumes on its own — the hold stays short
+  out a whole outage and resumes on its own (1500 attempts at ~40 s each ≈
+  17 h, sized for 12 h+ unattended multi-agent runs; values older Tower
+  versions installed are upgraded in place, a user-set value is never touched) — the hold stays short
   because it's *pre-CONNECT* and a long one risks the client's tunnel connect
   timeout. `RETRY_ENV` also raises `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` to
   Claude's own 10-minute request ceiling: on a slow link a long chat's

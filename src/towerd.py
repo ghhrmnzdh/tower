@@ -323,6 +323,7 @@ class State:
         # calm 503-pending instead of a raw ECONNRESET in Claude's escalating
         # backoff. Own lock so it never contends with self.lock.
         self._tfails = deque(maxlen=64)
+        self._toks = deque(maxlen=256)   # fresh upstream connects, same window
         self._tfail_lock = threading.Lock()
 
     @property
@@ -390,16 +391,26 @@ class State:
         with self._tfail_lock:
             self._tfails.append(time.monotonic())
 
+    def record_tunnel_ok(self):
+        """A Claude tunnel reached Anthropic (upstream connect succeeded) — the
+        counterweight path_unstable() weighs resets against."""
+        with self._tfail_lock:
+            self._toks.append(time.monotonic())
+
     def path_unstable(self):
         """True when real Claude tunnels are resetting upstream faster than
-        chance — TUNNEL_FAIL_BURST resets within TUNNEL_FAIL_WINDOW_S. Self-
-        clearing: once the gate holds, no new tunnels reach upstream, the window
-        empties, and traffic is admitted again to re-test the path."""
+        chance — at least TUNNEL_FAIL_BURST resets within TUNNEL_FAIL_WINDOW_S
+        that are also TUNNEL_FAIL_SHARE of the window's outcomes. Self-clearing:
+        once the gate holds, no new tunnels reach upstream, the window empties,
+        and traffic is admitted again to re-test the path."""
         cutoff = time.monotonic() - TUNNEL_FAIL_WINDOW_S
         with self._tfail_lock:
-            while self._tfails and self._tfails[0] < cutoff:
-                self._tfails.popleft()
-            return len(self._tfails) >= TUNNEL_FAIL_BURST
+            for q in (self._tfails, self._toks):
+                while q and q[0] < cutoff:
+                    q.popleft()
+            fails, oks = len(self._tfails), len(self._toks)
+            return (fails >= TUNNEL_FAIL_BURST
+                    and fails >= TUNNEL_FAIL_SHARE * (fails + oks))
 
     def note_hold(self, delta):
         """Track Claude requests currently parked in the pre-CONNECT hold, so the
@@ -582,8 +593,11 @@ def _humanize(exc):
 # Proxy
 # --------------------------------------------------------------------------- #
 TUNNEL_DRAIN_S = 5.0    # bound the wait for the second half to see EOF, no leak
+TUNNEL_SILENT_LOG_S = 60.0  # ledger: log a Claude tunnel whose last request bytes
+                            # got no reply for this long, or whose write blocked
+                            # this long — evidence of WHO went silent (see _tunnel)
 
-def _pipe(src, dst):
+def _pipe(src, dst, st=None):
     """Copy src→dst until src EOF, then half-close dst's WRITE side only, so the
     peer sees a graceful FIN — never a reset.
 
@@ -599,16 +613,40 @@ def _pipe(src, dst):
 
     Returns True if this half died on a reset (RST/broken pipe) rather than a
     clean EOF — the caller uses that on the upstream-read half to tell a genuine
-    mid-flight upstream drop from a normal close."""
+    mid-flight upstream drop from a normal close. Only a failed READ from src
+    counts: a failed write to dst means the far side (on the upstream-read half,
+    Claude itself closing or aborting a stream — routine with many parallel
+    agents) went away, which says nothing about the path to Anthropic.
+
+    `st` (optional dict) is the tunnel ledger for this direction: `last` =
+    monotonic time the last chunk was fully handed on, `stall` = the longest a
+    single write to dst blocked, `end` = why this half stopped. Cheap: one
+    clock read per chunk."""
     reset = False
+    how = "eof"
     try:
         while True:
-            data = src.recv(65536)
+            try:
+                data = src.recv(65536)
+            except OSError as e:
+                reset = e.errno in (errno.ECONNRESET, errno.EPIPE,
+                                    errno.ETIMEDOUT)
+                how = "idle-timeout" if isinstance(e, socket.timeout) else (
+                    f"read error ({e.__class__.__name__})")
+                break
             if not data:
                 break
+            if st is None:
+                dst.sendall(data)
+                continue
+            t0 = time.monotonic()
             dst.sendall(data)
+            st["last"] = t1 = time.monotonic()
+            st["stall"] = max(st.get("stall", 0.0), t1 - t0)
     except OSError as e:
-        reset = e.errno in (errno.ECONNRESET, errno.EPIPE, errno.ETIMEDOUT)
+        how = f"write error ({e.__class__.__name__})"
+    if st is not None:
+        st["end"] = how
     try:
         dst.shutdown(socket.SHUT_WR)   # propagate EOF as a FIN, not a RST
     except OSError:
@@ -652,7 +690,12 @@ def _recv_headers(conn):
 BLOCK_HOLD_S = 5.0          # short pre-CONNECT hold to absorb sub-second blips
 BLOCK_POLL_S = 0.5          # re-check the block predicate this often while holding
 TUNNEL_FAIL_WINDOW_S = 20.0  # window for counting upstream mid-tunnel resets
-TUNNEL_FAIL_BURST = 2       # this many resets in-window → path unstable, hold next
+TUNNEL_FAIL_BURST = 2       # at least this many resets in-window → path unstable,
+TUNNEL_FAIL_SHARE = 0.5     # …AND at least this share of the window's tunnel outcomes
+                            # (resets vs fresh upstream connects). A lone agent keeps
+                            # the old 2-strike rule; with many parallel agents a couple
+                            # of resets among dozens of good tunnels is a lossy link,
+                            # not a dead one, and must not pause every agent at once.
 BLOCK_RETRY_AFTER = 2       # Retry-After seconds — retry soon (Claude also backs off)
 RETRY_PENDING_WINDOW_S = 20.0  # after a block, keep the 'pending' UI lit this long
 UPSTREAM_CONNECT_S = 5.0    # TCP connect to upstream (the net probe proves TCP+TLS
@@ -795,16 +838,28 @@ def _tunnel(conn, state, host, port):
         if is_claude_host(host):
             state.record_tunnel_fail()
         return
+    if is_claude_host(host):
+        state.record_tunnel_ok()
     conn.settimeout(None)   # tunnel relay must block indefinitely, not carry the
                             # header-read deadline set on conn in _handle_proxy_client
-    conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-    t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
-    t.start()
+    claude = is_claude_host(host)
+    ust, dst_ = ({}, {}) if claude else (None, None)
+    t = threading.Thread(target=_pipe, args=(conn, up, ust), daemon=True)
+    try:
+        conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        t.start()
+    except (OSError, RuntimeError):   # client gone, or no thread to spare:
+        for s in (up, conn):          # close both now (Claude retries at once)
+            try:                      # instead of leaking a half-open tunnel
+                s.close()
+            except OSError:
+                pass
+        return
     # Main thread reads the UPSTREAM half: a reset here is a genuine mid-flight
     # drop from Anthropic/the VPN (not a client abort, which resets `conn` in the
     # upload thread). Both halves half-close on EOF; wait for the upload half to
     # drain rather than guillotining it, then close both.
-    upstream_reset = _pipe(up, conn)
+    upstream_reset = _pipe(up, conn, dst_)
     t.join(TUNNEL_DRAIN_S)
     for s in (up, conn):
         try:
@@ -814,8 +869,35 @@ def _tunnel(conn, state, host, port):
     # Feed the real outcome back to the guard: a burst of upstream resets means
     # the path is unusable right now, so the next reconnect is held (calm 503)
     # instead of admitted into another raw ECONNRESET.
-    if upstream_reset and is_claude_host(host):
+    if upstream_reset and claude:
         state.record_tunnel_fail()
+    if claude:
+        _ledger(host, ust, dst_)
+
+
+def _ledger(host, up_st, down_st):
+    """Attribute a silent Claude tunnel. Tower relays each chunk the moment it
+    arrives, so if the request's bytes were all handed to the upstream socket
+    and nothing came back, the silence is on the path (VPN) or Anthropic's side
+    — and this line says so, with numbers. A long blocked write says the
+    receiving side stopped taking bytes. Quiet for healthy tunnels."""
+    now = time.monotonic()
+    last_up, last_down = up_st.get("last"), down_st.get("last")
+    notes = []
+    if last_up and (last_down or 0) < last_up \
+            and now - last_up >= TUNNEL_SILENT_LOG_S:
+        notes.append(f"last request unanswered {now - last_up:.0f}s after Tower "
+                     f"relayed it (path/Anthropic silent, not Tower)")
+    if up_st.get("stall", 0) >= TUNNEL_SILENT_LOG_S:
+        notes.append(f"upload write blocked {up_st['stall']:.0f}s "
+                     f"(upstream stopped accepting bytes)")
+    if down_st.get("stall", 0) >= TUNNEL_SILENT_LOG_S:
+        notes.append(f"download write blocked {down_st['stall']:.0f}s "
+                     f"(Claude stopped reading)")
+    if notes:
+        log(f"tunnel {host}: " + "; ".join(notes)
+            + f" — ended: claude-side {up_st.get('end', '?')}, "
+              f"upstream-side {down_st.get('end', '?')}")
 
 
 def _plain(conn, state, method, target, raw):
@@ -882,18 +964,59 @@ def _handle_proxy_client(conn, state):
             pass
 
 
+ACCEPT_BACKOFF_S = 0.2       # pause after a transient accept/thread failure
+
+
 def proxy_loop(state, srv):
+    """Accept forever. The listener must NEVER die while the daemon lives: a
+    pinned session can't move to another endpoint, and a listener nobody
+    accepts on leaves its CONNECTs queued unanswered until Claude's 10-minute
+    first-byte watchdog fires. So a transient failure (out of fds under a big
+    parallel run, a peer that aborted in the backlog, no thread to spare) is
+    logged and survived; only proxy_stop — or our own socket being closed
+    (EBADF) — ends the loop."""
     srv.settimeout(0.5)
+    last_log = 0.0
     while not state.proxy_stop.is_set():
         try:
             conn, _ = srv.accept()
         except socket.timeout:
             continue
-        except OSError:
-            break
-        threading.Thread(target=_handle_proxy_client, args=(conn, state),
-                         daemon=True).start()
+        except OSError as e:
+            if e.errno == errno.EBADF:
+                break
+            if time.monotonic() - last_log > 30:
+                last_log = time.monotonic()
+                log(f"proxy accept error (continuing): {e}")
+            state.proxy_stop.wait(ACCEPT_BACKOFF_S)
+            continue
+        try:
+            threading.Thread(target=_handle_proxy_client, args=(conn, state),
+                             daemon=True).start()
+        except RuntimeError as e:   # can't start new thread: fail THIS client
+            try:                    # fast (closed → Claude retries at once)
+                conn.close()        # rather than hang it, and keep accepting
+            except OSError:
+                pass
+            if time.monotonic() - last_log > 30:
+                last_log = time.monotonic()
+                log(f"proxy thread start failed (continuing): {e}")
+            state.proxy_stop.wait(ACCEPT_BACKOFF_S)
     srv.close()
+
+
+def raise_fd_limit(want=8192):
+    """launchd hands an app-spawned daemon a soft RLIMIT_NOFILE of 256. Every
+    tunnel costs two fds, so a large parallel-agent run could exhaust it —
+    and then every new tunnel fails. Lift the soft limit toward the hard one."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = want if hard == resource.RLIM_INFINITY else min(want, hard)
+        if soft != resource.RLIM_INFINITY and soft < target:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    except (ImportError, ValueError, OSError) as e:
+        log(f"fd limit unchanged: {e}")
 
 
 def proxy_is_up(port):
@@ -918,6 +1041,17 @@ def proxy_is_up(port):
 # message ("your internet is fine; the problem is on Anthropic's side").
 # --------------------------------------------------------------------------- #
 NET_TIMEOUT = 3.0
+# The API probe's timeout scales with the link, so SLOW never reads as DEAD. On
+# a far-hop VPN a healthy TLS handshake to Anthropic takes 2-3 s; a flat 3 s
+# timeout turned those into "edge unreachable" samples, two in a row closed the
+# gate, and every working agent sat in "Retrying … ERR_PROXY_TUNNEL" on a link
+# that was carrying traffic fine. So: allow API_PROBE_RTT_MULT × the slowest
+# recent good handshake, and after a timed-out sample give the next probe the
+# full API_PROBE_TIMEOUT_MAX — the gate only closes on a path that misses a
+# generous deadline too. A fast link keeps the snappy 3 s floor.
+API_PROBE_RTT_MULT = 3.0
+API_PROBE_TIMEOUT_MAX = 10.0
+API_PROBE_RECENT = 12             # history samples the RTT scale looks back over
 NET_INTERVAL_OK = 5.0
 NET_INTERVAL_BAD = 3.0
 DEGRADED_INTERNET_MS = 300
@@ -1043,18 +1177,22 @@ class NetMonitor:
         while not self.state.stop.is_set():
             try:
                 mono = time.monotonic()
-                internet_ms, api_ms, api_err = self._probe_once()
+                with self.lock:
+                    api_timeout = self._api_timeout()
+                internet_ms, api_ms, api_err = self._probe_once(api_timeout)
                 raw, reason = self._classify(internet_ms, api_ms, api_err)
                 now = time.time()
                 with self.lock:
                     expected = (NET_INTERVAL_OK if self.status == "online"
                                 else NET_INTERVAL_BAD)
+                    # Gap is measured from the END of the previous probe, so a
+                    # long (escalated) probe isn't mistaken for a sleep.
                     if (self._last_sample_mono is not None
                             and mono - self._last_sample_mono > 3 * expected):
                         # Slept through samples (Mac asleep): the first groggy
                         # post-wake sample must not count toward a flip.
                         self._pending = None
-                    self._last_sample_mono = mono
+                    self._last_sample_mono = time.monotonic()
                     self.raw_status = raw
                     self.internet_ms = internet_ms
                     self.api_ms = api_ms
@@ -1096,12 +1234,24 @@ class NetMonitor:
                 time.sleep(0.25)
                 waited += 0.25
 
+    def _api_timeout(self):
+        """Deadline for the next API probe (caller holds self.lock). See
+        API_PROBE_RTT_MULT: scaled to the slowest recent good handshake, and
+        escalated to the max right after a timeout so one slow sample is
+        re-tested generously before it can count toward closing the gate."""
+        if self.api_error == "timeout":
+            return API_PROBE_TIMEOUT_MAX
+        recent = [h["api_ms"] for h in list(self.history)[-API_PROBE_RECENT:]
+                  if h["api_ms"] is not None]
+        t = API_PROBE_RTT_MULT * max(recent) / 1000.0 if recent else 0.0
+        return min(max(NET_TIMEOUT, t), API_PROBE_TIMEOUT_MAX)
+
     @staticmethod
-    def _probe_once():
+    def _probe_once(api_timeout=NET_TIMEOUT):
         refs = [m for m in (_tcp_ms(h, p) for h, p in NET_REFS)
                 if m is not None]
         internet_ms = min(refs) if refs else None
-        api_ms, api_err = _api_probe()
+        api_ms, api_err = _api_probe(api_timeout)
         return internet_ms, api_ms, api_err
 
     @staticmethod
@@ -3191,11 +3341,13 @@ def _read_settings():
 
 # Retry-tolerance env we install alongside the proxy so a *blocked* request
 # (503 from the guard) or a real outage keeps Claude Code in its native
-# "Retrying in Ns · attempt x/y" spinner instead of erroring the turn. The
-# watchdog unlocks up to ~300 attempts (~3h of backoff), so the agent stays
-# PENDING across a whole network switch and resumes on its own when the guard
-# clears. Installed non-destructively (setdefault) and removed on route_off only
-# if the value is still ours — a user-set value is left untouched.
+# "Retrying in Ns · attempt x/y" spinner instead of erroring the turn. (Claude
+# Code words a 503 CONNECT reply as "Couldn't connect through your proxy
+# (ERR_PROXY_TUNNEL) — the proxy refused the tunnel…" in that spinner; it is
+# still retried — only a 407 or a TLS cert error is fatal.) The watchdog
+# unlocks a long budget, so the agent stays PENDING across a whole outage and
+# resumes on its own when the guard clears. Never overwrites a user-set value,
+# and removed on route_off only if the value is still ours.
 #
 # The first-byte window is the same idea for slow paths. A long chat sends a
 # multi-megabyte request; over a high-latency link (a far VPN exit) the upload
@@ -3208,11 +3360,26 @@ def _read_settings():
 # 10 min by default, which caps this value). A tunnel that is actually dead is
 # still cut within ~2 min at the TCP layer (UPSTREAM_KEEPIDLE_S), so the long
 # wait only ever applies to a path that is slow, never to one that is gone.
+#
+# The budget is per request, and Claude Code backs off to ~32 s between attempts
+# (plus our BLOCK_HOLD_S), so each attempt costs ~40 s of wall clock. 300 lasted
+# ~3.5 h: an overnight outage exhausted it and failed a whole unattended
+# multi-agent run at once. 1500 rides out ~17 h, so a 12 h+ session outlasts any
+# outage it would plausibly see. The watchdog lifts the usual clamp of 15.
 RETRY_ENV = {
     "CLAUDE_CODE_RETRY_WATCHDOG": "1",     # unlock the long retry budget
-    "CLAUDE_CODE_MAX_RETRIES": "300",      # attempts before the turn finally errors
+    "CLAUDE_CODE_MAX_RETRIES": "1500",     # attempts before the turn finally errors
     "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS": "600000",   # slow ≠ dead: see above
 }
+# Values earlier Tower versions installed. They are ours, not a user
+# customisation, so route_on upgrades them in place and route_off removes them.
+RETRY_ENV_PRIOR = {
+    "CLAUDE_CODE_MAX_RETRIES": ("300",),
+}
+
+
+def _retry_env_ours(k, v):
+    return v == RETRY_ENV.get(k) or v in RETRY_ENV_PRIOR.get(k, ())
 
 
 def routing_installed():
@@ -3292,7 +3459,8 @@ def route_on(proxy_port):
     # Make the agent ride out blocks/outages via its native retry spinner rather
     # than failing the turn. Don't clobber a value the user set themselves.
     for k, v in RETRY_ENV.items():
-        env.setdefault(k, v)
+        if k not in env or _retry_env_ours(k, env[k]):
+            env[k] = v
     data["env"] = env
     try:
         os.makedirs(os.path.dirname(CLAUDE_SETTINGS), exist_ok=True)
@@ -3317,8 +3485,8 @@ def route_off():
                 removed.append(k)
         # Remove the retry-tolerance env we installed — but only if it still
         # holds our value (leave a user-customised value in place).
-        for k, val in RETRY_ENV.items():
-            if env.get(k) == val:
+        for k in RETRY_ENV:
+            if k in env and _retry_env_ours(k, env[k]):
                 env.pop(k)
                 removed.append(k)
         if not env:
@@ -3810,6 +3978,8 @@ def main():
     _migrate_legacy_state_dir()
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(CMD_DIR, exist_ok=True)
+    if not IS_WINDOWS:
+        raise_fd_limit()
     # single instance
     if IS_WINDOWS:
         # Named mutex — cleaner than a file lock on Windows. Keep the handle on
