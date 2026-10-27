@@ -2133,6 +2133,22 @@ class SettingsCache:
         return data
 
 
+_PASTE_RE = re.compile(r"<pasted_content\b[^>]*>.*?(?:</pasted_content>|$)", re.S)
+_TAG_RE = re.compile(r"</?[a-z][a-z0-9_-]*(?:\s[^>]*)?>", re.I)
+
+
+def _prompt_line(p, n=300):
+    """A prompt as a row shows it: a pasted block becomes "[pasted]" (it can be
+    anyone's private text, and it's never what the turn is *about*), harness
+    tags go, whitespace collapses. None if nothing is left."""
+    if not isinstance(p, str):
+        return None
+    p = _PASTE_RE.sub(" [pasted] ", p)
+    p = _TAG_RE.sub(" ", p)
+    p = " ".join(p.split())
+    return p[:n] or None
+
+
 def _first_line(text, n=140):
     """First meaningful line of an assistant message — what a done row shows."""
     for raw in (text or "").splitlines():
@@ -2376,9 +2392,9 @@ class AgentMonitor:
             return
 
         if name == "UserPromptSubmit":
-            p = ev.get("prompt")
-            if isinstance(p, str) and p.strip():
-                s["last_prompt"] = " ".join(p.split())[:300]
+            p = _prompt_line(ev.get("prompt"))
+            if p:
+                s["last_prompt"] = p
             s.update(activity="thinking…", result=None, tool=None, pending=None,
                      turn_at=now)
             s["subs"] = {k: v for k, v in s["subs"].items()
