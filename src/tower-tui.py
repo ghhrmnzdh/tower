@@ -6,15 +6,16 @@ A read-only-looking dashboard that is actually a full controller: it renders
 ~/.tower/state.json and drives the guard by dropping command files into
 ~/.tower/cmd/ (exactly like the menubar app). stdlib only (curses).
 
-Small and medium screens show four things — GUARD, AGENTS, PLAN, NETWORK —
-in a monochrome grammar with color only where it means something (green
+Every screen anchors on four things — GUARD, AGENTS, PLAN, NETWORK — in a
+monochrome grammar with color only where it means something now (green
 protected / healthy dot, amber held / warn, red failed / unguarded, and each
-model's mark in its tier color). Size classes are supersets: tiny (one status
-card) → compact (one column) → regular (two columns) → tall / wide / xwide,
-dense dashboards that use the room — latency charts, the request log, usage,
-where the limit goes, system, timeline — balanced across 2–4 columns. Every
-panel is sized to its content: rows go to panels by priority, a panel that
-doesn't earn room collapses to a one-line summary, nothing stretches to fill.
+model's mark in its tier color). Width picks the grid (tiny status card · one
+column · two · three · four); height decides how much each panel holds. Each
+panel has a minimum, a calm size (what an ordinary terminal shows, unchanged)
+and a maximum: with room, AGENTS gets rich first, the charts grow, and the
+extra panels (USAGE, TIMELINE, WHERE YOUR LIMIT GOES, REQUESTS) go where they
+fit. Every column ends on the same row; when even the richest grid can't fill
+the screen, the dashboard stops at its maximum and centers.
 The deeper usage numbers are also one key away (`u`).
 
 If the daemon isn't running it starts it (single-instance, so this is safe),
@@ -27,6 +28,7 @@ Run:  python3 tower-tui.py
 import functools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -524,7 +526,7 @@ MOUSE_WHEEL_DOWN = getattr(curses, "BUTTON5_PRESSED", 0x200000)
 # are handled inline in run().)
 KEY_ACTIONS = {ord("r"): "route", ord("e"): "enforce", ord("a"): "scope",
                ord("c"): "country", ord("p"): "country", ord("w"): "keepawake",
-               ord("d"): "desktop"}
+               ord("d"): "desktop", ord("W"): "web"}
 HITBOXES = []
 
 
@@ -670,6 +672,27 @@ def keepawake_line(kmode, ka):
     return "agents keep running; the screen still sleeps"
 
 
+def web_state(s):
+    """Claude on the web: claude.ai in a Chrome-family app window on Tower's
+    own profile, through the proxy. -> dict(available, browser, running)."""
+    w = (s.get("apps") or {}).get("web")
+    return w if isinstance(w, dict) else {}
+
+
+def browser_name(w):
+    """'Google Chrome' → 'Chrome', 'Brave Browser' → 'Brave'."""
+    b = str((w or {}).get("browser") or "Chrome")
+    for junk in ("Google ", "Microsoft ", " Browser"):
+        b = b.replace(junk, "")
+    return b.strip() or "Chrome"
+
+
+def open_web(s):
+    """One tap — it never touches the user's own browser or profile."""
+    if web_state(s).get("available"):
+        send({"cmd": "web"})
+
+
 def open_desktop(win, s):
     d = (s.get("apps") or {}).get("desktop") or {}
     if not d.get("installed"):
@@ -786,7 +809,6 @@ def view(s, now):
     V.gate = usage_gate(s)
     V.raw = s
     V.req = req_view(s, now)
-    V.dense = False                       # set by compose() on big screens
     return V
 
 
@@ -952,12 +974,22 @@ class Panel:
     """A titled, rounded panel, sized to its content — never stretched.
     `variants` run richest → most condensed; it renders the richest that fits,
     and below the smallest it keeps the highest-priority lines. With one row
-    it collapses to its `summary`."""
+    it collapses to its `summary`.
+
+    Three sizes steer how it grows (in lines, inside the border): `least`,
+    the useful minimum; `calm`, what it shows on an ordinary screen (every
+    panel reaches this before anyone gets richer, so a small terminal looks
+    exactly as it always has); and `full`, its maximum — the richest variant.
+    An `elastic` panel (a chart) can take any height up to its maximum; it
+    stops at `comfort` until every other panel is full, then soaks up the
+    rest, so a column always ends on the same row as its neighbours."""
     __slots__ = ("title", "variants", "summary", "right", "act", "prio",
-                 "least", "more", "foot")
+                 "least", "more", "foot", "calm", "comfort", "elastic", "eager",
+                 "fluid")
 
     def __init__(self, title, variants, summary=(), right=(), act=None,
-                 least=None, more=None, foot=()):
+                 least=None, more=None, foot=(), calm=None, comfort=None,
+                 elastic=False):
         vs, last = [], None
         for v in variants:                # keep strictly shrinking variants
             if v is not None and (last is None or len(v) < last):
@@ -973,22 +1005,41 @@ class Panel:
                       else min(least, len(self.variants[0])))
         self.more = more
         self.foot = foot
+        full = len(self.variants[0])
+        self.calm = full if calm is None else min(calm, full)
+        self.comfort = self.calm if comfort is None else min(max(comfort, self.calm), full)
+        self.elastic = elastic
+        self.eager = False                # grows into its richness before the rest
+        # Past its calm size a panel takes any height: the next richer variant
+        # trimmed by priority. (A chart or a tree would tear, so those say no.)
+        self.fluid = True
 
     def full(self):
         return len(self.variants[0])
 
     def fit(self, k):
-        for v in self.variants:
+        for i, v in enumerate(self.variants):
             if len(v) <= k:
+                if (self.fluid and i and len(v) < k
+                        and len(self.variants[i - 1]) > self.calm):
+                    return fit_lines(self.variants[i - 1], k, self.more)
                 return v
         return fit_lines(self.variants[-1], k, self.more)
 
-    def grow(self, cur, left):
-        """The next box height from cur within `left` spare rows."""
+    def grow(self, cur, left, cap=None):
+        """The next box height from cur within `left` spare rows (and at
+        most `cap` rows, border included)."""
+        top = cur + left if cap is None else min(cur + left, cap)
         if len(self.variants) == 1:
-            tgt = min(self.full() + 2, cur + left)
-            return tgt if tgt >= 3 else cur
-        opts = [len(v) + 2 for v in self.variants if cur < len(v) + 2 <= cur + left]
+            tgt = min(self.full() + 2, top)
+            return tgt if tgt >= 3 and tgt > cur else cur
+        opts = [len(v) + 2 for v in self.variants if cur < len(v) + 2 <= top]
+        if self.fluid and top > self.calm + 2:   # any height past calm
+            opts.append(min(self.full() + 2, top))
+        # the smallest variant also fits any height under it (by priority)
+        tgt = min(len(self.variants[-1]) + 2, top)
+        if tgt > cur and tgt >= 3:
+            opts.append(tgt)
         return max(opts) if opts else cur
 
 
@@ -1040,35 +1091,63 @@ def allot(panels, H):
         if 1 < want and want - 1 <= left:
             ht[id(p)] = want
             left -= want - 1
-    for p in rank:
-        if left > 0:
+    # Growth in phases, most important panel first within each: everyone to
+    # its calm size (what an ordinary screen shows), the charts to a
+    # comfortable height, every list and detail to its full content, and
+    # only then the charts to theirs.
+    phases = ((rank, "calm"), ([p for p in rank if p.elastic], "comfort"),
+              (sorted((p for p in rank if not p.elastic), key=lambda p: not p.eager),
+               "full"),
+              ([p for p in rank if p.elastic], "full"))
+    for group, size in phases:
+        for p in group:
+            if left <= 0:
+                break
+            cap = (p.full() if size == "full" else getattr(p, size)) + 2
             cur = ht[id(p)]
-            nxt = p.grow(cur, left)
+            nxt = p.grow(cur, left, cap)
             left -= nxt - cur
             ht[id(p)] = nxt
     return [(p, ht[id(p)]) for p in ps], left
 
 
-def column(fr, panels, y, x, w, H, gap=None):
-    """Stack a column's panels top-down, each sized to what it shows. One
-    blank row between panels when every panel still gets all its rows; the
-    column ends where its content ends — leftover rows stay calm, empty
-    screen below, never padding inside a box."""
-    n = len([p for p in panels if p])
-    if gap is not None:                   # a fixed rhythm (big screens)
-        plan, _ = allot(panels, H - gap * max(0, n - 1))
-    else:
-        plan, _ = allot(panels, H)
-        gap = 0
-        if n > 1:
-            spaced, _ = allot(panels, H - (n - 1))
-            if [r for _, r in spaced] == [r for _, r in plan]:
-                gap = 1
+def col_rows(panels, H, size="full"):
+    """A column's height with every panel at `size` (capped at H)."""
+    ps = [p for p in panels if p]
+    sz = {"full": lambda p: p.full(), "least": lambda p: p.least,
+          "comfort": lambda p: p.comfort}[size]
+    return sum(min(sz(p) + 2, H) for p in ps) + max(0, len(ps) - 1)
+
+
+def column(fr, panels, y, x, w, H):
+    """Stack a column's panels top-down in exactly H rows, each sized to what
+    it shows. One blank row between panels when every panel still gets all
+    its rows; a row or two the panels can't use (their sizes come in steps)
+    widens the gaps instead of padding inside a box."""
+    ps = [p for p in panels if p]
+    n = len(ps)
+    plan, _ = allot(ps, H)
+    gap = 0
+    if n > 1:
+        spaced, _ = allot(ps, H - (n - 1))
+        if [r for _, r in spaced] == [r for _, r in plan]:
+            plan, gap = spaced, 1
+    sized = []
     for p, rows in plan:
         if rows >= 3:                     # a box is exactly its lines + border
             rows = min(rows, len(p.fit(rows - 2)) + 2)
+        sized.append((p, rows))
+    gaps = [gap] * max(0, len(sized) - 1)
+    spare = H - sum(r for _, r in sized) - sum(gaps)
+    for i in range(len(gaps)):           # spread a small remainder, top first
+        if spare <= 0:
+            break
+        if gaps[i] < 2:
+            gaps[i] += 1
+            spare -= 1
+    for i, (p, rows) in enumerate(sized):
         draw_panel(fr, y, x, rows, w, p)
-        y += rows + gap
+        y += rows + (gaps[i] if i < len(gaps) else 0)
     return y
 
 
@@ -1214,11 +1293,59 @@ def p_guard(V, iw):
            for j, t in enumerate(textwrap.wrap(V.explain, max(10, iw - len(ind))))]
     why1 = [ln(_dim(ind + V.explain), prio=900)] if V.explain else []
     hold = held_line(V, ind)
-    rows = desk_line(V) + [location_line(V, iw), guard_line(V, iw), awake_line(V)]
+    loc = location_line(V, iw)
+    rows = desk_line(V) + [loc, guard_line(V, iw), awake_line(V)]
     full = [verdict] + why + hold + [BLANK] + rows
     dense = [verdict] + why1 + hold + rows
     tight = [verdict] + hold + [r for r in rows if r[2] >= 820]
-    return Panel("GUARD", [full, dense, tight], summary=list(verdict[0]))
+    # Room to spare: the details the rows above sum up — the address the
+    # location came from (when it didn't fit beside the place), Desktop when
+    # it's installed but fine, and whose chats actually go through the guard.
+    more = []
+    ip = " · ".join(str(x) for x in (V.loc.get("ip"), V.loc.get("isp")) if x)
+    if ip and not loc[1] and V.loc.get("status") in ("OK", "CACHED"):
+        more.append(ln(_label("IP"), _dim(ip), act="recheck", prio=500))
+    if V.desk.get("installed") and not V.desk_gap:
+        more.append(ln(_label("Desktop"),
+                       _val("guarded", bold=False) if V.desk.get("running")
+                       else _dim("not running"),
+                       _dim("  ·  d opens it guarded")
+                       if not V.desk.get("running") else sg(""),
+                       act="desktop", prio=450))
+    web = web_state(V.raw)
+    if web.get("available"):              # a launcher: shown only where it can open
+        br = browser_name(web)
+        if web.get("running"):
+            segs = [_dot(C_GOOD), _val(f" {br} window open", bold=False)]
+        else:
+            segs = [_dim(f"claude.ai in a guarded {br} window  ·  W opens it")]
+        more.append(ln(_label("Web"), *segs, act="web", prio=440))
+    chats = chats_line(V)
+    if chats:
+        more.append(chats)
+    rich = full + more
+    return Panel("GUARD", [rich, full, dense, tight], summary=list(verdict[0]),
+                 calm=len(full))
+
+
+def chats_line(V):
+    """Whose chats go through the guard: live sessions, guarded vs not."""
+    ag = V.raw.get("agents") if isinstance(V.raw.get("agents"), dict) else {}
+    live = [x for x in (ag.get("sessions") or []) if isinstance(x, dict)
+            and x.get("status") not in ("gone",) and not x.get("ended")]
+    if not live:
+        return None
+    if not V.intended:                   # routing off: nothing is guarded
+        return None
+    ung = sum(1 for x in live if x.get("guarded") is False)
+    ok = len(live) - ung
+    segs = [_label("Chats")]
+    if ok:
+        segs += [_val(str(ok)), _dim(" through the guard")]
+    if ung:
+        segs += ([_dim("  ·  ")] if ok else []) + [
+            sg(f"{ung} unguarded", cp(C_BAD) | B), _dim(" — restart them")]
+    return ln(*segs, prio=400)
 
 
 # ---- AGENTS --------------------------------------------------------------- #
@@ -1324,15 +1451,54 @@ def _tree_lines(sess, sid, prio, limit):
     return out
 
 
+_PASTE_RE = re.compile(r"<pasted_content\b[^>]*>.*?(?:</pasted_content>|$)", re.S)
+_TAG_RE = re.compile(r"</?[a-z][a-z0-9_-]*(?:\s[^>]*)?>", re.I)
+
+
+def _prompt_text(p):
+    """A prompt as a row shows it — pasted blocks as "[pasted]" (private text,
+    never the point), tags dropped. Mirrors the daemon's _prompt_line, so an
+    older daemon's raw prompt still reads right."""
+    p = _TAG_RE.sub(" ", _PASTE_RE.sub(" [pasted] ", str(p or "")))
+    return " ".join(p.split())
+
+
 def _detail_line(sess, sid, prio):
     """Big screens: the agent's last prompt, dim, and how long it has run."""
-    ask = sess.get("title") or sess.get("last_prompt")
+    ask = _prompt_text(sess.get("title") or sess.get("last_prompt"))
     up = ago(sess.get("started"))
     if not ask:
         return []
-    return [ln(sg("   ↳ ", cp(C_LINE)), _dim("“" + " ".join(str(ask).split()) + "”"),
+    return [ln(sg("   ↳ ", cp(C_LINE)), _dim("“" + ask + "”"),
                right=[_dim(f"up {up}")] if up else (),
                act=("focus", sid) if sid else None, prio=prio)]
+
+
+def _meta_line(sess, sid, prio, iw):
+    """Where the agent works and what it has touched: folder · branch, then
+    files edited · tool errors (the tools count is already on its row)."""
+    cwd = str(sess.get("cwd") or "")
+    if cwd == HOME or cwd.startswith(HOME + os.sep):
+        cwd = "~" + cwd[len(HOME):]
+    parts = [cwd] if cwd else []
+    if sess.get("git_branch"):
+        parts.append(U("⎇ ", "on ") + str(sess["git_branch"]))
+    ticks = sess.get("ticks") if isinstance(sess.get("ticks"), dict) else {}
+    counts = []
+    for key, one, many in (("files", "file edited", "files edited"),
+                           ("errors", "tool error", "tool errors")):
+        n = ticks.get(key)
+        if isinstance(n, int) and n > 0:
+            counts.append(f"{n:,} {one if n == 1 else many}")
+    if not counts and not sess.get("git_branch"):
+        return []                         # the folder alone repeats the name
+    segs = [sg("      "), _dim("  ·  ".join(parts))]
+    right = []
+    for k in range(len(counts), 0, -1):  # the counts only where they fit whole
+        right = _soft(segs, [_dim("  ·  ".join(counts[:k]))], iw)
+        if right:
+            break
+    return [ln(*segs, right=right, act=("focus", sid) if sid else None, prio=prio)]
 
 
 def _more(label):
@@ -1353,33 +1519,76 @@ def p_agents(V, iw):
     mw = min(20, max(ms or [0]))
     if iw < 3 + nw + 2 + mw + 2 + 14 + 18:   # the activity keeps room to read
         mw = 0
-    lim = 8 if V.dense else 4 if iw >= 70 else 2
-    lines = []
-    if A.coll:
-        lines.append(ln(sg(A.coll, cp(C_WARN)), prio=980))
-    if A.guard_line:
-        lines.append(ln(sg(A.guard_line, cp(A.guard_color)), prio=970))
+    lim = 4 if iw >= 70 else 2
     base = {"need": 900, "working": 700, "turn": 600, "paused": 550}
-    for i, (kind, r) in enumerate(rows):
-        lines.append(_agent_line(V, r, kind, base[kind] - i * 0.01, nw, mw, narrow))
-        if V.dense:                       # big screens: what it was asked
-            lines += _detail_line(r[1], r[3], 250 - i * 0.01)
-        if kind in ("need", "working"):
-            # Details, then trees, fold away before any agent row does.
-            lines += _tree_lines(r[1], r[3], 300 - i * 0.01, lim)
-    if not rows:
-        lines.append(ln(_dim("No agents running"), prio=650))
-        lines.append(ln(_dim("start  claude  in any terminal — it shows up here"),
-                        prio=2))
-    if A.resting:
-        names = ", ".join(str(x.get("project_name") or "?") for x in A.resting[:6])
-        lines.append(ln(_dim(f"◌  {len(A.resting)} resting  ·  {names}"), prio=200))
+
+    def build(full=(), det=(), meta=(), rest_rows=False):
+        """The panel's lines; the sets name the agents (by row index) that
+        get their whole subagent tree / last prompt / where-and-how-much."""
+        lines = []
+        if A.coll:
+            lines.append(ln(sg(A.coll, cp(C_WARN)), prio=980))
+        if A.guard_line:
+            lines.append(ln(sg(A.guard_line, cp(A.guard_color)), prio=970))
+        for i, (kind, r) in enumerate(rows):
+            lines.append(_agent_line(V, r, kind, base[kind] - i * 0.01, nw, mw, narrow))
+            if i in det:                  # what it was asked
+                lines += _detail_line(r[1], r[3], 250 - i * 0.01)
+            if i in meta:                 # where it works, how much it did
+                lines += _meta_line(r[1], r[3], 240 - i * 0.01, iw)
+            if kind in ("need", "working"):
+                # Trees fold away before any agent row does.
+                lines += _tree_lines(r[1], r[3], 300 - i * 0.01,
+                                     99 if i in full else lim)
+        if not rows:
+            lines.append(ln(_dim("No agents running"), prio=650))
+            lines.append(ln(_dim("start  claude  in any terminal — it shows up here"),
+                            prio=2))
+        if A.resting and rest_rows:       # room: each resting agent, by name
+            for j, x in enumerate(A.resting):
+                st = x.get("status") or "idle"
+                when = ago(x.get("status_since"))
+                lines.append(ln(sg("◌", cp(C_LINE)), sg("  "),
+                                _dim(pad(_name(x), nw) + "  "
+                                     + ("ended" if st == "gone" else st)),
+                                right=[_dim(when)] if when else (),
+                                act=("focus", x.get("session_id")), prio=190 - j * 0.01))
+        elif A.resting:
+            names = ", ".join(str(x.get("project_name") or "?") for x in A.resting[:6])
+            lines.append(ln(_dim(f"◌  {len(A.resting)} resting  ·  {names}"), prio=200))
+        return lines
+
+    calm = build()
+    # Taller screens: enrich in order of what you'd want to know next — the
+    # whole subagent tree, then what each live agent was asked, then where it
+    # works and how much it has done, then the resting agents by name, then
+    # the same detail for the quiet ones. Each step is a variant.
+    live = [i for i, (k, _) in enumerate(rows) if k in ("need", "working")]
+    quiet = [i for i, (k, _) in enumerate(rows) if k not in ("need", "working")]
+    steps = ([("full", i) for i in live
+              if len([x for x in (rows[i][1][1].get("subagents") or [])
+                      if isinstance(x, dict)]) > lim]
+             + [("det", i) for i in live] + [("meta", i) for i in live]
+             + ([("rest", 0)] if len(A.resting) else [])
+             + [("det", i) for i in quiet] + [("meta", i) for i in quiet])
+    cfg = {"full": set(), "det": set(), "meta": set(), "rest": set()}
+    richer, last = [], len(calm)
+    for kind, i in steps:
+        cfg[kind].add(i)
+        v = build(cfg["full"], cfg["det"], cfg["meta"], bool(cfg["rest"]))
+        if len(v) > last:
+            richer.append(v)
+            last = len(v)
     right = [_dim(f"{A.working_n} working  ·  {A.done_today} done today")]
     summary = ([sg(f"{len(A.need)} need you", cp(C_WARN) | B), _dim("  ·  ")]
                if A.need else []) + [_dim(f"{A.working_n} working")]
-    nrows = sum(1 for l in lines if l[2] >= 550)
-    return Panel("AGENTS", [lines], summary=summary, right=right,
-                 least=max(1, min(6, nrows)), more=(550, _more("agents")))
+    nrows = sum(1 for l in calm if l[2] >= 550)
+    p = Panel("AGENTS", richer[::-1] + [calm], summary=summary, right=right,
+              least=max(1, min(6, nrows)), more=(550, _more("agents")),
+              calm=len(calm))
+    p.eager = True                        # the live thing: it gets rich first
+    p.fluid = False                       # a tree trimmed by priority would tear
+    return p
 
 
 # ---- PLAN ----------------------------------------------------------------- #
@@ -1395,14 +1604,30 @@ def reset_short(node):
     return "↻ " + (rt[3:] if rt.startswith("in ") else rt)
 
 
-def plan_meters(plan, iw, prio=900, cap=32):
+def reset_clock(node):
+    """When a limit resets, as a wall clock: '22:10' today, 'Tue 10:30' later."""
+    at = node.get("resets_at") if isinstance(node, dict) else None
+    if not isinstance(at, (int, float)) or at <= time.time():
+        return ""
+    lt, now = time.localtime(at), time.localtime()
+    hm = time.strftime("%H:%M", lt)
+    if (lt.tm_year, lt.tm_yday) == (now.tm_year, now.tm_yday):
+        return hm
+    return time.strftime("%a ", lt) + hm
+
+
+def plan_meters(plan, iw, prio=900, cap=32, clock=False):
     """Session / Weekly / Fable: label · bold % · a slim fixed meter · ↻ reset.
-    Every column starts at the same cell, so the three rows read as a table."""
+    Every column starts at the same cell, so the three rows read as a table.
+    `clock` adds the reset's wall-clock time after the countdown."""
     nodes = []
     for label, key in PLAN_ROWS:
         node = plan.get(key)
         if isinstance(node, dict) and isinstance(node.get("pct"), (int, float)):
-            nodes.append((label, int(node["pct"]), reset_short(node)))
+            rt = reset_short(node)
+            if clock and rt and reset_clock(node):
+                rt = f"{rt:<9} {reset_clock(node)}"
+            nodes.append((label, int(node["pct"]), rt))
     rw = max([tw(clean(r)) for _, _, r in nodes] or [0])
     mwid = min(cap, iw - LABW - 4 - 2 - (2 + rw if rw else 0))
     if mwid < 8 and rw:                  # no room: the countdown goes first
@@ -1462,7 +1687,8 @@ def p_plan(V, iw):
                   else f"updated {ago(plan.get('updated')) or 'just now'} ago"
                   if plan.get("updated") else "")]
     meters = plan_meters(plan, iw)
-    cost = cost_line(V, iw)
+    # The local estimate rides along only while USAGE isn't on screen.
+    cost = [] if getattr(V, "usage_shown", False) else cost_line(V, iw)
     summ = []
     for label, key in PLAN_ROWS[:2]:
         node = plan.get(key)
@@ -1474,8 +1700,30 @@ def p_plan(V, iw):
                 meters[:2], meters[:1]]
     if not meters:
         variants = [[ln(_dim("no limits reported"), prio=900)] + cost]
+    calm = len(variants[0])
+    # Room to spare: when each limit resets on the clock, and the traffic
+    # Claude's /usage counted against them.
+    # (the clock only where the meter keeps a readable 12 cells)
+    clocked = plan_meters(plan, iw, clock=iw >= LABW + 6 + 21 + 12)
+    if clocked:
+        wins = plan.get("windows") if isinstance(plan.get("windows"), dict) else {}
+        traffic = []
+        for key, lab in (("24h", "Last 24h"), ("7d", "Last 7d")):
+            w = wins.get(key) if isinstance(wins.get(key), dict) else {}
+            if key == "24h" and not w:
+                w = plan.get("last24h") if isinstance(plan.get("last24h"), dict) else {}
+            rq, ss = w.get("requests"), w.get("sessions")
+            if isinstance(rq, int):
+                segs = [_label(lab), _val(f"{rq:,}"), _dim(" requests")]
+                if isinstance(ss, int):
+                    segs += [_dim("  ·  "), _val(str(ss), bold=False),
+                             _dim(" session" + ("s" if ss != 1 else ""))]
+                traffic.append(ln(*segs, prio=400))
+        rich = clocked + ([BLANK] + traffic if traffic else []) + (
+            [BLANK] + cost if cost else [])
+        variants = [rich, clocked + traffic + cost] + variants
     return Panel("PLAN", variants, summary=summ, right=right, act="planrefresh",
-                 least=min(2, len(meters)) or 1)
+                 least=min(2, len(meters)) or 1, calm=calm)
 
 
 # ---- NETWORK + REQUESTS --------------------------------------------------- #
@@ -1604,66 +1852,51 @@ def spark_segs(vals, width, floor=True):
     return out
 
 
-_DOTS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))   # braille L/R
+BLOCKS = " ▁▂▃▄▅▆▇█"     # 0…8 eighths of a cell, bottom-up (charts)
 
 
-def chart_rows(vals, cw, k):
-    """A k-row braille line chart over cw cells (two points per cell), newest
-    at the right, on the series' own floored scale. The samples are resampled
-    to the chart's width and lightly smoothed (a 3-point mean), so it reads
-    as a calm trend line rather than a comb; the exact current value sits
-    beside it. Gray, the newest cell bright; a failed probe is a red
-    full-height column. -> [segments] per row, top first (or None)."""
-    if cw <= 0 or not any(v is not None for v in vals):
+def bar_rows(vals, cw, k, floor=True):
+    """A k-row chart of solid bars over cw cells, one bar per cell, newest at
+    the right. More samples than cells → each bar is its bucket's mean; fewer
+    → the chart starts part-way in. Every sample stands at least an eighth of
+    a cell tall, so the series reads as one solid silhouette, never dots. Bars
+    gray, the newest bright; a failed probe is a red full-height bar.
+    -> [segments] per row, top first (or None when there's nothing yet)."""
+    if cw <= 0 or k <= 0 or not any(v is not None for v in vals):
         return None
-    n = min(cw * 2, len(vals))            # points, one per braille half-cell
+    n = min(cw, len(vals))
     pts = []
     for i in range(n):                    # resample: the mean of each bucket
         run = vals[i * len(vals) // n:max(i * len(vals) // n + 1,
                                            (i + 1) * len(vals) // n)]
         ok = [v for v in run if v is not None]
         pts.append(None if len(ok) < len(run) else sum(ok) / len(ok))
-    sm = []
-    for i, v in enumerate(pts):
-        if v is None:
-            sm.append(None)
-            continue
-        win = [x for x in pts[max(0, i - 1):i + 2] if x is not None]
-        sm.append(sum(win) / len(win))
-    ok = [v for v in sm if v is not None]
+    ok = [v for v in pts if v is not None]
     hi, lo0 = max(ok), min(ok)
-    lo = max(0.0, lo0 - max((hi - lo0) * 0.15, lo0 * 0.02))
-    H = 4 * k
-    bits = [[0] * cw for _ in range(k)]
-    bad = [False] * cw
-    pad0 = cw * 2 - n
-    prev = None
-    for i, v in enumerate(sm):
-        x = pad0 + i
-        col, side = x // 2, x % 2
+    # Floored a little under the fastest sample: the bars keep a solid base,
+    # and the swing above it is what the eye reads.
+    lo = max(0.0, lo0 - max((hi - lo0) * 0.35, lo0 * 0.05)) if floor else 0.0
+    H8 = 8 * k
+    lev = []
+    for v in pts:
         if v is None:
-            bad[col], prev = True, None
-            for r in range(k):
-                for d in range(4):
-                    bits[r][col] |= _DOTS[side][d]
-            continue
-        lv = int(round((v - lo) / (hi - lo) * (H - 1))) if hi > lo else H // 2
-        lv = max(0, min(H - 1, lv))
-        a, b = (lv, lv) if prev is None else (min(prev, lv), max(prev, lv))
-        for L in range(a, b + 1):         # join to the previous point: a line
-            y = H - 1 - L
-            bits[y // 4][col] |= _DOTS[side][y % 4]
-        prev = lv
-    newest = (pad0 + n - 1) // 2
+            lev.append(None)
+        else:
+            f01 = (v - lo) / (hi - lo) if hi > lo else 0.5
+            lev.append(max(1, min(H8, int(round(f01 * H8)))))
+    lead = cw - n
     out = []
     for r in range(k):
-        segs = []
-        for c in range(cw):
-            bv = bits[r][c]
-            ch = (chr(0x2800 + bv) if UNICODE else "*") if bv else " "
-            a = (cp(C_BAD) if bad[c] else cp(C_TITLE) | B if c == newest
-                 else cp(C_MUTE))
-            if segs and segs[-1][1] == a:
+        base = (k - 1 - r) * 8           # eighths below this row
+        segs = [sg(" " * lead)] if lead else []
+        for c, lv in enumerate(lev):
+            if lv is None:
+                ch, a = BLOCKS[8], cp(C_BAD)
+            else:
+                ch = BLOCKS[max(0, min(8, lv - base))]
+                a = cp(C_TITLE) | B if c == n - 1 else cp(C_MUTE)
+            ch = ch if UNICODE else ("#" if ch.strip() else " ")
+            if segs and segs[-1][1] == a and segs[-1][0].strip():
                 segs[-1] = sg(segs[-1][0] + ch, a)
             else:
                 segs.append(sg(ch, a))
@@ -1671,13 +1904,11 @@ def chart_rows(vals, cw, k):
     return out
 
 
-BLOCKS = " ▁▂▃▄▅▆▇█"     # 0…8 eighths of a cell, bottom-up (charts)
-
-
 def requests_line(V, iw, prio=700):
     """ONE row for the requests through the guard: a per-minute sparkline of
     Claude requests, the rate, passed / held. While a request is held right
-    now, that is all the row says."""
+    now, that is all the row says (amber: it's happening now). The held total
+    is history, so it stays gray."""
     R = V.req
     lab = _label("Requests")
     passed = [_dim(f"{R.passed:,} passed")]
@@ -1686,7 +1917,7 @@ def requests_line(V, iw, prio=700):
                 sg(" — pending", cp(C_WARN))]
         return ln(*segs, right=_soft(segs, passed, iw), prio=prio)
     segs = [lab, _val(f"{f'{R.rate}/min':>7}")]
-    held = [sg(f"{R.held_total:,} held", cp(C_WARN))] if R.held_total else []
+    held = [_dim(f"{R.held_total:,} held")] if R.held_total else []
     meta = passed + ([_dim("  ·  ")] + held if held else [])
     if iw - LABW - 7 - 2 - _segw(meta) - 3 < 8:   # narrow: held outranks passed
         meta = held or passed
@@ -1700,11 +1931,31 @@ def requests_line(V, iw, prio=700):
     return ln(*segs, right=_soft(segs, hint, iw), prio=prio)
 
 
+NET_MAX = (14, 14, 8)     # the tallest Internet / API / Requests chart, rows
+
+
+def chart_heights(T):
+    """T chart rows shared by Internet / API / Requests: latency first (it is
+    what a bad link looks like), the request rate once they're 4 rows tall."""
+    k = [1, 1, 1]
+    order = [0, 1] * 3 + [2, 2] + [0, 1] * 4 + [2, 2, 2] + [0, 1] * 4
+    for i in order:
+        if sum(k) >= T:
+            break
+        if k[i] < NET_MAX[i]:
+            k[i] += 1
+    return k
+
+
 def p_net(V, iw):
     if not V.has_net:
         return None
     net = V.net
-    status = ln(*net_status(V), prio=1000)
+    nst = net.get("status")
+    since = ago(net.get("last_change")) if nst in ("online", "degraded") else ""
+    st_segs = net_status(V)
+    status = ln(*st_segs, right=_soft(st_segs, [_dim(f"for {since}")] if since else [],
+                                      iw), prio=1000)
     hist = [x for x in (net.get("history") or []) if isinstance(x, dict)]
 
     def series(k):
@@ -1723,75 +1974,140 @@ def p_net(V, iw):
                               if hist and sw >= 8 else []), prio=800 - j)
             for j, (l, k) in enumerate(keys)]
     req = [requests_line(V, iw)] if V.req else []
-    if net.get("status") in ("offline", "captive"):
+    if nst in ("offline", "captive"):
         calm = []                          # no numbers to plot — just the story
+    speed = []
+    sp = net.get("speedtest") or {}
+    if isinstance(sp.get("mbps_down"), (int, float)):
+        segs = [_label("Speed"), _val(f"{sp['mbps_down']:.0f} Mbps"), _dim(" down")]
+        if isinstance(sp.get("ms"), (int, float)):
+            segs.append(_dim(f"  ·  {fmt_ms(sp['ms'])}"))
+        when = ago(sp.get("at"))
+        speed = [ln(*segs, right=[_dim(f"{when} ago")] if when else (), prio=300)]
     variants = []
-    if V.dense and calm and sw >= 16:
-        # Room to breathe: a real chart per series, 2–6 rows, scale at right.
-        cw = sw - 7
-        for k in (5, 4, 3, 2):
+    cw = sw - 7                            # the chart, then a 6-cell scale right
+    if calm and cw >= 12:
+        # Room to breathe: each series becomes a solid bar chart, as tall as
+        # the column allows (latency first), with its peak / floor at right.
+        R = V.req
+
+        made = {}                         # (series, k) → rows: each drawn once
+
+        def chart(label, vals, k, j, floor=True, unit=fmt_ms, left0=None):
+            if (label, k) in made:
+                return made[label, k]
+            made[label, k] = None
+            ok = [v for v in vals if v is not None]
+            if not ok or (max(ok) == min(ok) and not any(v is None for v in vals)):
+                return None                # flat: a tall chart would be empty rows
+            ch = bar_rows(vals, cw, k, floor)
+            if ch is None:
+                return None
             rows = []
-            for j, (label, key) in enumerate(keys):
-                vals = series(key)
-                ch = chart_rows(vals, cw, k)
-                if ch is None:
-                    rows.append(calm[j])
-                    continue
-                ok = [v for v in vals if v is not None]
-                if j and k >= 3:
+            for r, segs in enumerate(ch):
+                left = left0 if r == 0 else [sg(" " * (LABW + vw))]
+                right = ([_dim(f"{unit(max(ok)):>6}")] if r == 0 and k > 1 else
+                         [_dim(f"{unit(min(ok) if floor else 0):>6}")]
+                         if r == k - 1 and k > 1 else [])
+                rows.append(ln(*left, sg("  "), *segs, right=right,
+                               prio=800 - j - r * 0.01))
+            made[label, k] = rows
+            return rows
+
+        tmax = sum(NET_MAX) if R else NET_MAX[0] + NET_MAX[1]
+        tmax = min(tmax, max(3, getattr(V, "rows_cap", tmax) - 8))   # never taller than the grid
+        seen = set()
+        inet, api = series(keys[0][1]), series(keys[1][1])
+        for T in range(tmax, 3, -1):
+            ki, ka, kr = chart_heights(T)
+            if not R:
+                kr = 0
+            key = (ki, ka, kr)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows = []
+            for j, ((label, k), kk) in enumerate(zip(keys, (ki, ka))):
+                c = chart(label, inet if j == 0 else api, kk, j, left0=head(label, k))
+                if j and (ki >= 3 or kk >= 3):
                     rows.append(BLANK)
-                for r, segs in enumerate(ch):
-                    left = head(label, key) if r == 0 else [sg(" " * (LABW + vw))]
-                    right = ([_dim(f"{fmt_ms(max(ok)):>6}")] if r == 0 else
-                             [_dim(f"{fmt_ms(min(ok)):>6}")] if r == k - 1 else [])
-                    rows.append(ln(*left, sg("  "), *segs, right=right,
-                                   prio=800 - j - r * 0.01))
-            variants.append([status] + rows + req)
+                rows += c if c else [calm[j]]
+            if R and kr >= 2:
+                vals = R.series(cw)
+                rows.append(BLANK)
+                c = chart("Requests", vals, kr, 2, floor=False, unit=lambda v: f"{v:.0f}",
+                          left0=[_label("Requests"), _val(f"{f'{R.rate}/min':>7}")])
+                if c and max(vals) > 0:
+                    held = ([sg(f"↻ {R.holding} held now — pending", cp(C_WARN) | B)]
+                            if R.holding else
+                            [_dim(f"{R.passed:,} passed")] + (
+                                [_dim(f"  ·  {R.held_total:,} held")] if R.held_total else []))
+                    hint = ([_dim(f"{R.last[1]} · {ago(R.last[0]) or '0s'} ago")]
+                            if R.last else [])
+                    meta = [sg(" " * (LABW + vw + 2))] + held
+                    rows += c + [ln(*meta, right=_soft(meta, hint, iw), prio=690)]
+                else:
+                    rows += req
+            else:
+                rows += req
+            variants.append([status] + rows + speed)
     variants += [[status] + calm + req, [status] + calm,
                  [ln(*net_status(V, short=True), prio=1000)]]
-    sp = net.get("speedtest") or {}
+    calm_n = len(variants[-3])
     right = []
     if sp.get("running"):
         prog = sp.get("progress") if isinstance(sp.get("progress"), (int, float)) else 0
         right = [_dim(f"speed test {int(prog * 100)}%…")]
-    return Panel("NETWORK", variants, summary=net_status(V, short=True),
-                 right=right, act="speedtest")
+    # comfortable: three-row latency charts
+    comfort = next((len(v) for v in variants if len(v) <= calm_n + 5), calm_n)
+    p = Panel("NETWORK", variants, summary=net_status(V, short=True),
+              right=right, act="speedtest", calm=calm_n, comfort=comfort,
+              elastic=len(variants) > 3)
+    p.fluid = False                       # a chart trimmed by priority would tear
+    return p
 
 
 def p_requests(V, iw):
-    """The request log (big screens): newest first, a run of identical
-    requests folded into one row (×N); held rows amber."""
+    """Who the guard talked to: one row per host over the recent window —
+    how many requests, how many were held, how long since the last one.
+    Claude first, then the rest by count; a hold is amber only while it is
+    happening (the history is gray)."""
     R = V.req
-    if R is None:
+    if R is None or not R.rows:
         return None
-    runs = []
-    for e, r in reversed(R.rows):
-        key = (r.get("host"), r.get("kind"), r.get("action"))
-        if runs and runs[-1][0] == key:
-            runs[-1][2] += 1
-        else:
-            runs.append([key, r, 1])
-    # time · host · kind · ×N, then passed / held right — fixed columns
-    hw = max(8, min(30, iw - 8 - 2 - 2 - 6 - 5 - 8,
-                    max([tw(clean(str(k[0] or "?"))) for k, _, _ in runs] or [8])))
+    hosts = {}
+    for e, r in R.rows:
+        host = str(r.get("host") or "?")
+        h = hosts.setdefault(host, {"n": 0, "held": 0, "last": None,
+                                    "claude": False})
+        h["n"] += 1
+        h["claude"] |= r.get("kind") == "claude"
+        if r.get("action") != "allowed":
+            h["held"] += 1
+        if e is not None and (h["last"] is None or e > h["last"]):
+            h["last"] = e
+    order = sorted(hosts.items(), key=lambda kv: (not kv[1]["claude"], -kv[1]["n"]))
+    hw_held = max([len(f"  {h['held']} held") for h in hosts.values() if h["held"]] or [0])
+    hw = max(8, min(40, iw - 2 - 4 - 5 - hw_held - 9,
+                    max(tw(clean(h)) for h in hosts)))
     lines = []
-    for i, (key, r, n) in enumerate(runs):
-        host, kind, action = key
-        held = action != "allowed"
-        claude = kind == "claude"
-        segs = [_dim(f"{str(r.get('t') or ''):<8}"), sg("  "),
-                sg(pad(str(host or "?"), hw),
-                   cp(C_WARN) | B if held else cp(C_TITLE if claude else C_DIM)),
-                sg("  "), _dim("claude" if claude else "other "),
-                _dim(f"{'×' + str(n) if n > 1 else '':>5}")]
-        right = [sg("held", cp(C_WARN) | B)] if held else [_dim("passed")]
-        lines.append(ln(*segs, right=right, prio=100 - i * 0.01))
-    if not lines:
-        lines = [ln(_dim("No requests yet — they show up as Claude runs"), prio=100)]
-    right = [_dim(f"{R.passed:,} passed")] + (
-        [_dim("  ·  "), sg(f"{R.held_total:,} held", cp(C_WARN))] if R.held_total else [])
+    for i, (host, h) in enumerate(order):
+        segs = [sg(pad(host, hw), cp(C_TITLE) if h["claude"] else cp(C_DIM)),
+                sg("  "), _val(f"{h['n']:>4}", bold=h["claude"]),
+                _dim(" req" if h["n"] == 1 else " reqs")]
+        if h["held"]:
+            now_held = R.holding and h["claude"]
+            segs.append(sg(f"  {h['held']} held",
+                           cp(C_WARN) | B if now_held else cp(C_DIM)))
+        when = ago(h["last"]) if h["last"] else ""
+        lines.append(ln(*segs, right=[_dim(f"{when or '0s'} ago")] if h["last"] else (),
+                        prio=100 - i * 0.01))
+    stamps = [e for e, _ in R.rows if e is not None]
+    span = ago(min(stamps)) if stamps else ""
+    right = [_dim(f"{len(R.rows)} in the last {span}" if span else f"last {len(R.rows)}")]
     return Panel("REQUESTS", [lines], right=right, least=min(3, len(lines)),
-                 summary=list(right), more=(0, lambda n: ln(_dim(f"+{n} more"), prio=0)))
+                 summary=[_dim(f"{len(hosts)} hosts · {len(R.rows)} requests")],
+                 more=(0, lambda n: ln(_dim(f"+{n} more hosts"), prio=0)))
 
 
 # ---- big screens: USAGE · LIMITS · SYSTEM · TIMELINE ----------------------- #
@@ -1805,13 +2121,17 @@ def p_usage(V, iw):
     sess, today = u.get("session") or {}, u.get("today") or {}
     wk, pace = u.get("week") or {}, u.get("pace") or {}
     tiles = []
-    for i, (lab, cost, sub) in enumerate((
-            ("Today", fmt_cost(today.get("cost")), f"{fmt_tok(today.get('tokens'))} tokens"),
+    since = week_since(wk)
+    rows = [("Today", fmt_cost(today.get("cost")), f"{fmt_tok(today.get('tokens'))} tokens"),
             ("Session", fmt_cost(sess.get("cost")),
              f"{fmt_tok(sess.get('tokens'))} tokens · {sess.get('msgs', 0) or 0} msgs"),
-            ("Week", fmt_cost(wk.get("cost")), f"{fmt_tok(wk.get('tokens'))} tokens"),
-            ("Projected", "~" + fmt_cost(pace.get("projected_week_cost")),
-             "this week, at this pace"))):
+            ("Week", fmt_cost(wk.get("cost")), f"{fmt_tok(wk.get('tokens'))} tokens"
+             + (f" · {since}" if since else ""))]
+    if since and LABW + 7 + 3 + tw(rows[-1][2]) > iw:   # narrow: when it began wins
+        rows[-1] = ("Week", rows[-1][1], since)
+    if projected(pace) is not None:      # withheld the first day after a reset
+        rows.append(("Projected", "~" + fmt_cost(projected(pace)), "this week, at this pace"))
+    for i, (lab, cost, sub) in enumerate(rows):
         tiles.append(ln(_label(lab), _val(f"{cost:>7}"), _dim("   " + sub),
                         prio=900 - i))
     days = [d for d in (u.get("series") or []) if isinstance(d, dict)][-7:]
@@ -1827,7 +2147,7 @@ def p_usage(V, iw):
                        sg(fill, cp(C_TITLE) | B if last else cp(C_MUTE)),
                        sg(track, cp(C_LINE)),
                        sg(f"  {fmt_kcost(c):>6}", cp(C_TITLE) if last else cp(C_DIM)),
-                       prio=500 - j * 0.01))
+                       prio=500 + j * 0.01))      # the oldest day folds first
     ms = [m for m in (u.get("byModel") or []) if isinstance(m, dict)][:4]
     tot = sum((m.get("tokens") or 0) for m in ms) or 1
     mix = []
@@ -1843,10 +2163,93 @@ def p_usage(V, iw):
                       sg(f"{p:>4.0f}%", cp(C_TITLE) | B), *bar,
                       _dim(f"  {fmt_cost(m.get('cost')):>7}"), prio=600 - j * 0.01))
     full = tiles + ([BLANK] + mix if mix else []) + ([BLANK] + week if week else [])
-    return Panel("USAGE", [full, tiles + mix, tiles + mix[:1], tiles, tiles[:1]],
+    # Room to spare: how fast it's going, what the session is made of, and
+    # the week against the budget you set — the estimate's own numbers.
+    detail = []
+    tph, hrs, tpm = (pace.get("tokens_per_active_hr"), pace.get("active_hrs"),
+                     pace.get("live_tpm"))
+    if isinstance(tph, (int, float)) and tph > 0:
+        segs = [_label("Pace"), _val(fmt_tok(tph)), _dim(" tokens / active hour")]
+        if isinstance(hrs, (int, float)) and hrs:
+            segs.append(_dim(f"  ·  {hrs:g}h active"))
+        right = [_dim(f"{fmt_tok(tpm)}/min now")] if isinstance(tpm, (int, float)) and tpm else []
+        detail.append(ln(*segs, right=_soft(segs, right, iw), prio=450))
+    parts = [(k, sess.get(k)) for k in ("input", "output", "cache")
+             if isinstance(sess.get(k), (int, float))]
+    if parts:
+        segs = [_label("Tokens")]
+        for j, (k, v) in enumerate(parts):
+            segs += ([_dim("  ·  ")] if j else []) + [_dim(k + " "), _val(fmt_tok(v), bold=False)]
+        detail.append(ln(*segs, right=_soft(segs, [_dim("this session")], iw), prio=440))
+    hd = u.get("headroom") if isinstance(u.get("headroom"), dict) else {}
+    if isinstance(hd.get("pct"), (int, float)) and hd.get("plan_week_tokens"):
+        hp = float(hd["pct"])
+        fill, track = meter(hp / 100.0, max(4, min(16, iw - LABW - 6 - 24)))
+        detail.append(ln(_label("Budget"), sg(f"{hp:>3.0f}%", cp(pcolor(hp)) | B), sg("  "),
+                         sg(fill, cp(pcolor(hp)) | B), sg(track, cp(C_LINE)),
+                         _dim(f"  of {fmt_tok(hd['plan_week_tokens'])} a week"), prio=430))
+    if detail:
+        full_d = tiles + ([BLANK] + mix if mix else []) + [BLANK] + detail + (
+            [BLANK] + week if week else [])
+    head = tiles + ([BLANK] + mix if mix else []) + [BLANK] + (detail + [BLANK] if detail else [])
+    # Taller: the seven days become a column chart that grows with the room —
+    # one solid bar per day (today bright), its cost under it.
+    tall = []
+    n = len(costs)
+    bw = (iw - 2) // max(1, n) - 1 if n else 0
+    if n >= 2 and bw >= 3:
+        bw = min(bw, 9)
+        lead = sg(" " * max(0, (iw - n * (bw + 1) + 1) // 2))
+        for k in range(16, 5, -1):
+            H8 = 8 * k
+            lev = [max(1, int(round(c / vmax * H8))) if c > 0 else 0 for c in costs]
+            rows = []
+            for r in range(k):
+                base = (k - 1 - r) * 8
+                segs = [lead]
+                for j, lv in enumerate(lev):
+                    ch = BLOCKS[max(0, min(8, lv - base))]
+                    ch = ch if UNICODE else ("#" if ch.strip() else " ")
+                    last = j == n - 1
+                    segs.append(sg(ch * bw, cp(C_TITLE) | B if last else cp(C_MUTE)))
+                    if j < n - 1:
+                        segs.append(sg(" "))
+                rows.append(ln(*segs, prio=500 - r * 0.01))
+            names, vals = [lead], [lead]
+            for j, (d, c) in enumerate(zip(days, costs)):
+                last = j == n - 1
+                nm = "Today" if last and bw >= 5 else _weekday(d.get("day"), 4 if bw >= 3 else 2)
+                gap = [sg(" ")] if j < n - 1 else []
+                names += [sg(f"{nm:^{bw}}"[:bw], cp(C_TITLE) | B if last else cp(C_DIM))] + gap
+                vals += [sg(f"{fmt_kcost(c):^{bw}}"[:bw],
+                            cp(C_TITLE) if last else cp(C_DIM))] + gap
+            tall.append(head + rows + [ln(*names, prio=480),
+                                       ln(*vals, prio=470)])
+    variants = tall + ([full_d] if detail else []) + [
+        full, tiles + mix, tiles + mix[:1], tiles, tiles[:1]]
+    return Panel("USAGE", variants,
                  summary=[_dim("today "), _val(fmt_cost(today.get("cost"))),
                           _dim("  ·  week "), _val(fmt_cost(wk.get("cost")))],
-                 right=[_dim("local estimate · API prices")], act="usage", least=1)
+                 right=[_dim("local estimate · API prices")], act="usage", least=1,
+                 calm=len(full), elastic=bool(tall))
+
+
+def week_since(wk):
+    """Where the estimate's week starts: the plan's weekly reset once /usage
+    has been read ('since Tue 10:30 reset'), Monday until then."""
+    at = wk.get("since") if isinstance(wk, dict) else None
+    if not isinstance(at, (int, float)) or at <= 0:
+        return ""
+    if wk.get("basis") == "plan":
+        return "since " + time.strftime("%a %H:%M", time.localtime(at)) + " reset"
+    return "since Monday"
+
+
+def projected(pace):
+    """The week's projected cost, or None in the first day after a reset
+    (the daemon withholds it rather than extrapolate from a few hours)."""
+    c = pace.get("projected_week_cost") if isinstance(pace, dict) else None
+    return c if isinstance(c, (int, float)) else None
 
 
 def _weekday(day, n):
@@ -1872,139 +2275,245 @@ def p_limits(V, iw):
                    if isinstance(t, dict) and t.get("text")),
                   key=lambda t: -(t.get("pct") or 0))
     top = wsel.get("top") if isinstance(wsel.get("top"), dict) else {}
-    lines = []
-    for j, t in enumerate(tips[:6]):
-        p = int(t.get("pct") or 0)
-        fill, track = meter(p / 100.0, 10)
-        segs = [sg(f"{p:>3}%", cp(C_TITLE) | B), sg("  "), sg(fill, cp(C_TITLE)),
-                sg(track, cp(C_LINE)), sg("  " + str(t["text"]), cp(C_TITLE))]
-        if t.get("hint"):
-            segs.append(_dim("  · " + str(t["hint"])))
-        lines.append(ln(*segs, prio=800 - j))
+    def build(wrap):
+        """Tips as ranked bars (wrapped in full when `wrap`, else one row each),
+        then the top subagents / skills / MCP servers (all of them when wrap)."""
+        lines = []
+        ind = " " * 18                    # under the tip's text
+        for j, t in enumerate(tips[:6]):
+            p = int(t.get("pct") or 0)
+            fill, track = meter(p / 100.0, 10)
+            segs = [sg(f"{p:>3}%", cp(C_TITLE) | B), sg("  "), sg(fill, cp(C_TITLE)),
+                    sg(track, cp(C_LINE))]
+            text, hint = str(t["text"]), str(t.get("hint") or "")
+            room = iw - 18
+            if not wrap or tw(text) + (3 + tw(hint) if hint else 0) <= room or room < 16:
+                segs.append(sg("  " + text, cp(C_TITLE)))
+                if hint:
+                    segs.append(_dim("  · " + hint))
+                lines.append(ln(*segs, prio=800 - j))
+                continue
+            body = textwrap.wrap(text, room)
+            lines.append(ln(*segs, sg("  " + body[0], cp(C_TITLE)), prio=800 - j))
+            for b in body[1:]:
+                lines.append(ln(sg(ind + b, cp(C_TITLE)), prio=800 - j))
+            for n, b in enumerate(textwrap.wrap(hint, room - 2) if hint else []):
+                lines.append(ln(_dim(ind + ("· " if n == 0 else "  ") + b), prio=800 - j))
+        for c, (key, lab) in enumerate((("subagents", "Subagents"), ("skills", "Skills"),
+                                        ("mcp_servers", "MCP"))):
+            items = sorted((x for x in (top.get(key) or [])
+                            if isinstance(x, dict) and x.get("name")),
+                           key=lambda x: -(x.get("pct") or 0))[:8 if wrap else 5]
+            if items and lines:
+                lines.append(BLANK)
+            for m, x in enumerate(items):
+                p = int(x.get("pct") or 0)
+                fill, track = meter(p / 100.0, 8)
+                lines.append(ln(_label(lab if m == 0 else ""),
+                                sg(pad(str(x["name"]), nw), cp(C_TITLE)), sg("  "),
+                                sg(fill, cp(C_MUTE)), sg(track, cp(C_LINE)),
+                                _dim(f"{p:>5}%"), prio=500 - c * 10 - m))
+        if lines:
+            lines.append(ln(sg("approximate · this machine only · shares overlap",
+                               cp(C_LINE)), prio=2))
+        return lines
+
     nw = max(8, min(iw - LABW - 2 - 8 - 6, max(
         [tw(clean(str(x.get("name")))) for k in ("subagents", "skills", "mcp_servers")
          for x in (top.get(k) or []) if isinstance(x, dict)] or [8])))
-    for c, (key, lab) in enumerate((("subagents", "Subagents"), ("skills", "Skills"),
-                                    ("mcp_servers", "MCP"))):
-        items = sorted((x for x in (top.get(key) or [])
-                        if isinstance(x, dict) and x.get("name")),
-                       key=lambda x: -(x.get("pct") or 0))[:5]
-        if items and lines:
-            lines.append(BLANK)
-        for m, x in enumerate(items):
-            p = int(x.get("pct") or 0)
-            fill, track = meter(p / 100.0, 8)
-            lines.append(ln(_label(lab if m == 0 else ""),
-                            sg(pad(str(x["name"]), nw), cp(C_TITLE)), sg("  "),
-                            sg(fill, cp(C_MUTE)), sg(track, cp(C_LINE)),
-                            _dim(f"{p:>5}%"), prio=500 - c * 10 - m))
+    lines = build(False)
     if not lines:
         return None
-    lines.append(ln(sg("approximate · this machine only · shares overlap",
-                       cp(C_LINE)), prio=2))
-    return Panel("WHERE YOUR LIMIT GOES", [lines],
+    rich = build(True)
+    return Panel("WHERE YOUR LIMIT GOES", [rich, lines],
                  right=[_dim("last 7 days" if wkey == "7d" else "last 24h")],
                  act="usage", least=min(3, len(lines)),
                  summary=[_dim(f"{len(tips)} tips")])
 
 
-def p_system(V, iw):
-    """The machine-side details GUARD sums up: where you are, the proxy, the
-    keep-awake policy, Desktop, the daemon."""
-    loc, g = V.loc, V.g
-    rows = []
-
-    def row(lab, segs, act=None, prio=500):
-        rows.append(ln(_label(lab), *segs, act=act, prio=prio - len(rows)))
-
-    cc = loc.get("country_cc")
-    if loc.get("status") in ("OK", "CACHED"):
-        it = loc.get("in_target")
-        row("Country", [_val(f"{cname(cc)} ({cc or '—'})", bold=False), sg("  ")]
-            + ([_dot(C_GOOD), _dim(" in target")] if it else
-               [sg("outside target", cp(C_WARN) | B)]), "recheck")
-        place = ", ".join(str(x) for x in (loc.get("city"), loc.get("region")) if x)
-        if place:
-            row("Place", [_val(place, bold=False)], "recheck")
-        if loc.get("ip"):
-            row("IP", [_val(str(loc["ip"]), bold=False)], "recheck")
-        if loc.get("isp"):
-            row("ISP", [_dim(str(loc["isp"]))], "recheck")
-    port = g.get("proxy_port", "?")
-    row("Proxy", [_val(f":{port}", bold=False),
-                  sg("  up", cp(C_DIM)) if g.get("proxy_up") else
-                  sg("  down", cp(C_BAD) | B)])
-    row("Scope", [_dim("all traffic" if g.get("block_all") else "Claude only")], "scope")
-    mode = {"idle": "lid open", "clamshell": "lid closed ok"}.get(V.kmode, "off")
-    row("Awake", [_val(mode, bold=False), _dim("  " + keepawake_line(
-        V.kmode if V.kon else "off", V.ka))], "keepawake")
-    d = V.desk
-    if d.get("installed"):
-        row("Desktop", [sg("running unguarded", cp(C_WARN) | B) if V.desk_gap else
-                        _val("guarded", bold=False) if d.get("running") else
-                        _dim("not running")], "desktop")
-    return Panel("SYSTEM", [rows], least=min(3, len(rows)),
-                 summary=[_dim(f":{port}  ·  {mode}")])
+MERGE_S = 90       # a turn that resumes within this is one stretch of work
 
 
-TIMELINE_LOOK = {"working": ("●", C_TITLE, "working"), "done": ("✓", C_GOOD, "done"),
-                 "failed": ("✗", C_BAD, "failed"),
-                 "pending_tool": ("!", C_WARN, "needs approval"),
-                 "asking": ("?", C_WARN, "has a question"),
-                 "waiting_input": ("›", C_DIM, "waiting for you"),
-                 "idle": ("◌", C_DIM, "idle"), "gone": ("◌", C_DIM, "gone"),
-                 "paused": ("⏸", C_DIM, "paused")}
+def timeline_moments(ag, now):
+    """Agent history distilled to what you'd want to know you missed. Raw
+    status flips are noise: a done followed by more work within MERGE_S is
+    one stretch; asking → approval → … is one "needed you" stretch. Each
+    moment: dict(sid, t, kind, dur, current, detail). Newest first."""
+    sessions = {x.get("session_id"): x for x in (ag.get("sessions") or [])
+                if isinstance(x, dict)}
+    evs = sorted((e for e in (ag.get("events") or []) if isinstance(e, dict)
+                  and isinstance(e.get("t"), (int, float))), key=lambda e: e["t"])
+    per = {}
+    for e in evs:
+        per.setdefault(e.get("session_id"), []).append(e)
+    out = []
+    for sid, es in per.items():
+        sess = sessions.get(sid) or {}
+        cur = sess.get("status")
+        ms = []
+        work0 = need0 = None
+        needs = []
+        for e in es:
+            frm, to, t = e.get("from"), e.get("to"), e["t"]
+            if to == "working":
+                if need0 is not None:      # the wait is over
+                    ms.append({"kind": "needed", "t": need0, "dur": t - need0,
+                               "what": needs})
+                    need0, needs = None, []
+                if (frm == "done" and ms and ms[-1]["kind"] == "done"
+                        and t - ms[-1]["t"] < MERGE_S):
+                    work0 = ms.pop()["t0"]      # a quick follow-up: same stretch
+                elif work0 is None:
+                    if frm in (None, "idle") and not ms:
+                        ms.append({"kind": "started", "t": t})
+                    work0 = t
+            elif to == "done":
+                if need0 is not None:
+                    ms.append({"kind": "needed", "t": need0, "dur": t - need0,
+                               "what": needs})
+                    need0, needs = None, []
+                t0 = work0 if work0 is not None else t
+                ms.append({"kind": "done", "t": t, "t0": t0, "dur": t - t0})
+                work0 = None
+            elif to in NEED:
+                if to == "failed":
+                    ms.append({"kind": "failed", "t": t})
+                    work0 = None
+                    continue
+                if need0 is None:
+                    need0 = t
+                if to not in needs:
+                    needs.append(to)
+            elif to == "gone":
+                ms.append({"kind": "ended", "t": t})
+                work0 = need0 = None
+            elif to == "paused":
+                ms.append({"kind": "paused", "t": t})
+        if need0 is not None:              # still waiting on you
+            ms.append({"kind": "needed", "t": need0, "dur": now - need0,
+                       "what": needs, "open": True})
+        if ms:                             # what the session is doing NOW
+            last = ms[-1]
+            last["current"] = (
+                (last["kind"] == "needed" and last.get("open") and cur in NEED)
+                or (last["kind"] == "done" and cur in TURN)
+                or (last["kind"] == "failed" and cur == "failed"))
+        for m in ms:
+            m["sid"] = sid
+        out += ms
+    return sorted(out, key=lambda m: -m["t"]), sessions
 
 
 def p_timeline(V, iw):
-    """Agent state changes, newest first — what happened while you looked away."""
+    """What happened while you looked away: turns that finished (and how
+    long they ran), waits on you (and how long), starts, failures, ends —
+    never raw status flips. One time column, relative and dim. Color only
+    for a moment that is still the session's state right now; history is
+    gray. The project name only when more than one session is in view, once
+    per run of its rows."""
     ag = V.raw.get("agents") if isinstance(V.raw.get("agents"), dict) else {}
-    evs = [e for e in (ag.get("events") or []) if isinstance(e, dict)]
-    if not evs:
+    now = time.time()
+    ms, sessions = timeline_moments(ag, now)
+    if len(ms) < 2:                       # one moment is not a history
         return None
-    names = {x.get("session_id"): _name(x) for x in (ag.get("sessions") or [])
-             if isinstance(x, dict)}
-    nw = min(16, max(tw(clean(n)) for n in list(names.values()) + ["agent"]))
-    lines = []
-    for i, e in enumerate(sorted(evs, key=lambda e: -(e.get("t") or 0))):
-        mark, col, word = TIMELINE_LOOK.get(e.get("to"), ("·", C_DIM, str(e.get("to"))))
-        t = e.get("t")
-        hhmm = time.strftime("%H:%M", time.localtime(t)) if isinstance(t, (int, float)) else "     "
-        sid = e.get("session_id")
-        lines.append(ln(_dim(hhmm + "  "), sg(mark, cp(col) | B), sg("  "),
-                        sg(pad(names.get(sid) or str(sid or "?")[:8], nw), cp(C_TITLE)),
-                        sg("  " + word, cp(col) if col in (C_WARN, C_BAD) else cp(C_DIM)),
-                        right=[_dim(ago(t) + " ago")] if ago(t) else (),
-                        act=("focus", sid) if sid in names else None,
+    multi = len({m["sid"] for m in ms}) > 1
+    if multi:                             # one group per session, latest first
+        first = {}
+        for m in ms:
+            first.setdefault(m["sid"], len(first))
+        ms = sorted(ms, key=lambda m: (first[m["sid"]], -m["t"]))
+    names = {sid: _name(x) for sid, x in sessions.items()}
+    nw = min(16, max([tw(clean(names.get(m["sid"]) or "agent")) for m in ms] + [5])) \
+        if multi else 0
+    lines, prev = [], object()
+    for i, m in enumerate(ms):
+        sess = sessions.get(m["sid"]) or {}
+        k, cur = m["kind"], m.get("current")
+        what = m.get("what") or []
+        if k == "done":
+            mark, col = "✓", C_GOOD if cur else C_DIM
+            word = "turn done"
+            tail = f"  ·  {_dur(m['dur'])}" if m.get("dur", 0) >= 1 else ""
+            det = sess.get("result") if cur else ""
+        elif k == "needed":
+            ap = "pending_tool" in what
+            mark, col = ("!" if ap else "?"), C_WARN if cur else C_DIM
+            if cur:
+                word = "needs approval" if ap else "has a question"
+            else:
+                word = ("asked, then needed approval" if ap and "asking" in what
+                        else "needed approval" if ap else "asked a question")
+            tail = "" if cur else f"  ·  waited {_dur(m['dur'])}"   # (age is right)
+            det = _pending_detail(sess) if cur else ""
+        elif k == "failed":
+            mark, col, word, tail = "✗", C_BAD if cur else C_DIM, "failed", ""
+            det = sess.get("activity") if cur else ""
+        elif k == "started":
+            # (the ring of events may begin long after the session did)
+            st = sess.get("started")
+            fresh = isinstance(st, (int, float)) and abs(m["t"] - st) < 300
+            mark, col, tail = "›", C_DIM, ""
+            word = "started" if fresh else "back to work"
+            det = sess.get("title") or ""
+        elif k == "ended":
+            mark, col, word, tail, det = "◌", C_DIM, "ended", "", ""
+        else:
+            mark, col, word, tail, det = "⏸", C_DIM, k, "", ""
+        loud = col in (C_WARN, C_BAD, C_GOOD)
+        segs = []
+        if multi:
+            nm = names.get(m["sid"]) or "agent"
+            segs.append(sg(pad(nm if m["sid"] != prev else "", nw) + "  ",
+                           cp(C_TITLE)))
+        prev = m["sid"]
+        segs += [sg(mark, cp(col) | B if loud else cp(C_DIM)), sg("  "),
+                 sg(word, cp(col) | B if loud and col != C_GOOD else
+                    cp(C_TITLE) if loud else cp(C_DIM)), _dim(tail)]
+        if det:
+            segs.append(_dim("  " + " ".join(str(det).split())))
+        when = ago(m["t"])
+        lines.append(ln(*segs, right=[_dim(f"{when:>6}")] if when else (),
+                        act=("focus", m["sid"]) if m["sid"] in sessions else None,
                         prio=100 - i * 0.01))
+    first = min(m["t"] for m in ms)
+    if multi:                             # a hairline of air between groups
+        out, last_sid = [], None
+        for line, m in zip(lines, ms):
+            if last_sid is not None and m["sid"] != last_sid:
+                out.append(BLANK)
+            out.append(line)
+            last_sid = m["sid"]
+        lines = out
     return Panel("TIMELINE", [lines], least=min(2, len(lines)),
-                 summary=[_dim(f"{len(lines)} events")],
+                 right=[_dim("since " + time.strftime("%H:%M", time.localtime(first)))],
+                 summary=[_dim(f"{len(lines)} moments")],
                  more=(0, lambda n: ln(_dim(f"+{n} earlier"), prio=0)))
 
 
 # The layouts. Visual order is fixed per column (it encodes attention); the
 # number is the priority that decides who gets rows when the screen is short.
-# Small and medium screens stay calm (four panels); big ones add panels that
-# genuinely get richer with room, each class a superset of the last.
+# Every class has the same four anchors; the extra panels then go, in order,
+# to whichever column has the most room left — but only where they fit
+# without squeezing an anchor below its calm size, so a small terminal stays
+# the calm four and a tall or wide one fills with what genuinely gets richer.
 LAYOUTS = {
     "compact": (((p_guard, 100), (p_agents, 95), (p_plan, 80), (p_net, 70)),),
     "regular": (((p_guard, 100), (p_agents, 95)),
                 ((p_plan, 90), (p_net, 80))),
-    "tall": (((p_guard, 100), (p_agents, 95), (p_timeline, 20)),
-             ((p_plan, 90), (p_net, 80), (p_requests, 40))),
-    # Big grids: the anchors stay put (attention order), and the extra panels
-    # go, in order, to whichever flexible column is shortest — so the columns
-    # come out balanced instead of one tall column beside empty ones.
     "wide": (((p_guard, 100), (p_agents, 95)),
              ((p_plan, 90),),
-             ((p_net, 85), (p_requests, 40))),
+             ((p_net, 85),)),
     "xwide": (((p_guard, 100), (p_agents, 95)),
               ((p_plan, 90),),
               ((p_usage, 60),),
-              ((p_net, 85), (p_requests, 40))),
+              ((p_net, 85),)),
 }
-EXTRAS = {"wide": (((p_usage, 60), (p_limits, 50), (p_timeline, 20)), (0, 1)),
-          "xwide": (((p_limits, 50), (p_system, 45), (p_timeline, 20)), (0, 1, 2))}
+EXTRAS = {
+    "compact": ((p_usage, 60), (p_timeline, 30), (p_limits, 50), (p_requests, 40)),
+    "regular": ((p_usage, 60), (p_timeline, 30), (p_limits, 50), (p_requests, 40)),
+    "wide": ((p_usage, 60), (p_timeline, 30), (p_limits, 50), (p_requests, 40)),
+    "xwide": ((p_timeline, 30), (p_limits, 50), (p_requests, 40)),
+}
 SPLITS = {"wide": (0.44, 0.28, 0.28), "xwide": (0.31, 0.23, 0.22, 0.24)}
 MAX_W = 260          # past this, the dashboard centers instead of sprawling
 
@@ -2017,20 +2526,20 @@ HINTS = (("⏎", "actions", 100), ("r", "route", 70), ("e", "enforce", 60),
 
 
 def size_class(h, w):
-    """tiny · compact · regular (calm) → tall · wide · xwide (dense): each
-    dense class keeps everything the calm one shows and adds what genuinely
-    gets richer with room."""
+    """tiny (a status card) · compact (one column) · regular (two) · wide
+    (three) · xwide (four). Height never changes the class: it changes how
+    much each column holds."""
     if w < 60 or h < 16:
         return "tiny"
     if w < 100:
         return "compact"
     if w < 180 or h < 30:
-        return "tall" if w >= 140 and h >= 40 else "regular"
+        return "regular"
     return "wide" if w < 230 else "xwide"
 
 
-def header(fr, V, x0, W):
-    """Row 0: radar · TOWER · verdict on the left; the counts that ask for you
+def header(fr, V, x0, W, y=0):
+    """Row y (the top): radar · TOWER · verdict on the left; the counts that ask for you
     and a clock on the right. Chips drop, least important first."""
     # A held request outranks a green verdict: amber, one loudest thing.
     lc = C_WARN if V.pending and V.color == C_GOOD else V.color
@@ -2063,7 +2572,7 @@ def header(fr, V, x0, W):
     while total() > avail and chips:
         low = [c for c in chips if c[0] < 90]
         chips.remove(min(low, key=lambda c: c[0]) if low else chips[-1])
-    x = put_segs(fr, 0, x0 + 2, avail, left)
+    x = put_segs(fr, y, x0 + 2, avail, left)
     if chips:
         segs = []
         for c in chips:
@@ -2072,11 +2581,11 @@ def header(fr, V, x0, W):
             segs += c[1]
         rw = _segw(segs)
         if x0 + W - 2 - rw > x:
-            put_segs(fr, 0, x0 + W - 2 - rw, rw, segs)
+            put_segs(fr, y, x0 + W - 2 - rw, rw, segs)
 
 
-def footer(fr, x0, W):
-    y = fr.h - 1
+def footer(fr, x0, W, y=None):
+    y = fr.h - 1 if y is None else y
     avail = W - 4
     items = [(U("⏎", "Enter") if k == "⏎" else k, lab, pr) for k, lab, pr in HINTS]
     chosen, used = set(), 0
@@ -2168,6 +2677,92 @@ def layout_tiny(fr, V):
             fr.hit(y, 0, w - 1, "menu", 2)
 
 
+# Which grids a width may use, most columns first. A wide screen with little
+# to show fills better with fewer, taller columns than with four short ones;
+# compose() keeps whichever covers the most of the screen.
+GRIDS = {"compact": ("compact",), "regular": ("regular", "compact"),
+         "wide": ("wide", "regular"), "xwide": ("xwide", "wide", "regular")}
+GRID_MAX_W = {"compact": 99, "regular": 180, "wide": 230, "xwide": MAX_W}
+GRID_RECHECK_S = 30
+_GRID = {}             # "pick": ((h, w), grid, when) — the grid in use
+
+
+def plan_grid(V, grid, w, H):
+    """Build one grid: the anchors, then the extras placed where they fit.
+    -> (W, widths, columns of panels, L) where L is the grid's height: the
+    screen, or — when even its fullest column can't fill that — the height at
+    which every column is complete, so the columns always end on one row."""
+    W = min(w - 2, GRID_MAX_W[grid])
+    specs = LAYOUTS[grid]
+    if grid == "compact":
+        widths = [W]
+    elif grid == "regular":
+        rw = min(72, max(46, int(W * 0.40)))
+        widths = [W - rw - 2, rw]
+    else:
+        avail = W - 2 * (len(specs) - 1)
+        widths = [int(avail * f) for f in SPLITS[grid][:-1]]
+        widths.append(avail - sum(widths))
+    V.usage_shown = any(fn is p_usage for spec in specs for fn, _ in spec)
+    V.rows_cap = H                        # no panel builds variants taller than this
+    cols = []                             # per column: [(fn, prio, panel)]
+    for cw, spec in zip(widths, specs):
+        col = []
+        for fn, prio in spec:
+            p = fn(V, cw - 4)
+            if p:
+                p.prio = prio
+                col.append((fn, prio, p))
+        cols.append(col)
+
+    def ps(c):
+        return [p for _, _, p in cols[c]]
+
+    def height(c):                        # charts at their comfortable size
+        return sum(min((p.comfort if p.elastic else p.full()) + 2, H)
+                   for p in ps(c)) + max(0, len(ps(c)) - 1)
+
+    def has_chart(c):
+        return any(p.elastic for p in ps(c))
+
+    # Every column must reach the grid's height, so each extra goes to the
+    # column that could stand the least tall at full content (a chart extra
+    # to a column without a chart first) where it fits whole beside the
+    # others' comfortable sizes; failing that, wherever it fits at its
+    # minimum. An extra's calm size is its minimum, so anchors get rich first.
+    for fn, prio in EXTRAS.get(grid, ()):
+        probe = fn(V, widths[0] - 4)
+        if not probe:
+            continue
+        order = sorted(range(len(cols)), key=lambda c: (
+            probe.elastic and has_chart(c), col_rows(ps(c), H), c))
+        pick = next((c for c in order
+                     if height(c) + 1 + min(probe.comfort + 2, H) <= H), None)
+        if pick is None:
+            pick = min(range(len(cols)), key=lambda c: (height(c), c))
+        p = fn(V, widths[pick] - 4) if len(set(widths)) > 1 else probe
+        if not p:
+            continue
+        p.prio = prio
+        # it earns a box only with a few real lines, never as a stub
+        floor = min(p.full(), max(p.least, 4))
+        p.least = floor
+        p.calm = p.comfort = floor
+        if height(pick) + 1 + floor + 2 > H:
+            continue
+        cols[pick].append((fn, prio, p))
+        if fn is p_usage and not V.usage_shown:
+            V.usage_shown = True          # PLAN drops its one-line estimate
+            for col, cw in zip(cols, widths):
+                for i, (f, pr, q) in enumerate(col):
+                    if f is p_plan:
+                        nq = p_plan(V, cw - 4)
+                        nq.prio = pr
+                        col[i] = (f, pr, nq)
+    L = min([H] + [col_rows(ps(c), H) for c in range(len(cols)) if cols[c]])
+    return W, widths, [ps(c) for c in range(len(cols))], L
+
+
 def compose(s, h, w, now):
     fr = Frame(h, w)
     V = view(s, now)
@@ -2175,47 +2770,35 @@ def compose(s, h, w, now):
     if cls == "tiny":
         layout_tiny(fr, V)
         return fr
-    V.dense = cls in ("tall", "wide", "xwide")
-    W = min(w - 2, MAX_W)
-    x0 = (w - W) // 2
-    header(fr, V, x0, W)
-    footer(fr, x0, W)
     roomy = h >= 30                       # a breath under the header / over the footer
     top = 2 if roomy else 1
     H = h - top - (2 if roomy else 1)
-    specs = LAYOUTS[cls]
-    if cls == "compact":
-        widths = [W]
-    elif cls in ("regular", "tall"):
-        rw = min(72, max(46, int(W * 0.40)))
-        widths = [W - rw - 2, rw]
+    # The grid is chosen on a resize and re-weighed every GRID_RECHECK_S, never
+    # on every state change — so the layout can't flip back and forth as an
+    # agent comes and goes, and the alternatives cost nothing in between.
+    keep = _GRID.get("pick")
+    if (keep and keep[0] == (h, w) and now - keep[2] < GRID_RECHECK_S
+            and keep[1] in GRIDS[cls]):
+        W, widths, cols, L = plan_grid(V, keep[1], w, H)
     else:
-        avail = W - 2 * (len(specs) - 1)
-        widths = [int(avail * f) for f in SPLITS[cls][:-1]]
-        widths.append(avail - sum(widths))
-    cols = []
-    for cw, spec in zip(widths, specs):
-        panels = []
-        for fn, prio in spec:
-            p = fn(V, cw - 4)
-            if p:
-                p.prio = prio
-                panels.append(p)
-        cols.append(panels)
-    if cls in EXTRAS:
-        extras, flex = EXTRAS[cls]
-
-        def natural(ps):                  # a column's height at full content
-            return sum(min(p.full() + 2, H) for p in ps) + max(0, len(ps) - 1)
-        for fn, prio in extras:
-            c = min(flex, key=lambda i: (natural(cols[i]), i))
-            p = fn(V, widths[c] - 4)
-            if p:
-                p.prio = prio
-                cols[c].append(p)
+        best = None
+        for grid in GRIDS[cls]:
+            W, widths, cols, L = plan_grid(V, grid, w, H)
+            area = W * L
+            # fewer columns only when they cover clearly more of the screen
+            if best is None or area > best[0] * 1.2:
+                best = (area, grid, W, widths, cols, L, V.usage_shown)
+            if best[5] >= H - 6:          # (near) full: no reason to look further
+                break
+        _, grid, W, widths, cols, L, V.usage_shown = best
+        _GRID["pick"] = ((h, w), grid, now)
+    x0 = (w - W) // 2
+    off = (H - L) // 2                    # short of the screen: center it all
+    header(fr, V, x0, W, y=off)
+    footer(fr, x0, W, y=h - 1 - (H - L - off))
     x = x0
     for cw, panels in zip(widths, cols):
-        column(fr, panels, top, x, cw, H, gap=1 if V.dense else None)
+        column(fr, panels, top + off, x, cw, L)
         x += cw + 2
     return fr
 
@@ -2586,6 +3169,7 @@ HELP = [
     ("c / p", "Country — open the picker to choose & pin a country"),
     ("w", "Keep awake — cycle off → lid-open → lid-closed"),
     ("d", "Claude Desktop — open (or relaunch) through the guard"),
+    ("W", "Claude on the web — claude.ai in a guarded window (its own Tower profile: sign in once)"),
     ("u / $", "Usage — plan detail, where the limit goes, local cost"),
     ("k", "Re-check your location right now"),
     ("?", "Show this help"),
@@ -2708,14 +3292,21 @@ def usage_lines(s, iw):
         wk, pace = u.get("week") or {}, u.get("pace") or {}
         out += [BLANK, _section("LOCAL ESTIMATE",
                                 right=[_dim("API list prices · not your plan")])]
-        for lab, cost, sub in (
-                ("Session", fmt_cost(sess.get("cost")),
+        since = week_since(wk)
+        rows = [("Session", fmt_cost(sess.get("cost")),
                  f"{fmt_tok(sess.get('tokens'))} tokens · {sess.get('msgs', 0) or 0} msgs"),
                 ("Today", fmt_cost(today.get("cost")),
                  f"{fmt_tok(today.get('tokens'))} tokens"),
-                ("Week", fmt_cost(wk.get("cost")), f"{fmt_tok(wk.get('tokens'))} tokens"),
-                ("Projected", "~" + fmt_cost(pace.get("projected_week_cost")),
-                 f"~{fmt_tok(pace.get('projected_week_tokens'))} tokens / week")):
+                ("Week", fmt_cost(wk.get("cost")), f"{fmt_tok(wk.get('tokens'))} tokens"
+                 + (f" · {since}" if since else ""))]
+        if projected(pace) is not None:
+            tk = pace.get("projected_week_tokens")
+            rows.append(("Projected", "~" + fmt_cost(projected(pace)),
+                         f"~{fmt_tok(tk)} tokens / week" if isinstance(tk, (int, float))
+                         else "this week, at this pace"))
+        else:
+            rows.append(("Projected", "—", "after the first day of the week"))
+        for lab, cost, sub in rows:
             out.append(ln(_label(lab), _val(f"{cost:>8}"), _dim("   " + sub)))
         ms = [m for m in (u.get("byModel") or []) if isinstance(m, dict)][:4]
         tot = sum((m.get("tokens") or 0) for m in ms) or 1
@@ -2871,6 +3462,28 @@ def _desk_val(s):
     return "guarded" if d.get("guarded") else "UNGUARDED"
 
 
+def _web_val(s):
+    w = web_state(s)
+    if not w.get("available"):
+        return "unavailable"
+    return "window open" if w.get("running") else ""
+
+
+def _menu_note(key, s):
+    """The one honest line about the selected action, where it needs one."""
+    if key == "web":
+        w = web_state(s)
+        if not w.get("available"):
+            return "needs Chrome, Brave, Edge or Chromium"
+        return (f"claude.ai in a guarded {browser_name(w)} window — "
+                "its own Tower profile, sign in once")
+    if key == "desktop" and _desk_val(s) == "not installed":
+        return "Claude Desktop isn't installed on this " + DEVICE
+    if key == "desktop" and _desk_val(s) == "UNGUARDED":
+        return "quits Desktop and reopens it through the guard (asks first)"
+    return ""
+
+
 def actions_menu(win):
     """The one place actions live — so a stray keypress on the dashboard can't
     change anything. Doubles as the help/reference. Returns 'quit' or None."""
@@ -2906,8 +3519,11 @@ def actions_menu(win):
                 ("keepawake", f"Keep the {DEVICE} awake",
                  {"idle": "lid open", "clamshell": "lid-closed ok"}.get(
                      ka.get("mode", "off"), "off")),
-                ("desktop", "Open Claude Desktop through the guard",
+                ("desktop", ("Relaunch Claude Desktop through the guard"
+                             if _desk_val(s) == "UNGUARDED"
+                             else "Open Claude Desktop through the guard"),
                  _desk_val(s)),
+                ("web", "Open Claude on the web through the guard", _web_val(s)),
                 ("recheck", "Re-check location now", ""),
                 ("speedtest", "Run internet speed test", spval),
                 ("refresh", "Refresh usage now", ""),
@@ -2942,13 +3558,15 @@ def actions_menu(win):
                 safe_addstr(win, yy, bx + 3,
                             (mark + label).ljust(bw - 19)[:bw - 19], attr)
                 if val:
-                    va = (cp(C_BAD) | B if val == "UNGUARDED"
-                          else cp(C_DIM) if val in ("off", "not installed")
+                    va = (cp(C_WARN) | B if val == "UNGUARDED"
+                          else cp(C_DIM) if val in ("off", "not installed", "unavailable")
                           else cp(C_TITLE) | (B if val == "ON" else 0))
                     safe_addstr(win, yy, bx + bw - 16, val[:13],
                                 va | (curses.A_REVERSE if sel else 0))
+            note = _menu_note(items[idx][0], s)
             safe_addstr(win, by + bh - 2, bx + 3,
-                        "↑/↓ move · Enter select · Esc close", cp(C_DIM))
+                        clip(note or "↑/↓ move · Enter select · Esc close", bw - 6),
+                        cp(C_DIM))
             win.noutrefresh()
             curses.doupdate()
             ch = win.getch()
@@ -2998,6 +3616,8 @@ def actions_menu(win):
                     send({"cmd": "keepawake", "on": nxt != "off", "mode": nxt})
                 elif key == "desktop":
                     open_desktop(win, s)
+                elif key == "web":
+                    open_web(s)
                 elif key == "recheck":
                     send({"cmd": "recheck"})
                 elif key == "speedtest":
@@ -3059,6 +3679,8 @@ def do_click(win, act, s):
         usage_modal(win)
     elif act == "desktop":
         open_desktop(win, s)
+    elif act == "web":
+        open_web(s)
     elif act == "menu":
         return actions_menu(win)
     return None
