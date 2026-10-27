@@ -1,19 +1,6 @@
-// Tower — shared SwiftUI components: cards, meters, shimmer, small controls.
+// Tower — shared SwiftUI components: shimmer, danger alerts, subagent trees.
 
 import SwiftUI
-
-let SPRING = Animation.spring(response: 0.42, dampingFraction: 0.86)
-
-struct Card<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        content
-            .padding(13)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.045),
-                        in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-    }
-}
 
 // Modern shimmer that sweeps across the masked content while active.
 struct Shimmer: ViewModifier {
@@ -45,24 +32,6 @@ struct Shimmer: ViewModifier {
     }
 }
 extension View { func shimmer(_ active: Bool) -> some View { modifier(Shimmer(active: active)) } }
-
-struct Meter: View {
-    let fraction: Double
-    let color: Color
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.secondary.opacity(0.16))
-                Capsule().fill(
-                    LinearGradient(colors: [color.opacity(0.85), color],
-                                   startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(3, geo.size.width * fraction))
-            }
-        }
-        .frame(height: 7)
-        .animation(SPRING, value: fraction)
-    }
-}
 
 // Two-stage confirmation for anything that lets Claude reach the API WITHOUT
 // the guard (route off, enforce off, quit). Wording escalates when agents are
@@ -115,56 +84,119 @@ extension View {
     }
 }
 
-// Keep awake — the dashboard card. The beacon (the tower's lamp) states it at a
-// glance; the segmented control sets it; a line names the consequence.
-struct KeepAwakeCard: View {
-    @ObservedObject var model: TowerModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+// --------------------------------------------------------------------------- //
+// Subagents — a parent's fan-out, drawn as a tree hanging off its model mark.
+// A hairline rail drops from the parent's glyph; each child branches off it
+// with a status node (a solid neutral dot while running, a
+// quiet check once done). Running children read in full, finished ones step
+// back to tertiary. No motion of its own: the rail grows/shrinks with the
+// list (state change), it never pulses.
+// --------------------------------------------------------------------------- //
+struct SubagentTree: View {
+    let subagents: [GSubagent]
+    /// x of the rail, in the tree's own coordinates (the parent glyph's center).
+    var rail: CGFloat = TowerDesign.Size.rowGlyph / 2
+    /// Rows shown before the rest fold into "+N more".
+    var limit: Int = 4
+    /// Wide surfaces add each child's live activity and tool count.
+    var detailed: Bool = false
+
     var body: some View {
-        let mode = model.keepAwakeMode
-        GroupBox("Keep awake") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    BeaconView(mode: model.awakeGlow, size: 34)
-                        .frame(width: 34, height: 34)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(KeepAwakeCopy.title(mode))
-                            .font(.system(size: 15, weight: .semibold))
-                        Text(model.keepAwakeLine)
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 6)
-                }
-                Picker("", selection: modeBinding) {
-                    Text("Off").tag("off")
-                    Text("Lid open").tag("idle")
-                    Text("Lid closed").tag("clamshell")
-                }
-                .pickerStyle(.segmented).labelsHidden()
-                HStack(spacing: 7) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
-                    Text(note(mode)).font(.system(size: 11)).foregroundStyle(.tertiary)
-                }
+        let shown = Array(subagents.prefix(limit))
+        let rest = subagents.count - shown.count
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shown.enumerated()), id: \.element.id) { i, sub in
+                SubagentNode(sub: sub, rail: rail,
+                             last: i == shown.count - 1 && rest == 0,
+                             detailed: detailed)
             }
-            .padding(6)
-            .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion), value: mode)
+            if rest > 0 {
+                let running = subagents.dropFirst(limit).filter(\.working).count
+                HStack(spacing: 0) {
+                    TreeRail(last: true).frame(width: rail + 10)
+                    Text("+\(rest) more" + (running > 0 ? " · \(running) running" : ""))
+                        .font(TowerDesign.Font.caption.weight(.medium))
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(height: 16)
+                .towerRow()
+            }
         }
     }
+}
 
-    /// The picker reflects real daemon state: the segment moves once the
-    /// daemon has taken the mode. Every mode is one tap — no password.
-    private var modeBinding: Binding<String> {
-        Binding(get: { model.keepAwakeMode }, set: { newMode in
-            model.send(["cmd": "keepawake", "on": newMode != "off", "mode": newMode])
-        })
+struct SubagentNode: View {
+    let sub: GSubagent
+    let rail: CGFloat
+    let last: Bool
+    let detailed: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TreeRail(last: last)
+                .frame(width: rail + 10)
+                .overlay(alignment: .trailing) { node.offset(x: 3.5) }
+            HStack(spacing: 6) {
+                Text(sub.typeName)
+                    .font(TowerDesign.Font.mono(9.5))
+                    .foregroundStyle(sub.working ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                    .padding(.horizontal, 5).frame(height: 15)
+                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.primary.opacity(sub.working ? 0.09 : 0.05)))
+                Text(sub.desc ?? sub.now)
+                    .font(TowerDesign.Font.activity)
+                    .foregroundStyle(sub.working ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                    .lineLimit(1).truncationMode(.tail)
+                if detailed, sub.desc != nil {
+                    Text(sub.now)
+                        .font(TowerDesign.Font.activity).foregroundStyle(.tertiary)
+                        .lineLimit(1).truncationMode(.tail)
+                        .layoutPriority(-1)
+                }
+                Spacer(minLength: 6)
+                if detailed, let n = sub.tools, n > 0 {
+                    Text("\(n) ✓").font(TowerDesign.Font.counter).foregroundStyle(.tertiary)
+                }
+                Text(sub.elapsed)
+                    .font(TowerDesign.Font.counter)
+                    .foregroundStyle(sub.working ? AnyShapeStyle(.secondary) : AnyShapeStyle(.quaternary))
+            }
+            .padding(.leading, 8)
+        }
+        .frame(height: 19)
+        .help(sub.desc.map { "\($0)\n\(sub.now)" } ?? sub.now)
+        .towerRow()
     }
 
-    private func note(_ mode: String) -> String {
-        switch mode {
-        case "idle":      return "Held only while agents work; the screen still sleeps."
-        case "clamshell": return "No password — lid sleep is lifted only while agents work."
-        default:          return "Turn on to keep long agents running when you step away."
+    @ViewBuilder private var node: some View {
+        if sub.working {
+            Circle().fill(Color.primary.opacity(0.7)).frame(width: 6, height: 6)
+        } else {
+            Image(systemName: "checkmark")
+                .font(.system(size: 7, weight: .heavy))
+                .foregroundStyle(.tertiary)
+                .frame(width: 7, height: 7)
+        }
+    }
+}
+
+/// One segment of the rail: down through the row (or to its middle, for the
+/// last child) with a rounded elbow out to the node.
+struct TreeRail: View {
+    let last: Bool
+    var body: some View {
+        Canvas { ctx, size in
+            let x = size.width - 10, mid = size.height / 2, r: CGFloat = 4
+            var p = Path()
+            p.move(to: CGPoint(x: x, y: 0))
+            p.addLine(to: CGPoint(x: x, y: mid - r))
+            p.addQuadCurve(to: CGPoint(x: x + r, y: mid), control: CGPoint(x: x, y: mid))
+            p.addLine(to: CGPoint(x: size.width - 1, y: mid))
+            if !last {
+                p.move(to: CGPoint(x: x, y: mid - r))
+                p.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            ctx.stroke(p, with: .color(.primary.opacity(0.16)), lineWidth: 1)
         }
     }
 }

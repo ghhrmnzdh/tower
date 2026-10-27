@@ -95,7 +95,9 @@ fixed queue positions, distinct motion:
 | idle | tertiary | `zzz` | none | Resting, collapsed |
 
 Attention hierarchy: menubar badge > Needs-You order > collision banner > the
-radar's own motion. Notifications fire on →failed/→blocked/→asking always;
+radar's own motion. The menubar badge is a filled notification pill that counts
+only what **actually needs you** — failed, approval, asking. A finished turn
+("your turn") is listed in Needs You but never counted. Notifications fire on →failed/→blocked/→asking always;
 →done only if the popover hasn't been opened in 60s.
 
 ## Motion tokens (`src/DesignSystem.swift`)
@@ -125,17 +127,26 @@ each radar state freezes at a legible still frame.
 
 ## Layout
 
-Popover: 360pt wide, flat rows + dividers (Wi-Fi-menu style, no card chrome).
-Section order = attention order: header (radar + route toggle) → net weather →
-Needs You → collisions → Agents → Resting → location → keep-awake → plan meters →
-footer.
+Popover: 360pt wide, flat rows + dividers (Wi-Fi-menu style). The header is a
+status card (radar, verdict, where — tinted only on a hold or danger); the
+footer is one slim bar (Open Dashboard pill + Settings / Terminal / Quit icons).
+Default order = attention order: net weather (an Internet · API reading strip) →
+Agents (Needs You → collisions → working → resting) → location (flag tile) →
+Claude Desktop (only while unguarded) → keep-awake → plan rings or bars → footer.
+**Color:** Tower's interactive color is a white ink (near-black in light mode),
+never the system blue — selections, rings, charts, the primary button. Switches
+are green when on. Amber and red stay reserved for holds and danger; nothing
+else is tinted (subagent chips, tips, meters below the warn line are neutral).
 Type scale: header 13 semibold · row title 13 · activity 11 secondary ·
 counters 11 monospaced-digit · section headers 11 semibold secondary.
 Empty state: a still radar and "No agents running." — calm, fully quiet.
 
-The middle sections are **composable** (Settings → Popover): each can be hidden,
-and density set Comfortable/Compact, with a live scaled preview that settles on
-the same spring. The *order is fixed* — it encodes attention — so composition is
-show/hide + density, never reorder. Dividers sit only between visible sections,
-so hiding one never orphans a rule. Defaults reproduce today's full popover, so
-anyone who never opens Settings sees no change.
+The middle sections are **composable** (Settings → Popover): drag a row to
+reorder — it lifts and follows the pointer 1:1 while the others glide aside on
+a spring, with a trackpad tick per slot — switch each on or off (or right-click
+a section in the popover → Hide), pick rings or bars and the density, and toggle
+subagent trees, resting agents and the IP; which plan limits you track (e.g.
+drop Fable) is its own section. The header and
+footer are pinned, and inside Agents what needs you always ranks first — you
+order sections, never what outranks what. Dividers sit only between visible
+sections, so hiding one never orphans a rule.

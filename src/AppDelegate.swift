@@ -205,39 +205,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // catches up on the next poll once the popover closes.
         guard !popover.isShown else { return }
 
-        // Badge: "⚡N" needs-you count (red when something failed), then the
-        // usage % if that preference is on.
-        var parts: [(String, NSColor)] = []
-        let needs = model.needsYouCount
-        // The ONLY number the bar may show is the needs-you attention count
-        // (never a running/working count), and even that is user-toggleable.
-        if needs > 0, UserDefaults.standard.bool(forKey: PopPref.needsBadge) {
-            parts.append((" \(needs)", model.anyFailed ? .systemRed : .systemOrange))
-        }
+        // Badge: the urgent count as a filled notification pill (red when
+        // something failed, orange for an approval / question), then the plan %
+        // beside a tiny live ring. The ONLY count the bar may show is what
+        // actually needs you — never a running/working count, never a finished
+        // turn — and even that is user-toggleable.
+        let urgent = UserDefaults.standard.bool(forKey: PopPref.needsBadge) ? model.urgentCount : 0
+        let failed = model.anyFailed
         let mode = UserDefaults.standard.string(forKey: "menubarMode") ?? "session"
-        if let plan = model.state?.plan, plan.ok == true {
-            let pct = mode == "session" ? plan.session?.pct
-                    : mode == "week" ? plan.week?.pct : nil
-            if let p = pct {
-                parts.append((needs > 0 ? " · \(p)%" : " \(p)%", levelNSColor(p)))
-            }
-        }
-        let badge = parts.map { "\($0.0)\u{1F}\($0.1)" }
+        let pct = model.planPct(mode: mode)
+        let badge = [urgent > 0 ? "\(urgent)\(failed ? "!" : "")" : "",
+                     pct.map { "\($0)|\(levelNSColor($0).description)" } ?? ""]
         guard badge != shownBadge else { return }
         shownBadge = badge
-        if parts.isEmpty {
+        if urgent == 0 && pct == nil {
             button.attributedTitle = NSAttributedString(string: "")
             button.title = ""
             button.imagePosition = .imageOnly
         } else {
-            let s = NSMutableAttributedString()
-            for (text, color) in parts {
-                s.append(NSAttributedString(string: text, attributes: [
-                    .foregroundColor: color,
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
-                ]))
-            }
-            button.attributedTitle = s
+            button.attributedTitle = MenubarBadge.title(urgent: urgent, failed: failed, pct: pct)
             button.imagePosition = .imageLeading
         }
     }

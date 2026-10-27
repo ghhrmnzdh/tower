@@ -45,6 +45,14 @@ struct GGuard: Decodable {
 }
 
 struct GRouting: Decodable { var installed: Bool?; var intended: Bool? }
+/// Claude Desktop / Claude on the web — fenced per app through the guard.
+struct GApps: Decodable {
+    struct Desktop: Decodable { var installed: Bool?; var running: Bool?; var guarded: Bool?; var pid: Int? }
+    struct Web: Decodable { var available: Bool?; var browser: String?; var running: Bool?; var guarded: Bool? }
+    var desktop: Desktop?
+    var web: Web?
+}
+
 struct GKeepawake: Decodable {
     var on: Bool?; var mode: String?
     /// Held awake right now (vs. armed and standing by), and why / why not:
@@ -88,22 +96,54 @@ struct GPlanBucket: Decodable {
     var resets: String?
     var resets_at: Double?
 
-    /// Live relative reset time, no timezone — "in 3h", "in 2d", "now".
-    /// Falls back to the raw stamp with the "(timezone)" trimmed off.
+    /// Live relative reset time, no timezone, never rounded down a whole unit:
+    /// "in 42m", "in 2h 14m", "in 37h 5m" (anything under 48h counts hours and
+    /// minutes), "in 3d 4h". Falls back to the raw stamp with the "(timezone)" trimmed off.
+    /// The countdown without its "in" — "2h", "6d 14h" — for tight rows.
+    var resetShort: String? {
+        resetDisplay.map { $0.hasPrefix("in ") ? String($0.dropFirst(3)) : $0 }
+    }
     var resetDisplay: String? {
-        if let at = resets_at {
-            let s = at - Date().timeIntervalSince1970
-            if s <= 30 { return "now" }
-            if s < 5400 { return "in \(max(1, Int(s / 60)))m" }
-            if s < 129_600 { return "in \(Int(s / 3600))h" }
-            return "in \(Int(s / 86_400))d"
-        }
+        if let at = resets_at { return resetPhrase(at - Date().timeIntervalSince1970) }
         guard let r = resets, !r.isEmpty else { return nil }
         return r.replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "",
                                       options: .regularExpression)
     }
 }
+/// Seconds until a reset, in the unit a person would say it in.
+func resetPhrase(_ secs: Double) -> String {
+    if secs <= 30 { return "now" }
+    let m = Int((secs / 60).rounded(.up))          // whole minutes, never short
+    if m < 60 { return "in \(m)m" }
+    let h = m / 60
+    if h < 48 { return m % 60 == 0 ? "in \(h)h" : "in \(h)h \(m % 60)m" }
+    let d = h / 24, rh = h % 24
+    return rh == 0 ? "in \(d)d" : "in \(d)d \(rh)h"
+}
+
+/// The reset moment itself, for tooltips — "Mon 10:30 AM".
+func resetClock(_ at: Double) -> String {
+    let f = DateFormatter()
+    f.setLocalizedDateFormatFromTemplate("EEE j:mm")
+    return f.string(from: Date(timeIntervalSince1970: at))
+}
+
 struct GLast24h: Decodable { var requests: Int?; var sessions: Int? }
+/// Claude's own "what's contributing to your limits usage?" report, per window
+/// (24h / 7d): approximate, this machine only, shares overlap.
+struct GUsageTip: Decodable, Identifiable {
+    var pct: Int?; var text: String?; var hint: String?
+    var id: String { text ?? "\(pct ?? 0)" }
+}
+struct GUsageTop: Decodable, Identifiable {
+    var name: String?; var pct: Int?
+    var id: String { name ?? "?" }
+}
+struct GUsageWindow: Decodable {
+    var requests: Int?; var sessions: Int?
+    var tips: [GUsageTip]?
+    var top: [String: [GUsageTop]]?
+}
 struct GPlan: Decodable {
     var ok: Bool?
     var updated: Double?
@@ -117,6 +157,8 @@ struct GPlan: Decodable {
     var week: GPlanBucket?
     var fable: GPlanBucket?
     var last24h: GLast24h?
+    var billing: String?           // "subscription" | "API key" | …
+    var windows: [String: GUsageWindow]?
 }
 
 // Live traffic feed events (published by the daemon, deque of 50).
@@ -169,11 +211,21 @@ struct GSubagent: Decodable, Identifiable {
     var activity: String?
     var result: String?
     var since: Double?
+    var started: Double?
+    var desc: String?            // the brief the parent gave it ("Find hook installers")
+    var tools: Int?
     var id: String { agent_id ?? "\(since ?? 0)" }
-    var line: String {
-        let what = status == "working" ? (activity ?? "working…") : (result ?? "done")
-        return "↳ \(type ?? "subagent") · \(what)"
+    var working: Bool { status == "working" }
+    var typeName: String { (type?.isEmpty == false ? type : nil) ?? "subagent" }
+    /// What it's doing now (working) or what it came back with (done).
+    var now: String { working ? (activity ?? "working…") : (result ?? "done") }
+    /// Run time: live while working, frozen at the stop once done.
+    var elapsed: String {
+        guard let t0 = started ?? since else { return "" }
+        let end = working ? Date().timeIntervalSince1970 : (since ?? t0)
+        return durString(end - t0)
     }
+    var line: String { "↳ \(typeName) · \(now)" }
 }
 
 struct GAgentSession: Decodable, Identifiable {
@@ -192,6 +244,7 @@ struct GAgentSession: Decodable, Identifiable {
     var last_prompt: String?
     var status: String?          // working|pending_tool|waiting_input|asking|done|failed|idle|gone
     var status_since: Double?
+    var turn_at: Double?         // when the current turn's prompt landed
     var activity: String?
     var result: String?          // first line of the agent's final answer (done rows)
     var pending_tool: GPendingTool?
@@ -207,10 +260,12 @@ struct GAgentSession: Decodable, Identifiable {
     var id: String { session_id ?? "\(pid ?? 0)" }
     /// Subagents worth a line under the row: the running ones first, then a
     /// just-finished one or two, capped so a fan-out can't swamp the list.
-    var subagentLines: [GSubagent] {
+    var subagentLines: [GSubagent] { Array(subagentsOrdered.prefix(3)) }
+    /// Running first (oldest first — the fan-out order), then finished, newest first.
+    var subagentsOrdered: [GSubagent] {
         let subs = subagents ?? []
-        return Array((subs.filter { $0.status == "working" }
-                      + subs.filter { $0.status != "working" }).prefix(3))
+        return subs.filter(\.working).sorted { ($0.started ?? 0) < ($1.started ?? 0) }
+            + subs.filter { !$0.working }.sorted { ($0.since ?? 0) > ($1.since ?? 0) }
     }
 
     var tier: ModelTier { ModelTier(family: model_family) }
@@ -274,6 +329,7 @@ struct GState: Decodable {
     var guardInfo: GGuard?
     var routing: GRouting?
     var keepawake: GKeepawake?
+    var apps: GApps?
     var settings: GSettings?
     var usage: GUsage?
     var plan: GPlan?
@@ -284,7 +340,7 @@ struct GState: Decodable {
     var version: String?
 
     enum CodingKeys: String, CodingKey {
-        case ts, location, routing, keepawake, settings, usage, plan, recent, net, agents, procs, version
+        case ts, location, routing, keepawake, settings, usage, plan, recent, net, agents, procs, version, apps
         case guardInfo = "guard"      // `guard` is a Swift keyword
     }
 }
@@ -548,6 +604,14 @@ final class TowerModel: ObservableObject {
               ka.holding ?? true else { return .none }
         return ka.mode == "clamshell" ? .clamshell : .idle
     }
+    /// The keep-awake headline from live policy: holding the Mac right now,
+    /// armed and waiting for work, or off.
+    var keepAwakeTitle: String {
+        let mode = keepAwakeMode
+        guard mode != "off" else { return "Sleep allowed" }
+        let lid = mode == "clamshell" ? "lid closed" : "lid open"
+        return state?.keepawake?.holding == false ? "Armed · \(lid)" : "Holding awake · \(lid)"
+    }
     /// The consequence line for the keep-awake row and card, from live policy.
     var keepAwakeLine: String {
         let ka = state?.keepawake
@@ -604,6 +668,30 @@ final class TowerModel: ObservableObject {
 
     var needsYouCount: Int { needsYou.count }
 
+    /// What actually needs you — failed, waiting on an approval, or asking. A
+    /// finished turn ("your turn") is listed, but it isn't an interruption, so
+    /// it never inflates the menu-bar count or a needs-you badge.
+    var urgentNeeds: [GAgentSession] {
+        needsYou.filter { (AgentStatus(raw: $0.status).needsYouRank ?? 9) <= 2 }
+    }
+    var urgentCount: Int { urgentNeeds.count }
+    /// Finished turns waiting on your next prompt — quiet, not urgent.
+    var yourTurnCount: Int { needsYouCount - urgentCount }
+
+    /// The plan % the menu bar shows for a mode ("session" | "week" | "auto" —
+    /// the limit you'll hit first), or nil. Never a stale number: while the
+    /// guard withholds /usage the bar shows no percentage at all.
+    func planPct(mode: String) -> Int? {
+        guard let plan = state?.plan, plan.ok == true, usageGate == nil else { return nil }
+        switch mode {
+        case "session": return plan.session?.pct
+        case "week":    return plan.week?.pct
+        case "auto":        // the closest of the limits you track
+            return PopPref.trackedLimits(plan).compactMap { $0.bucket?.pct }.max()
+        default:        return nil
+        }
+    }
+
     /// The user's routing INTENT (vs `installed`, the settings.json file truth).
     /// Falls back to the file truth for a daemon that predates the field.
     var routingIntended: Bool {
@@ -616,6 +704,22 @@ final class TowerModel: ObservableObject {
         if let n = state?.agents?.summary?.unguarded { return n }
         return agentSessions.filter { $0.guarded == false && $0.pid != nil
             && $0.kind != "infra" && $0.status != "gone" }.count
+    }
+    /// Claude Desktop is installed — the dashboard's coverage row has something to say.
+    var hasClaudeApps: Bool { state?.apps?.desktop?.installed == true }
+    /// Claude Desktop is running WITHOUT the guard — the only Desktop state
+    /// worth a popover row (Tower sees no live activity from it otherwise).
+    var desktopGap: Bool {
+        guard let d = state?.apps?.desktop else { return false }
+        return d.installed == true && d.running == true && d.guarded != true
+    }
+    /// The unguarded live chats themselves, oldest first — the banner's links.
+    var unguardedSessions: [GAgentSession] {
+        guard routingIntended else { return [] }
+        return agentSessions
+            .filter { $0.guarded == false && $0.pid != nil
+                && $0.kind != "infra" && $0.status != "gone" }
+            .sorted { ($0.started ?? 0) < ($1.started ?? 0) }
     }
     /// Live agents still guarded by a proxy the user has since turned off — they
     /// keep working until restarted. Only meaningful while routing is off.
@@ -669,7 +773,12 @@ func fmtTokens(_ n: Int) -> String {
     return "\(n)"
 }
 func fmtCost(_ c: Double) -> String {
-    c >= 100 ? String(format: "$%.0f", c) : String(format: "$%.2f", c)
+    if c >= 10_000 { return String(format: "$%.1fK", c / 1000) }
+    if c >= 1000 {   // "$1,247" — grouped so a four-digit cost reads at a glance
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        return "$" + (f.string(from: NSNumber(value: c.rounded())) ?? String(format: "%.0f", c))
+    }
+    return c >= 100 ? String(format: "$%.0f", c) : String(format: "$%.2f", c)
 }
 func modelDisplay(_ id: String) -> String {
     let s = id.lowercased()
@@ -688,6 +797,22 @@ func modelColor(_ id: String) -> Color {
     if s.contains("fable")  { return .pink }
     return .gray
 }
+/// A run length: "42s", "3m 05s", "1h 12m".
+func durString(_ secs: Double) -> String {
+    let s = Int(max(0, secs))
+    if s < 60 { return "\(s)s" }
+    if s < 3600 { return String(format: "%dm %02ds", s / 60, s % 60) }
+    return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+}
+
+/// A running clock, to the second while it's short: "42s", "4m 12s", "1h 5m".
+func elapsedString(sinceEpoch: Double) -> String {
+    let s = Int(max(0, Date().timeIntervalSince1970 - sinceEpoch))
+    if s < 60 { return "\(s)s" }
+    if s < 3600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
+    return "\(s / 3600)h \(String(format: "%02d", s / 60 % 60))m"
+}
+
 func agoString(sinceEpoch: Double) -> String {
     let secs = max(0, Date().timeIntervalSince1970 - sinceEpoch)
     if secs < 90 { return "\(Int(secs))s" }
@@ -702,14 +827,6 @@ func agoString(sinceEpoch: Double) -> String {
 // mechanism (the TUI card already reads this way). Shared by the popover row
 // and the dashboard card so the two never drift.
 enum KeepAwakeCopy {
-    /// Compact title for the flat popover row.
-    static func rowTitle(_ mode: String) -> String {
-        switch mode {
-        case "idle":      return "Staying awake · lid open"
-        case "clamshell": return "Staying awake · lid closed"
-        default:          return "Sleep allowed"
-        }
-    }
     /// Headline for the dashboard card.
     static func title(_ mode: String) -> String {
         switch mode {

@@ -126,6 +126,20 @@ condition (your location or your connection) recovers.
   ours on every exit and Reset). The hook endpoint always answers an empty 200 —
   never a decision, never a block — and Tower never injects input. Don't infer
   agent status from transcripts again; the hooks are the source of truth.
+  **Needs-you is earned, not flashed:** a permission request or a Stop must
+  stand (`PERM_SETTLE_S` / `DONE_SETTLE_S`) before it counts, a Stop with
+  subagents still out stays working, and a session whose process exits without
+  a SessionEnd is *gone*, never *failed*. Mid-work noise must never reach the
+  needs-you count.
+- **Claude Desktop is fenced per app, never system-wide.** Tower opens it with
+  Chromium's `--proxy-server` pointed at its proxy — covering its chats and the
+  Claude Code it runs. Never change the macOS system proxy / PAC settings, and
+  never quit the user's Desktop without an explicit relaunch click. Tower sees
+  no live activity from Desktop, so the popover shows it only while it runs
+  unguarded (and the section is off by default). The old "Claude on the web"
+  launcher is gone from every front-end: it could only open a Tower-only
+  browser profile (a fresh sign-in), never the user's own Chrome — the daemon's
+  `web` command remains but nothing offers it.
 - **Daemon is single-instance** (`flock` on `~/.tower/daemon.lock`).
 - **Front-ends are thin:** read `~/.tower/state.json`, write `cmd/*.json`.
   All logic lives in the daemon. Keep the app and TUI feature-matched

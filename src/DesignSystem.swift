@@ -12,6 +12,22 @@ import AppKit
 import SwiftUI
 
 enum TowerDesign {
+    /// Tower's one interactive color: white on dark, near-black on light —
+    /// never the system blue. Switches, selections, rings, charts and primary
+    /// buttons all wear it; amber/red stay reserved for holds and danger.
+    static let ink = Color(nsColor: NSColor(name: "TowerInk") { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.14, alpha: 1)
+    })
+    /// A switch that's on is green — the one place Tower borrows a system
+    /// color for an interactive state, because "on" should read at a glance.
+    static let switchOn = Color(nsColor: .systemGreen)
+    /// Text/glyph drawn ON the ink (a filled primary button's label).
+    static let onInk = Color(nsColor: NSColor(name: "TowerOnInk") { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.08, alpha: 1) : NSColor(white: 0.98, alpha: 1)
+    })
+
     enum Motion {
         /// Any state swap (colors, symbols, toggles).
         static let settle  = Animation.spring(response: 0.45, dampingFraction: 0.85)
@@ -186,17 +202,91 @@ enum PopPref {
     static let location = "pop.location"
     static let keepawake = "pop.keepawake"
     static let plan = "pop.plan"
+    static let apps = "pop.apps"
     static let resting = "pop.resting"
     static let density = "pop.density"        // "comfy" | "compact"
     static let needsBadge = "mb.needsBadge"   // menu-bar needs-you count on/off
+    /// Section order, comma-separated PopSection ids — dragged in Settings.
+    static let order = "pop.order"
+    // Finer details inside sections.
+    static let planStyle = "pop.planStyle"    // "rings" | "bars"
+    static let subagents = "pop.subagents"    // subagent trees under working rows
+    static let ip = "pop.ip"                  // public IP on the location row
+    // Which plan limits you track — popover rings, dashboard, menu-bar "closest".
+    static let limitSession = "plan.session"
+    static let limitWeek = "plan.week"
+    static let limitFable = "plan.fable"
 
-    /// The launch defaults — today's full popover, unchanged for anyone who
-    /// never opens Settings: every section on, comfortable, resting shown
-    /// (collapsed), the needs-you badge on.
+    static let defaultOrder = "net,agents,location,apps,keepawake,plan"
+
+    /// The launch defaults — the full popover for anyone who never opens
+    /// Settings: every section on in attention order, comfortable, resting
+    /// shown (collapsed), the needs-you badge on.
     static let defaults: [String: Any] = [
-        net: true, agents: true, location: true, keepawake: true, plan: true,
-        resting: true, density: "comfy", needsBadge: true,
+        // Claude Desktop starts hidden: most people only run Claude Code, and
+        // Tower sees no live activity from Desktop — switch it on in Settings.
+        net: true, agents: true, location: true, keepawake: true, plan: true, apps: false,
+        resting: true, density: "comfy", needsBadge: true, order: defaultOrder,
+        planStyle: "rings", subagents: true, ip: true,
+        limitSession: true, limitWeek: true, limitFable: true,
     ]
+
+    /// The plan limits the user tracks, as (label, bucket) in display order.
+    static func trackedLimits(_ p: GPlan?) -> [(label: String, bucket: GPlanBucket?)] {
+        let d = UserDefaults.standard
+        var out: [(String, GPlanBucket?)] = []
+        if d.bool(forKey: limitSession) { out.append(("Session", p?.session)) }
+        if d.bool(forKey: limitWeek) { out.append(("Weekly", p?.week)) }
+        if d.bool(forKey: limitFable) { out.append(("Fable", p?.fable)) }
+        return out
+    }
+}
+
+/// The popover's movable middle sections. The header (guard) and footer stay
+/// put; everything between is yours to order and show.
+enum PopSection: String, CaseIterable, Identifiable {
+    case net, agents, location, apps, keepawake, plan
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .net: return "Network weather"; case .agents: return "Agents"
+        case .location: return "Location"; case .apps: return "Claude Desktop"
+        case .keepawake: return "Keep awake"; case .plan: return "Plan usage"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .net:       return "Latency to the internet and Anthropic, and any fault"
+        case .agents:    return "Needs you, collisions, working agents, resting"
+        case .location:  return "Where the fence thinks you are"
+        case .apps:      return "Only while Desktop runs unguarded"
+        case .keepawake: return "The lamp and the sleep switch"
+        case .plan:      return "Session, weekly and Fable rings"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .net: return "wifi"; case .agents: return "dot.radiowaves.left.and.right"
+        case .location: return "location"; case .apps: return "macwindow"
+        case .keepawake: return "cup.and.saucer"; case .plan: return "gauge.with.dots.needle.33percent"
+        }
+    }
+    var visibilityKey: String {
+        switch self {
+        case .net: return PopPref.net; case .agents: return PopPref.agents
+        case .location: return PopPref.location; case .apps: return PopPref.apps
+        case .keepawake: return PopPref.keepawake; case .plan: return PopPref.plan
+        }
+    }
+    /// Parse a stored order: unknown ids dropped, missing sections appended,
+    /// so a new section (or a hand-edited default) never vanishes.
+    static func order(_ raw: String) -> [PopSection] {
+        var out: [PopSection] = []
+        for id in raw.split(separator: ",") {
+            if let s = PopSection(rawValue: String(id)), !out.contains(s) { out.append(s) }
+        }
+        return out + allCases.filter { !out.contains($0) }
+    }
 }
 
 // Row density for the popover, read by every flat section via the environment
@@ -219,5 +309,45 @@ extension EnvironmentValues {
     var surfaceVisible: Bool {
         get { self[SurfaceVisibleKey.self] }
         set { self[SurfaceVisibleKey.self] = newValue }
+    }
+}
+
+/// Every Tower switch: the native switch, green when on — set at each surface's
+/// root so plain `Toggle`s (Form rows included) pick it up, while pickers,
+/// menus and selections keep the white ink.
+struct TowerSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Toggle(configuration).toggleStyle(SwitchToggleStyle()).tint(TowerDesign.switchOn)
+    }
+}
+extension ToggleStyle where Self == TowerSwitchStyle {
+    static var tower: TowerSwitchStyle { TowerSwitchStyle() }
+}
+
+/// How a row enters and leaves any Tower list: it fades in while dropping a
+/// few points into place, and leaves by fading as it settles — while the rows
+/// around it glide on the list's spring, so the stack never jumps. Under
+/// Reduce Motion it is a plain fade.
+extension AnyTransition {
+    static func towerRow(reduced: Bool = false) -> AnyTransition {
+        if reduced { return .opacity }
+        return .asymmetric(
+            insertion: .opacity
+                .combined(with: .offset(y: -6))
+                .combined(with: .scale(scale: 0.97, anchor: .top)),
+            removal: .opacity
+                .combined(with: .scale(scale: 0.97, anchor: .top)))
+    }
+}
+
+extension View {
+    /// A list row: the shared enter/leave transition, honoring Reduce Motion.
+    func towerRow() -> some View { modifier(TowerRowTransition()) }
+}
+
+private struct TowerRowTransition: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    func body(content: Content) -> some View {
+        content.transition(.towerRow(reduced: reduced))
     }
 }

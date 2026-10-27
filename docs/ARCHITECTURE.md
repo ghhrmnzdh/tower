@@ -56,8 +56,13 @@ Runs these threads:
   content block, each repeating the message's usage, with the final output count
   on the last one.
 - **plan** — every **60s** runs `claude -p /usage` and parses it for the
-  **real** plan limits (session / weekly / Fable %, reset times). Claude Code
-  does its own auth; we never read a token. The probe runs with
+  **real** plan limits (session / weekly / Fable %, reset times), the billing
+  source (`billing`, e.g. "subscription"), and Claude's own "what's
+  contributing to your limits" report per window (`windows["24h"|"7d"]` →
+  requests, sessions, ranked `tips` {pct, text, hint}, and `top` skills /
+  subagents / mcp_servers {name, pct}) — approximate, this machine only,
+  shares overlap; parsed line by line and never allowed to fail `/usage`.
+  Claude Code does its own auth; we never read a token. The probe runs with
   `--no-session-persistence` (it used to leave ~1,400 transcripts a day in
   `projects/<CONFIG_DIR encoded>`, which both indexes now skip). `find_claude`
   looks past the app's bare launchd PATH: `claude_path` in config.json, then
@@ -90,13 +95,26 @@ Runs these threads:
   hands the event to `AgentMonitor.on_event`. Status is therefore the event,
   not an inference: `working` (prompt / tool), `pending_tool` (permission
   prompt), `asking` (AskUserQuestion / elicitation / "needs input:"), `done` /
-  `failed` (Stop / StopFailure / "failed:"), `idle`, `paused`, `gone`
-  (SessionEnd, or the process vanished). Events carrying `agent_id` drive
-  per-session **subagent** rows. Each event republishes `state.json` within
+  `failed` (Stop / StopFailure / "failed:"), `idle` (also an `idle_prompt`
+  notification, which settles an Esc-interrupted turn), `paused`, `gone`
+  (SessionEnd, or its own process exited — an ending, never a failure).
+  **Needs-you must stand before it counts** (`_defer` / `_settle`): a
+  permission request lands as `pending_tool` only if no progress from that same
+  agent follows within `PERM_SETTLE_S` (allow rules / auto mode approve a beat
+  later), and a Stop lands as `done` only after `DONE_SETTLE_S` with no new
+  activity. A Stop while subagents are still out isn't a stop at all — the row
+  stays `working` ("waiting on N subagents…"), and only if the parent doesn't
+  resume within `DONE_AFTER_SUBS_S` of the last one reporting back does it
+  become `done`. Events carrying `agent_id` drive per-session **subagent**
+  rows: type, the brief the parent gave it (the matching `Task`/`Agent` call's
+  `description`), live activity, tool count, run time, and its first result line. Each event republishes `state.json` within
   ~50ms. A 3s tick adds what events can't: the kernel process table
   (`_LibProc` — libproc + `KERN_PROCARGS2`, ~1ms, `ps` only as fallback) for
   liveness, pid/tty (focus) and SIGSTOP pauses, matched to sessions by
-  session id in the args or by cwd. Live processes with no hook traffic yet
+  session id in the args or by folder — and **sticky**: a session keeps the
+  exact process (pid + start time) it was matched to while that process lives,
+  however far its working folder wanders (`cd`). The row's project is the
+  process's own folder, not the latest event's cwd. Live processes with no hook traffic yet
   get a placeholder row so counts stay truthful. The model/title come from one
   bounded tail read of the transcript per turn — never a full parse. Tower's own
   `claude -p /usage` runs with `disableAllHooks` (and its cwd is filtered) so it
@@ -192,10 +210,35 @@ Runs these threads:
   lingering `disablesleep` from it and Reset still removes the rule.
 - **Ports.** If :8888 is busy the proxy steps to the next free port.
 
+## Claude Desktop + Claude on the web
+Fenced **per app**, never system-wide: both are Chromium, which takes
+`--proxy-server` at launch, so Tower opens them pointed at its own proxy and
+their Claude traffic meets the same fail-closed gate as Claude Code. Nothing
+else is touched — no system proxy settings, no PAC, no other browser.
+- **Desktop** (`open_desktop`) — `open -a Claude.app --args
+  --proxy-server=http://127.0.0.1:<port>`. If Desktop is already running
+  *without* the flag, Tower only reports it (amber "running unguarded"); a
+  relaunch happens on an explicit click: SIGTERM (a clean ⌘Q), wait, reopen.
+- **Web** (`open_web`) — claude.ai as an app window (`--app=`) in the first
+  installed Chrome-family browser, on a Tower-only profile
+  (`~/.tower/web-profile`). **No front-end offers it any more:** a separate
+  profile means signing in again, and a running Chrome ignores launch flags, so
+  it can never be the user's own browser. The command stays for compatibility.
+- **No activity feed.** Tower sees Desktop's traffic, not its chats, so the
+  popover shows Desktop only while it runs unguarded (a gap to close; the
+  section is off by default) and the dashboard carries the coverage line.
+- **Truth from the process** — `_LibProc` already reads every process's args;
+  it also notes Claude Desktop's main binary and the web profile's browser
+  main process (`_guarded_app_kind`), and `apps_snapshot` publishes
+  `apps.desktop {installed, running, guarded}` / `apps.web {available,
+  browser, running}` — guarded means the live process carries the flag.
+  Guarded app processes count as pinned for the post-quit relay, like a
+  routed Claude Code session.
+
 ## Command protocol (`cmd/<id>.json`)
 `{cmd: "route"|"reset"|"country"|"enforce"|"scope"|"keepawake"|"removekeepawake"
      |"recheck"|"refreshplan"|"planfetch"|"theme"|"speedtest"
-     |"focus"|"dismiss"|"undismiss"|"quit", ...args, id?}` → daemon runs it and
+     |"focus"|"dismiss"|"undismiss"|"desktop"|"web"|"quit", ...args, id?}` → daemon runs it and
 writes `<id>.done` with the result. Fire-and-forget is fine; `state.json`
 reflects the outcome within a tick.
 
@@ -203,6 +246,9 @@ reflects the outcome within a tick.
   tmux by pane; iTerm2 coded but untested here). Background agents have no
   tab — the reply carries a `claude --resume <id>` fallback the front-ends put
   on the clipboard.
+- `desktop {relaunch?}` opens Claude Desktop through the guard; `relaunch`
+  quits an unguarded Desktop first (front-ends confirm). `web` opens a guarded
+  claude.ai window (kept, but no front-end sends it).
 - `dismiss {session_id}` acknowledges a done/failed row (drops it from the
   needs-you queue until its next transition).
 - `recheck` re-checks location **and** re-probes network health — one gesture,

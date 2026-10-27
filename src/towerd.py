@@ -1471,7 +1471,14 @@ AGENT_WORKING_WARN_S = 1200.0  # agent_working_warn_s: no completed turn → war
 # A working turn with no event at all for this long and no tool running: the
 # signature of an API retry storm or a dead network path. (agent_api_stall_s)
 AGENT_API_STALL_S = 90.0
-AGENT_FORGET_S = 6 * 3600.0   # an idle session with no process and no event
+AGENT_FORGET_S = 6 * 3600.0
+LIVE_EVENT_S = 15.0           # a hook event this recent proves the session lives
+# A needs-you state must stand this long before it counts. Permission requests
+# that an allow rule / auto mode approves a beat later, and turns that resume on
+# their own, would otherwise flash "needs you" mid-work.
+PERM_SETTLE_S = 2.5
+DONE_SETTLE_S = 3.0
+DONE_AFTER_SUBS_S = 20.0      # parent stopped, last subagent back: resume window   # an idle session with no process and no event
 AGENT_EDIT_WINDOW_S = 900.0   # recent-edit window for file-level collisions
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 MODEL_TIERS = ("haiku", "sonnet", "opus", "fable")     # ascending caliber
@@ -1609,6 +1616,136 @@ def _git_branch_of(root):
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Claude Desktop + Claude on the web — fenced per app, never system-wide.
+# Both are Chromium, which takes `--proxy-server` at launch: Tower opens them
+# pointed at its own proxy, so their Claude traffic meets the same fail-closed
+# guard as Claude Code, and nothing else on the Mac (VPNs, other browsers, the
+# system proxy settings) is touched. Desktop is the user's own app, relaunched
+# through Tower on request; the web is claude.ai in a Chrome app window on a
+# Tower-only profile (sign in once). Guarded = the running process carries the
+# flag — read from its args, never assumed.
+# --------------------------------------------------------------------------- #
+DESKTOP_APPS = ("/Applications/Claude.app",
+                os.path.join(HOME, "Applications", "Claude.app"))
+DESKTOP_EXE = "/Contents/MacOS/Claude"
+WEB_BROWSERS = (("/Applications/Google Chrome.app", "Google Chrome"),
+                ("/Applications/Brave Browser.app", "Brave Browser"),
+                ("/Applications/Microsoft Edge.app", "Microsoft Edge"),
+                ("/Applications/Chromium.app", "Chromium"))
+WEB_PROFILE = os.path.join(CONFIG_DIR, "web-profile")
+WEB_URL = "https://claude.ai"
+APP_QUIT_WAIT_S = 10.0
+
+
+def _guarded_app_kind(args):
+    """"desktop" for Claude Desktop's main process, "web" for the main process
+    of Tower's own browser profile, else None. Exact executable prefix: the
+    helper processes share the bundle but not the main binary's path."""
+    if not args:
+        return None
+    for app in DESKTOP_APPS:
+        exe = app + DESKTOP_EXE
+        if args == exe or args.startswith(exe + " "):
+            return "desktop"
+    if f"--user-data-dir={WEB_PROFILE}" in args:
+        for app, name in WEB_BROWSERS:
+            exe = f"{app}/Contents/MacOS/{name}"
+            if args == exe or args.startswith(exe + " "):
+                return "web"
+    return None
+
+
+def _first_existing(paths):
+    return next((p for p in paths if os.path.isdir(p)), None)
+
+
+def _proxy_flag(port):
+    return f"--proxy-server=http://127.0.0.1:{port}"
+
+
+def apps_snapshot(state, agents):
+    """state.json "apps": is each Claude surface installed, running, guarded."""
+    lp = agents.procs._libproc
+    found = lp.apps if lp is not None else {"desktop": [], "web": []}
+    flag = _proxy_flag(state.proxy_port)
+    desk = found["desktop"]
+    browser = next(((a, n) for a, n in WEB_BROWSERS if os.path.isdir(a)), None)
+    return {
+        "desktop": {"installed": _first_existing(DESKTOP_APPS) is not None,
+                    "running": bool(desk),
+                    "guarded": (all(flag in d["args"] for d in desk)
+                                if desk else None),
+                    "pid": desk[0]["pid"] if desk else None},
+        "web": {"available": browser is not None,
+                "browser": browser[1] if browser else None,
+                "running": bool(found["web"]),
+                "guarded": True if found["web"] else None},
+    }
+
+
+def _app_pids(agents, kind):
+    lp = agents.procs._libproc
+    return [a["pid"] for a in (lp.apps.get(kind, []) if lp else [])]
+
+
+def open_desktop(state, agents, relaunch=False):
+    """Open Claude Desktop through the guard. Running unguarded → only on an
+    explicit relaunch: SIGTERM (Electron quits cleanly, like ⌘Q), wait, reopen
+    with the flag. Never quits it on its own, never asks for Automation."""
+    app = _first_existing(DESKTOP_APPS)
+    if not app:
+        return {"ok": False, "error": "Claude Desktop isn't installed"}
+    if not proxy_is_up(state.proxy_port):
+        return {"ok": False, "error": "the guard isn't listening yet"}
+    agents.procs.scan()
+    running = _app_pids(agents, "desktop")
+    guarded = apps_snapshot(state, agents)["desktop"]["guarded"]
+    if running and not guarded:
+        if not relaunch:
+            return {"ok": False, "unguarded": True}
+        for pid in running:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        t0 = time.monotonic()
+        while any(_pid_alive(p) for p in running):
+            if time.monotonic() - t0 > APP_QUIT_WAIT_S:
+                return {"ok": False, "error": "Claude Desktop didn't quit"}
+            time.sleep(0.2)
+        running = []
+    argv = ["open", "-a", app]
+    if not running:                 # launch args only reach a fresh process
+        argv += ["--args", _proxy_flag(state.proxy_port)]
+    try:
+        subprocess.run(argv, capture_output=True, timeout=15)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    log(f"claude desktop opened through the guard ({'relaunch' if relaunch else 'open'})")
+    return {"ok": True}
+
+
+def open_web(state):
+    """claude.ai in a Chrome-family app window on Tower's own profile, through
+    the guard. A second call just opens another window in the same instance."""
+    browser = next(((a, n) for a, n in WEB_BROWSERS if os.path.isdir(a)), None)
+    if not browser:
+        return {"ok": False, "error": "needs Chrome, Brave, Edge or Chromium"}
+    if not proxy_is_up(state.proxy_port):
+        return {"ok": False, "error": "the guard isn't listening yet"}
+    os.makedirs(WEB_PROFILE, exist_ok=True)
+    argv = ["open", "-n", "-a", browser[0], "--args",
+            f"--user-data-dir={WEB_PROFILE}", _proxy_flag(state.proxy_port),
+            f"--app={WEB_URL}", "--no-first-run", "--no-default-browser-check"]
+    try:
+        subprocess.run(argv, capture_output=True, timeout=15)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    log(f"claude web opened through the guard in {browser[1]}")
+    return {"ok": True}
+
+
 class _LibProc:
     """The process table straight from the kernel (libproc + sysctl), instead of
     forking `ps` every 1.8s: ~1ms per scan vs ~35ms, and no child process. A
@@ -1639,7 +1776,8 @@ class _LibProc:
         self._argmax = v.value or 1 << 20
         self._argbuf = ctypes.create_string_buffer(self._argmax)
         self._bsd = ctypes.create_string_buffer(self.BSDINFO_SIZE)
-        self._args = {}         # (pid, start) -> argv string, or None (not claude)
+        self._args = {}         # (pid, start) -> (kind, argv), or None (not ours)
+        self.apps = {"desktop": [], "web": []}   # Claude Desktop / web window
         self._ttys = {}         # st_rdev -> "ttys001"
 
     def _argv(self, pid):
@@ -1682,6 +1820,7 @@ class _LibProc:
         if n <= 0:
             raise OSError("proc_listallpids failed")
         out, live = [], set()
+        apps = {"desktop": [], "web": []}
         for pid in buf[:n]:
             if lib.proc_pidinfo(pid, self.PIDTBSDINFO, 0, bsd,
                                 self.BSDINFO_SIZE) != self.BSDINFO_SIZE:
@@ -1693,10 +1832,18 @@ class _LibProc:
             if key not in self._args:
                 a = self._argv(pid)
                 exe = a.split(None, 1)[0] if a else ""
-                self._args[key] = (a if os.path.basename(exe)
-                                   in ("claude", "claude.exe") else None)
-            args = self._args[key]
-            if not args:
+                if os.path.basename(exe) in ("claude", "claude.exe"):
+                    self._args[key] = ("cli", a)
+                else:
+                    kind = _guarded_app_kind(a)
+                    self._args[key] = (kind, a) if kind else None
+            hit = self._args[key]
+            if not hit:
+                continue
+            kind, args = hit
+            if kind != "cli":
+                apps[kind].append({"pid": pid, "args": args,
+                                   "lstart": float(start)})
                 continue
             exe = args.split(None, 1)[0]
             _note_claude_exe(exe)
@@ -1708,6 +1855,7 @@ class _LibProc:
                 "lstart": float(start), "args": args})
         for k in [k for k in self._args if k not in live]:
             del self._args[k]
+        self.apps = apps
         return out
 
     def cwd(self, pid):
@@ -1975,6 +2123,11 @@ def _first_line(text, n=140):
     return None
 
 
+# Hook events that prove an agent is still moving (cancel a standing stop).
+PROGRESS_EVENTS = frozenset(("UserPromptSubmit", "PreToolUse", "PostToolUse",
+                             "PostToolUseFailure", "PreCompact", "SubagentStart"))
+
+
 def _finished(text):
     """A turn's outcome from its final message: the "failed:" / "needs input:"
     convention, else done."""
@@ -2080,7 +2233,12 @@ class AgentMonitor:
                 "effort": None, "tools_done": 0, "errors": 0,
                 "err_ring": deque(maxlen=10), "files": set(),
                 "recent_edits": deque(maxlen=100), "subs": {},
-                "subs_total": 0, "ended": False, "peeked": False}
+                "subs_total": 0, "ended": False, "peeked": False,
+                "task_q": deque(maxlen=16),     # Task/Agent briefs awaiting a start
+                "settle": None,         # a needs-you transition still standing
+                "awaiting_subs": False,  # turn ended with subagents running
+                "cwd0": None,           # first folder seen (the session's home)
+                "proc": None}           # (pid, lstart) once matched — sticky
 
     def _set(self, s, status, now):
         prev = s["status"]
@@ -2109,6 +2267,8 @@ class AgentMonitor:
             v = ev.get(src)
             if isinstance(v, str) and v:
                 s[dst] = v
+        if s["cwd0"] is None:
+            s["cwd0"] = s["cwd"]
         eff = ev.get("effort")
         if isinstance(eff, dict) and eff.get("level"):
             s["effort"] = _norm_effort(eff.get("level"))
@@ -2116,11 +2276,25 @@ class AgentMonitor:
             s["peeked"] = True
             self._peek(s)
         aid = ev.get("agent_id")
+        st = s["settle"]
+        if st and name in PROGRESS_EVENTS and st["scope"] in ("turn", aid or ""):
+            s["settle"] = None          # it moved on: that wasn't a real stop
+        if name in PROGRESS_EVENTS and name != "SubagentStart" and not aid:
+            s["awaiting_subs"] = False
 
         if name == "SubagentStart" and aid:
-            s["subs"][aid] = {"agent_id": aid, "type": ev.get("agent_type"),
-                              "status": "working", "since": now,
-                              "activity": "starting…", "result": None}
+            typ = ev.get("agent_type")
+            # The brief the parent wrote when it spawned this one: the oldest
+            # queued Task/Agent call of the same type, else the oldest at all.
+            q = s["task_q"]
+            brief = next((b for b in q if b[0] == typ), None) or (q[0] if q else None)
+            if brief:
+                q.remove(brief)
+            s["subs"][aid] = {"agent_id": aid, "type": typ, "status": "working",
+                              "since": now, "started": now,
+                              "desc": brief[1] if brief else None,
+                              "activity": "starting…", "result": None,
+                              "tools": 0}
             s["subs_total"] += 1
             return
         if name == "SubagentStop" and aid:
@@ -2129,6 +2303,17 @@ class AgentMonitor:
                                              "since": now})
             sub.update(status="done", since=now, activity=None,
                        result=_first_line(ev.get("last_assistant_message")))
+            sub.setdefault("started", sub["since"])
+            if s["awaiting_subs"] and not any(
+                    x.get("status") == "working" for x in s["subs"].values()):
+                # The parent ended its turn waiting on these. It usually picks
+                # straight back up; if it doesn't, the turn really is done.
+                s["awaiting_subs"] = False
+                s["activity"] = "reading subagent results…"
+                self._defer(s, "done", DONE_AFTER_SUBS_S, "turn", activity=None)
+            elif s["awaiting_subs"]:
+                n = sum(x.get("status") == "working" for x in s["subs"].values())
+                s["activity"] = f"waiting on {n} subagent{'s' if n != 1 else ''}…"
             return
         if name in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
             if name != "PreToolUse":
@@ -2136,12 +2321,19 @@ class AgentMonitor:
             if aid:                     # inside a subagent: its row, not ours
                 sub = s["subs"].setdefault(aid, {
                     "agent_id": aid, "type": ev.get("agent_type"),
-                    "status": "working", "since": now, "result": None})
+                    "status": "working", "since": now, "started": now,
+                    "desc": None, "result": None, "tools": 0})
+                if name != "PreToolUse":
+                    sub["tools"] = sub.get("tools", 0) + 1
                 sub["activity"] = (_activity_phrase(self._tool(ev, now))
                                    if name == "PreToolUse" else "thinking…")
                 return
             if name == "PreToolUse":
                 t = self._tool(ev, now)
+                inp = ev.get("tool_input")
+                if t["name"] in ("Task", "Agent") and isinstance(inp, dict):
+                    s["task_q"].append((inp.get("subagent_type") or "general-purpose",
+                                        _first_line(inp.get("description"))))
                 s["tool"], s["activity"] = t, _activity_phrase(t)
                 if t["name"] == "AskUserQuestion":
                     s["pending"] = t
@@ -2166,24 +2358,42 @@ class AgentMonitor:
             self._set(s, "working", now)
         elif name == "PermissionRequest":
             t = self._tool(ev, now)
-            s["pending"] = t
-            s["activity"] = f"needs approval · {_activity_phrase(t)}"
-            self._set(s, "pending_tool", now)
+            self._defer(s, "pending_tool", PERM_SETTLE_S, aid or "", pending=t,
+                        activity=f"needs approval · {_activity_phrase(t)}")
         elif name == "Notification":
             kind = ev.get("notification_type")
-            if kind == "permission_prompt" and s["status"] != "pending_tool":
-                s["pending"] = s["pending"] or s["tool"]
-                s["activity"] = ev.get("message") or "needs your approval"
-                self._set(s, "pending_tool", now)
+            if kind == "permission_prompt" and s["status"] != "pending_tool" \
+                    and not (s["settle"] and s["settle"]["status"] == "pending_tool"):
+                self._defer(s, "pending_tool", PERM_SETTLE_S, aid or "",
+                            pending=s["pending"] or s["tool"],
+                            activity=ev.get("message") or "needs your approval")
             elif kind == "elicitation_dialog":
                 s["activity"] = ev.get("message") or "asking you a question"
                 self._set(s, "asking", now)
+            elif kind == "idle_prompt" and s["status"] in ("working",
+                                                           "pending_tool"):
+                # Claude is sitting at its prompt. An interrupted turn (Esc)
+                # fires no Stop, so this is what settles it — quietly.
+                s.update(tool=None, pending=None, activity=None)
+                self._set(s, "idle", now)
         elif name == "Stop":
+            s["task_q"].clear()
             msg = ev.get("last_assistant_message")
-            s.update(tool=None, pending=None, activity=None,
-                     result=_first_line(msg))
+            s.update(tool=None, pending=None, result=_first_line(msg))
             self._peek(s)
-            self._set(s, _finished(msg), now)
+            running = sum(x.get("status") == "working" for x in s["subs"].values())
+            if running:
+                # Subagents still out: the turn resumes when they report back.
+                s["awaiting_subs"] = True
+                s["activity"] = f"waiting on {running} subagent{'s' if running != 1 else ''}…"
+            else:
+                outcome = _finished(msg)
+                s["activity"] = "wrapping up…"
+                if outcome == "failed":
+                    s["activity"] = None
+                    self._set(s, outcome, now)
+                else:
+                    self._defer(s, outcome, DONE_SETTLE_S, "turn", activity=None)
         elif name == "StopFailure":
             s.update(tool=None, pending=None,
                      activity=(_first_line(ev.get("last_assistant_message"))
@@ -2202,6 +2412,34 @@ class AgentMonitor:
         elif name == "SessionEnd":
             s.update(ended=True, tool=None, pending=None, activity=None)
             self._set(s, "gone", now)
+
+    def _defer(self, s, status, wait, scope, **fields):
+        """Stage a needs-you transition; it lands only if nothing in `scope`
+        ("turn" = anything, "" = the main agent, else a subagent id) moves on
+        within `wait` seconds. Caller holds the lock."""
+        tok = object()
+        s["settle"] = {"tok": tok, "status": status, "scope": scope,
+                       "fields": fields}
+        t = threading.Timer(wait, self._settle, (s["sid"], tok))
+        t.daemon = True
+        t.start()
+
+    def _settle(self, sid, tok):
+        try:
+            with self.lock:
+                s = self._sess.get(sid)
+                st = s and s["settle"]
+                if not st or st["tok"] is not tok or s["status"] in ("gone",
+                                                                      "failed"):
+                    return
+                now = time.time()
+                s["settle"] = None
+                s.update(st["fields"])
+                self._set(s, st["status"], now)
+                self._rebuild(now)
+            self.state._publish.set()
+        except Exception as e:  # noqa: BLE001
+            log(f"agents settle error: {e}")
 
     def _tool_done(self, s, ev, now, failed):
         s["tools_done"] += 1
@@ -2237,30 +2475,25 @@ class AgentMonitor:
         day = datetime.now().strftime("%Y-%m-%d")
         procs = self.procs.scan()
         self._procs_cache = procs
-        live = [p for p in procs.values() if p["kind"] != "infra"]
+        live = {pid: p for pid, p in procs.items() if p["kind"] != "infra"}
         with self.lock:
             if day != self._done_day:   # done_today counts since local midnight
                 self._done_day, self._done_today = day, 0
-            self._pid_of = self._match(live)
+            self._pid_of = self._match(live, now)
             for sid, s in list(self._sess.items()):
                 pid = self._pid_of.get(sid)
                 if pid:
-                    s["had_pid"] = True
                     paused = procs[pid].get("stopped")
                     if paused and s["status"] != "paused":
                         s["unpause_to"] = s["status"]
                         self._set(s, "paused", now)
                     elif not paused and s["status"] == "paused":
                         self._set(s, s.pop("unpause_to", None) or "working", now)
-                elif s.get("had_pid") and s["status"] != "gone":
-                    # The process is gone without a SessionEnd: killed/crashed.
-                    if s["status"] in ("working", "pending_tool"):
-                        s["activity"] = "process ended mid-turn"
-                        self._set(s, "failed", now)
-                    elif s["status"] != "failed" or now - s["since"] > \
-                            self.gone_keep_s:
-                        s["ended"] = True
-                        self._set(s, "gone", now)
+                elif s.get("proc_gone") and s["status"] != "gone":
+                    # Its own process exited without a SessionEnd (terminal
+                    # closed, Ctrl-C, kill). That's an ending, not a failure.
+                    s.update(ended=True, tool=None, pending=None, activity=None)
+                    self._set(s, "gone", now)
                 if s["status"] == "done" and now - s["since"] > self.idle_s:
                     self._set(s, "idle", now)
                 for aid, sub in list(s["subs"].items()):
@@ -2273,33 +2506,62 @@ class AgentMonitor:
             self._rebuild(now)
         self.state._publish.set()
 
-    def _match(self, live):
-        """session_id -> pid. A process whose args name its session wins; the
-        rest pair up by working folder, oldest process with oldest session."""
-        out, loose = {}, []
-        for p in live:
+    def _match(self, live, now):
+        """session_id -> pid. Sticky: a session keeps the exact process it was
+        matched to (same pid AND start time) for as long as that process lives —
+        its folder may wander (`cd`), the process's never does. New matches: a
+        process whose args name the session, else by folder — the process's cwd
+        is the session's home or an ancestor of where it is now."""
+        out, taken = {}, set()
+        for sid, s in self._sess.items():
+            pr = s.get("proc")
+            if not pr:
+                continue
+            p = live.get(pr[0])
+            if p and p.get("lstart") == pr[1]:
+                out[sid] = pr[0]
+                taken.add(pr[0])
+            elif now - s["last"] > LIVE_EVENT_S:
+                s["proc"], s["proc_gone"] = None, True   # its process exited
+            else:
+                s["proc"] = None        # events still flowing: just re-match
+        for p in live.values():
+            if p["pid"] in taken:
+                continue
             sid = (p.get("session_id")
                    or (os.path.basename(p["transcript"])[:-len(".jsonl")]
                        if p.get("transcript") else None))
-            if sid and sid.lower() in self._sess:
+            if sid and sid.lower() in self._sess and sid.lower() not in out:
                 out[sid.lower()] = p["pid"]
-            else:
-                loose.append(p)
-        by_cwd = defaultdict(list)
-        for p in sorted(loose, key=lambda p: p.get("lstart") or 0):
-            cwd = self.procs.cwd_of(p["pid"])
-            if cwd:
-                by_cwd[cwd].append(p["pid"])
-        sess_by_cwd = defaultdict(list)
-        for sid, s in sorted(self._sess.items(), key=lambda kv: kv[1]["started"]):
-            if sid not in out and s["cwd"] and not s["ended"]:
-                sess_by_cwd[s["cwd"]].append(sid)
-        for cwd, sids in sess_by_cwd.items():
-            pids = by_cwd.get(cwd, [])
-            # Fewer processes than sessions: the newest sessions are the live ones.
-            for sid, pid in zip(sids[-len(pids):] if pids else [], pids):
-                out[sid] = pid
-        self._unmatched = [p for p in loose if p["pid"] not in out.values()]
+                taken.add(p["pid"])
+
+        def _under(child, root):
+            return bool(child and root) and (
+                child == root or child.startswith(root.rstrip("/") + "/"))
+
+        free = sorted((p for p in live.values() if p["pid"] not in taken),
+                      key=lambda p: p.get("lstart") or 0)
+        waiting = sorted((s for sid, s in self._sess.items()
+                          if sid not in out and not s["ended"]),
+                         key=lambda s: s["started"])
+        for p in free:
+            pcwd = self.procs.cwd_of(p["pid"])
+            if not pcwd:
+                continue
+            # Prefer the session whose home IS this folder, then one below it.
+            pick = (next((s for s in waiting if s["cwd0"] == pcwd), None)
+                    or next((s for s in waiting
+                             if _under(s["cwd0"], pcwd) or _under(s["cwd"], pcwd)),
+                            None))
+            if pick:
+                out[pick["sid"]] = p["pid"]
+                taken.add(p["pid"])
+                waiting.remove(pick)
+        for sid, pid in out.items():
+            s = self._sess[sid]
+            s["proc"] = (pid, live[pid].get("lstart"))
+            s.pop("proc_gone", None)
+        self._unmatched = [p for p in live.values() if p["pid"] not in taken]
         return out
 
     # -- snapshot --------------------------------------------------------- #
@@ -2341,7 +2603,9 @@ class AgentMonitor:
                                "claude_versions": []}}
 
     def _row(self, s, p, now):
-        cwd = s["cwd"]
+        # The session's home: its process's folder (fixed for life), else the
+        # first folder it reported — not wherever a `cd` has taken it since.
+        cwd = (self.procs.cwd_of(p["pid"]) if p else None) or s["cwd0"] or s["cwd"]
         git_root = self._git_root_of(cwd)
         model = s["model"] or self._configured_model(cwd, git_root)
         fam = _model_family(model)
@@ -2364,6 +2628,7 @@ class AgentMonitor:
             "last_prompt": s["last_prompt"],
             "status": status,
             "status_since": s["since"],
+            "turn_at": s["turn_at"],
             "activity": s["activity"] if status not in ("done", "idle", "gone")
             else None,
             "result": s["result"],
@@ -2379,7 +2644,8 @@ class AgentMonitor:
             "ticks": {"tools_done": s["tools_done"], "files": len(s["files"]),
                       "errors": s["errors"], "subagents": s["subs_total"]},
             "subagents": [{k: x.get(k) for k in ("agent_id", "type", "status",
-                                                  "activity", "result", "since")}
+                                                  "activity", "result", "since",
+                                                  "started", "desc", "tools")}
                           for x in subs],
             "health": self._health(s, status, now),
             "dismissed": s["sid"] in self._dismissed,
@@ -3049,7 +3315,55 @@ def parse_usage(out):
     if m:
         res["last24h"] = {"requests": int(m.group(1)),
                           "sessions": int(m.group(2))}
+    m = re.search(r"currently using your (\w[\w ]*?) to power", out)
+    if m:
+        res["billing"] = m.group(1).strip()        # "subscription", "API key", …
+    try:
+        windows = _parse_usage_contrib(out)
+        if windows:
+            res["windows"] = windows
+    except Exception:  # noqa: BLE001 — the report is undocumented; never fail /usage on it
+        pass
     return res
+
+
+def _parse_usage_contrib(out):
+    """The "What's contributing to your limits usage?" report, per window:
+        Last 7d · 29123 requests · 18 sessions
+          99%  Give "y-builder" subagents a cheaper model
+          Top subagents: y-builder 58%, y-risk 10%
+    → {"7d": {"requests", "sessions", "tips": [{"pct", "text", "hint"}],
+              "top": {"skills"|"subagents"|"mcp_servers"|…: [{"name", "pct"}]}}}.
+    Approximate, this machine only, shares overlap (Claude's own caveat) — the
+    front-ends say so. Line-by-line and forgiving: unknown lines are skipped."""
+    windows, cur = {}, None
+    for raw in out.splitlines():
+        line = raw.strip()
+        m = re.match(r"Last\s+(\w+)\s*·\s*(\d+)\s*requests\s*·\s*(\d+)\s*sessions", line)
+        if m:
+            cur = {"requests": int(m.group(2)), "sessions": int(m.group(3)),
+                   "tips": [], "top": {}}
+            windows[m.group(1)] = cur
+            continue
+        if cur is None or not line:
+            continue
+        m = re.match(r"(\d+)%\s+(.+)$", line)
+        if m:
+            text, _, hint = m.group(2).partition(" · ")
+            cur["tips"].append({"pct": int(m.group(1)), "text": text.strip(),
+                                "hint": hint.strip() or None})
+            continue
+        m = re.match(r"Top\s+([\w ]+?):\s*(.+)$", line)
+        if m:
+            key = re.sub(r"\W+", "_", m.group(1).strip().lower())
+            items = []
+            for part in m.group(2).split(","):
+                pm = re.match(r"\s*(.+?)\s+(\d+)%\s*$", part)
+                if pm:
+                    items.append({"name": pm.group(1), "pct": int(pm.group(2))})
+            if items:
+                cur["top"][key] = items
+    return windows
 
 
 # A hermetic sandbox for every `claude -p /usage`. This is THE fix for the
@@ -3713,6 +4027,7 @@ def build_state(state, usage, net, agents):
         "plan": state.plan,
         "net": net.snapshot(),
         "agents": agents.snapshot(),
+        "apps": apps_snapshot(state, agents),
         "procs": {
             "daemon_pid": os.getpid(),
             "keepawake_pid": (state._caffeinate.pid
@@ -3784,6 +4099,10 @@ def dispatch(state, usage, net, agents, req):
         return net.start_speedtest()
     if cmd == "focus":
         return agents.focus(str(req.get("session_id") or ""))
+    if cmd == "desktop":
+        return open_desktop(state, agents, relaunch=bool(req.get("relaunch")))
+    if cmd == "web":
+        return open_web(state)
     if cmd == "dismiss":
         return agents.dismiss(str(req.get("session_id") or ""), True)
     if cmd == "undismiss":
@@ -4007,6 +4326,13 @@ def _pinned_pids(agents):
         procs = agents._procs_cache or {}
     pids = {pid for pid, p in procs.items()
             if guarded_at(agents.state.cfg, p.get("lstart")) is not False}
+    # Desktop / web windows launched through Tower hold the proxy flag for life.
+    lp = agents.procs._libproc
+    flag = _proxy_flag(agents.state.proxy_port)
+    for kind in ("desktop", "web"):
+        for a in (lp.apps.get(kind, []) if lp else []):
+            if flag in a["args"]:
+                pids.add(a["pid"])
     pids.discard(os.getpid())
     return {p for p in pids if _pid_alive(p)}
 

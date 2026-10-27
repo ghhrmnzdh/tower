@@ -65,43 +65,76 @@ holds only while agents work: armed with nothing to do, the core stays dark and
 the row reads "Armed — the Mac sleeps normally until an agent works."
 
 The bar **never counts running agents.** The only number it can show is the
-**needs-you count** (red when something failed, orange otherwise) — and even
-that is switchable off in Settings — then the usage % if that preference is on.
+**needs-you pill** — a filled badge (red when something failed, orange
+otherwise) counting only what actually needs you: a failure, an approval, a
+question. A finished turn never counts. It's switchable off in Settings. Then the
+plan % beside a tiny ring that fills with it — Session, Week, or "Closest limit"
+(whichever tracked limit is nearest) — never shown while the guard withholds
+`/usage`, so it's never a stale number. Reset countdowns are exact: minutes, then
+hours and minutes under 48h ("2h 14m", "37h 5m"), then "3d 4h".
 
 ## The popover (the glance)
-Flat rows, top to bottom: guard status + **route toggle** → net weather (one
-quiet latency line when fine; a verdict banner when not — *"Anthropic API
-unreachable — your internet is fine (23 ms)"*) → **Needs You** (failed >
-blocked > asking > done; click a row to focus that terminal, or copy the
-resume command for background agents; hover to dismiss) → collision banners →
-**Agents** (each working agent: its model mark, project, live
-activity line — the model's own step description, or "thinking…" between tools —
-and its `n ✓` momentum counter; a done row shows the agent's result, not your
-prompt) → Resting (collapsed) → location (+
-re-check button) → **keep awake** (the beacon lamp + what it means in plain
-words; tap to cycle Off / lid-open / lid-closed) → plan meters → footer
-(Dashboard / Settings / Quit).
+Top to bottom (the middle is yours to reorder): a **status card** — the radar,
+the verdict, where you're fenced, and the **route toggle** (tinted only on a hold
+or danger; "Reconnecting Claude…" shimmers while a request is held) → **net
+weather** (a reading strip — Internet · API; a verdict
+banner when not fine — *"Anthropic API unreachable — your internet is fine
+(23 ms)"*) → **Agents** (Needs You first: failed > approval > asking > your turn;
+click a row to show that agent's terminal; hover to dismiss → collision banners → each working agent: its model
+mark, project, live activity line, its `n ✓` counter, and its **subagents as a
+tree** → Resting, collapsed) → **location** (a flag tile with an in/out badge,
+city, ISP, IP, an animated re-check) → **Claude Desktop** (only while it runs
+unguarded — its chats and Claude Code go direct — with one "Relaunch guarded"
+action and a hover ✕; off by default) → **keep awake** (the beacon and the
+three-way switch) → **plan rings** (or, while the guard holds Claude, one calm *Usage paused* row
+saying whether it waits on the connection or your location) (Session · Weekly · Fable, each with an exact
+countdown — or slim bars, your pick; white until your warn line; hover for the
+reset clock time; today's estimated cost rides the header) → a slim **footer** (Open Dashboard ⌘D, Settings ⌘,,
+Terminal ⌘T, Quit ⌘Q — which still asks twice).
 
-Which sections show, and how tight (Comfortable / Compact), is **yours to
-compose** — Settings → Popover, with a live miniature that settles with the same
-spring as you flip each switch. The order stays fixed (it encodes attention);
-you choose *what shows*, not what outranks what.
+It's **yours to compose** — Settings → Popover: drag rows to reorder (the held
+row lifts and follows the pointer; the rest glide aside on a spring), switch
+each on or off (or right-click any section in the popover → Hide), pick rings or
+bars and Comfortable / Compact, and toggle subagent trees, resting agents and
+the IP. Settings → Plan limits chooses which limits you track (drop Fable if you
+never use it).
 
 ## The dashboard window
-Five tabs: **Overview** (status + all guard controls + a **keep-awake card** +
-counters), **Network** (dual-series latency chart, speed test, live traffic
-feed), **Usage** (plan limits + refresh, local cost estimate, per-model
-breakdown, 7-day chart), **Tower** (every session in full detail, collisions,
-"while you were away" event history), **Settings** (menu-bar mode + needs-you
-badge, thresholds, **Popover composition with a live preview**, live plan
-toggle, country, reset).
+A native macOS window: a source-list sidebar (Agents carries the needs-you
+badge; the guard rides at its foot), a unified toolbar with each page's title,
+a live subtitle and its actions (Re-check location, Run speed test, Refresh
+plan, Terminal dashboard), and pages built from one panel vocabulary. It adapts
+to its width — single column when narrow, panels paired two-up from ~640 pt of
+content, columns past ~820 pt, three columns past ~1240 pt — and caps content
+width so a huge window stays legible. Its size and place are remembered.
+
+Five pages: **Overview** (a glance sized to the window, never a page you
+scroll, that grows with it: the guard with its switch, the live agents — click
+one to show its terminal; the list scrolls inside its panel — and plan rings +
+network beside it; a taller window adds **Requests** (Claude's per-minute
+pulse, passed / held counts, the newest requests, holds in amber); a wide one
+adds a third column with the cost estimate and, given height, the week —
+whichever panel can use height absorbs the rest, so the columns end together), **Agents** (Mail-style master–detail that stacks the list above the
+inspector in a narrow window: grouped list — Needs you / Working / Resting —
+with right-click Show Terminal / Dismiss, and an inspector laid out by its own
+width: status and how long, branch, what it's doing, tools / files /
+subagents / errors, every subagent, what it was asked, health, details, its own
+timeline), **Network** (verdict hero, hover-able dual-series latency chart,
+speed test, live traffic), **Usage** (two even rows: plan limits as slim bars with exact countdowns beside
+the cost estimate — today, session, this week (since Monday), its pace, and the
+mix by model; then the last 7 days in dollars beside **Where your limits go** —
+Claude's top `/usage` suggestions by share and its top subagent / skill / MCP
+server, 24 h or 7 d. Monochrome; yellow/red only past your lines), **Settings** (one short grouped form: guard; menu bar — what it shows, the
+needs-you badge, the yellow/red lines; popover — its sections in drag-to-reorder
+rows, rings or bars, density, a few details; plan limits to track and live
+reads; version + reset).
 
 ## Notifications
 Fired on agent transitions: →failed / →blocked / →asking always; →done only
 when you haven't opened the popover in the last 60s. A →done body carries the
 agent's result. Transitions older than ~3 minutes are never toasted — a sleep or
-App-Nap backlog resolves into the dashboard's "while you were away" list, not a
-burst of late banners — except a still-open failed/blocked/asking, which stays
+App-Nap backlog resolves into each agent's timeline, not a burst of late
+banners — except a still-open failed/blocked/asking, which stays
 worth showing because it's still awaiting you. (To keep those timers honest while
 the menubar app is inactive, Tower holds an App-Nap exemption that still allows
 idle system sleep.) Clicking one focuses that agent's terminal. If you deny
