@@ -1475,17 +1475,187 @@ struct GuardControlsPanel: View {
     }
 }
 
+/// The fence's country: a quiet capsule that opens a searchable list.
 struct CountryPicker: View {
     @ObservedObject var model: TowerModel
+    @State private var open = false
+    @State private var hovering = false
+
     var body: some View {
-        Picker("", selection: Binding(get: { model.targetCC }, set: {
-            model.send(["cmd": "country", "cc": $0])
-        })) {
-            ForEach(COUNTRIES, id: \.cc) { c in
-                Text("\(flag(c.cc))  \(c.name)").tag(c.cc)
+        Button { open.toggle() } label: {
+            HStack(spacing: 7) {
+                Text(flag(model.targetCC)).font(.system(size: 14))
+                Text(model.targetName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)      // a Form dims button labels
+            .padding(.leading, 9).padding(.trailing, 10).frame(height: 26)
+            .background(Capsule(style: .continuous)
+                .fill(Color.primary.opacity(open ? 0.14 : hovering ? 0.10 : 0.06)))
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            CountrySearch(model: model) { cc in
+                if cc != model.targetCC { model.send(["cmd": "country", "cc": cc]) }
+                open = false
             }
         }
-        .labelsHidden().pickerStyle(.menu)
+        .help("The country Claude is fenced to")
+        .accessibilityLabel("Country")
+        .accessibilityValue(model.targetName)
+    }
+}
+
+/// Type to filter, ↑↓ to move, ⏎ to pick, esc to close. With no query it
+/// leads with what matters — the current fence, and where you are now.
+struct CountrySearch: View {
+    @ObservedObject var model: TowerModel
+    let pick: (String) -> Void
+    @State private var query = ""
+    @State private var cursor = 0
+    @State private var keys: Any?
+    @FocusState private var searching: Bool
+
+    private struct Row: Identifiable {
+        let id: Int
+        let cc: String
+        let name: String
+        let note: String?
+        let header: String?
+    }
+
+    private var here: String? {
+        guard let l = model.state?.location, l.status == "OK" else { return nil }
+        return l.country_cc
+    }
+
+    private var rows: [Row] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = COUNTRIES.sorted { $0.name < $1.name }
+        var out: [Row] = []
+        func add(_ c: (cc: String, name: String), note: String? = nil, header: String? = nil) {
+            out.append(Row(id: out.count, cc: c.cc, name: c.name, note: note, header: header))
+        }
+        if q.isEmpty {
+            if let cur = all.first(where: { $0.cc == model.targetCC }) {
+                add(cur, note: here == cur.cc ? "Fenced · you're here" : "Fenced", header: "Suggested")
+            }
+            if let h = here, h != model.targetCC, let c = all.first(where: { $0.cc == h }) {
+                add(c, note: "You're here", header: out.isEmpty ? "Suggested" : nil)
+            }
+            for (i, c) in all.enumerated() { add(c, header: i == 0 ? "All countries" : nil) }
+            return out
+        }
+        func rank(_ c: (cc: String, name: String)) -> Int? {
+            let n = c.name.lowercased()
+            if c.cc.lowercased() == q { return 0 }
+            if n.hasPrefix(q) { return 1 }
+            if n.split(separator: " ").contains(where: { $0.hasPrefix(q) }) { return 2 }
+            if n.contains(q) { return 3 }
+            return nil
+        }
+        let hits = all.compactMap { c in rank(c).map { (c, $0) } }
+            .sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.0.name < $1.0.name }
+        for (c, _) in hits { add(c) }
+        return out
+    }
+
+    var body: some View {
+        let list = rows
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                TextField("Search countries", text: $query)
+                    .textFieldStyle(.plain).font(.system(size: 13))
+                    .focused($searching)
+                    .onSubmit { if list.indices.contains(cursor) { pick(list[cursor].cc) } }
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear")
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06)))
+            .padding(10)
+            Divider()
+            if list.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "globe").font(.system(size: 20)).foregroundStyle(.tertiary)
+                    Text("No country matches “\(query)”")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(list) { r in
+                                if let h = r.header {
+                                    Text(h)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.tertiary)
+                                        .padding(.horizontal, 10)
+                                        .padding(.top, r.id == 0 ? 4 : 10).padding(.bottom, 3)
+                                }
+                                row(r, on: r.id == cursor).id(r.id)
+                            }
+                        }
+                        .padding(.horizontal, 6).padding(.vertical, 6)
+                    }
+                    .onChange(of: cursor) { _, c in proxy.scrollTo(c) }
+                }
+            }
+        }
+        .frame(width: 290, height: 380)
+        .onChange(of: query) { cursor = 0 }
+        .onAppear {
+            searching = true
+            keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+                switch e.keyCode {
+                case 125: cursor = min(cursor + 1, max(rows.count - 1, 0)); return nil
+                case 126: cursor = max(cursor - 1, 0); return nil
+                default: return e
+                }
+            }
+        }
+        .onDisappear { if let k = keys { NSEvent.removeMonitor(k) }; keys = nil }
+    }
+
+    private func row(_ r: Row, on: Bool) -> some View {
+        Button { pick(r.cc) } label: {
+            HStack(spacing: 9) {
+                Text(flag(r.cc)).font(.system(size: 15))
+                Text(r.name).font(.system(size: 13)).lineLimit(1)
+                if let n = r.note {
+                    Text(n).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                if r.cc == model.targetCC {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                } else {
+                    Text(r.cc).font(TowerDesign.Font.mono(10)).foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 8).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(on ? 0.10 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { if $0 { cursor = r.id } }
+        .accessibilityAddTraits(r.cc == model.targetCC ? .isSelected : [])
     }
 }
 
@@ -2456,20 +2626,16 @@ struct SettingsPage: View {
 
     private func refreshIcon() { (NSApp.delegate as? AppDelegate)?.updateIcon() }
 
-    /// A compact "● 60%" menu — the threshold and its color in one control.
+    /// "● 60%": the threshold's color, then a plain pop-up of values — the
+    /// native control, so the whole thing is one obvious click target.
     private func thresholdMenu(_ v: Binding<Int>, range: StrideThrough<Int>, dot: NSColor) -> some View {
-        Menu {
+        HStack(spacing: 6) {
+            Circle().fill(Color(nsColor: dot)).frame(width: 7, height: 7)
             Picker("", selection: v) {
                 ForEach(Array(range), id: \.self) { Text("\($0)%").tag($0) }
             }
-            .pickerStyle(.inline).labelsHidden()
-        } label: {
-            HStack(spacing: 5) {
-                Circle().fill(Color(nsColor: dot)).frame(width: 7, height: 7)
-                Text("\(v.wrappedValue)%").monospacedDigit()
-            }
+            .labelsHidden().pickerStyle(.menu).fixedSize()
         }
-        .menuStyle(.button).fixedSize()
     }
 
     private func confirmReset() {
