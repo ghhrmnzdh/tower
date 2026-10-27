@@ -30,7 +30,7 @@ swiftc -O -swift-version 5 \
   -o "$APP/Contents/MacOS/tower" \
   "$SRC"/*.swift \
   -framework AppKit -framework SwiftUI -framework Combine \
-  -framework UserNotifications
+  -framework UserNotifications -framework IOKit
 
 echo "▸ copying resources"
 cp "$SRC/Info.plist"     "$APP/Contents/Info.plist"

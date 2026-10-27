@@ -56,7 +56,7 @@ with `Enter` (or a click), close with `Esc`:
 | Enforcement | Fail-closed: allow Claude only when confirmed in-country on a stable connection; block otherwise |
 | Block scope | Block ALL traffic, or Claude only |
 | Pin a country… | Opens the searchable country picker |
-| Keep the Device awake | Cycle off → lid-open → lid-closed (lid-closed asks for your password once) |
+| Keep the Device awake | Cycle off → lid-open → lid-closed (no password) |
 | Re-check location now | Immediate location lookup **and** a fresh net probe |
 | Refresh usage now | Re-run `claude -p /usage` immediately |
 | **Run internet speed test** | 25 MB download, direct connection; shows running % / cooldown / last Mbps |
@@ -72,7 +72,9 @@ with `Enter` (or a click), close with `Esc`:
 - **Location** — status, IP, city, ISP, full country name. When the internet
   is down it says so instead of "Locating…" forever.
 - **Guard** — route, enforce, scope, allowed/blocked counts, proxy status.
-- **Keep awake** — whether long agents survive the lid closing.
+- **Keep awake** — whether long agents survive the lid closing. It holds only
+  while agents work (● held, ◐ armed and standing by, ○ off), and the line says
+  why: working, or a grace countdown before the Mac may sleep.
 - **NETWORK** — where a Claude error comes from: status dot
   (online/degraded/offline/api_issue/captive), `net` vs `api` latency, an
   API-latency sparkline (outages peg the top), and the last speed-test result.

@@ -588,6 +588,12 @@ struct AgentRow: View {
                         .lineLimit(1)
                         .shimmer(tooling && !reduceMotion)
                 }
+                ForEach(session.subagentLines) { sub in
+                    Text(sub.line)
+                        .font(TowerDesign.Font.activity)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             if let done = session.ticks?.tools_done, done > 0 {
@@ -781,7 +787,7 @@ struct KeepAwakeRow: View {
                 model.send(["cmd": "keepawake", "on": true, "mode": "idle"])
             }
             Button("Awake — lid closed") {
-                (NSApp.delegate as? AppDelegate)?.explainThenEnableClamshell(model: model)
+                model.send(["cmd": "keepawake", "on": true, "mode": "clamshell"])
             }
         } label: {
             HStack(spacing: 11) {
@@ -791,7 +797,7 @@ struct KeepAwakeRow: View {
                     Text(KeepAwakeCopy.rowTitle(mode))
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
                     if !compact {
-                        Text(KeepAwakeCopy.line(mode))
+                        Text(model.keepAwakeLine)
                             .font(TowerDesign.Font.activity).foregroundStyle(.secondary)
                             .lineLimit(1)
                     }

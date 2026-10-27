@@ -45,7 +45,12 @@ struct GGuard: Decodable {
 }
 
 struct GRouting: Decodable { var installed: Bool?; var intended: Bool? }
-struct GKeepawake: Decodable { var on: Bool?; var mode: String? }
+struct GKeepawake: Decodable {
+    var on: Bool?; var mode: String?
+    /// Held awake right now (vs. armed and standing by), and why / why not:
+    /// working | grace | standby | off.
+    var holding: Bool?; var reason: String?; var grace_left: Int?
+}
 struct GSettings: Decodable { var theme: String?; var country: String?; var plan_week_tokens: Int?; var plan_enabled: Bool? }
 
 struct GSession: Decodable {
@@ -156,6 +161,21 @@ struct GTicks: Decodable {
 }
 struct GHealth: Decodable { var level: String?; var reasons: [String]? }
 struct GPendingTool: Decodable { var name: String?; var detail: String?; var since: Double? }
+/// A subagent running inside a session (from SubagentStart/Stop hooks).
+struct GSubagent: Decodable, Identifiable {
+    var agent_id: String?
+    var type: String?            // "Explore", "general-purpose", …
+    var status: String?          // working|done
+    var activity: String?
+    var result: String?
+    var since: Double?
+    var id: String { agent_id ?? "\(since ?? 0)" }
+    var line: String {
+        let what = status == "working" ? (activity ?? "working…") : (result ?? "done")
+        return "↳ \(type ?? "subagent") · \(what)"
+    }
+}
+
 struct GAgentSession: Decodable, Identifiable {
     var session_id: String?
     var pid: Int?
@@ -183,7 +203,15 @@ struct GAgentSession: Decodable, Identifiable {
     var ticks: GTicks?
     var health: GHealth?
     var dismissed: Bool?
+    var subagents: [GSubagent]?
     var id: String { session_id ?? "\(pid ?? 0)" }
+    /// Subagents worth a line under the row: the running ones first, then a
+    /// just-finished one or two, capped so a fan-out can't swamp the list.
+    var subagentLines: [GSubagent] {
+        let subs = subagents ?? []
+        return Array((subs.filter { $0.status == "working" }
+                      + subs.filter { $0.status != "working" }).prefix(3))
+    }
 
     var tier: ModelTier { ModelTier(family: model_family) }
 
@@ -362,15 +390,47 @@ final class TowerModel: ObservableObject {
     }
 
     private var timer: Timer?
+    private var dirWatch: DispatchSourceFileSystemObject?
 
     func start() {
         refresh()
+        watchStateDir()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.refresh()
+            guard let self else { return }
+            if self.dirWatch == nil { self.watchStateDir() }   // ~/.tower appeared late
+            self.refresh()
         }
     }
 
+    /// The daemon rewrites state.json the moment a hook event lands (an atomic
+    /// rename, so the folder changes). Watching ~/.tower delivers that now instead
+    /// of on the next 1s tick — agent rows move in milliseconds, at zero polling.
+    private func watchStateDir() {
+        let fd = open(Paths.state.deletingLastPathComponent().path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: .write, queue: .main)
+        src.setEventHandler { [weak self] in self?.refresh() }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        dirWatch = src
+    }
+
+    /// state.json's modification date at the last decode. The daemon rewrites
+    /// it only on change (plus a 2s heartbeat), so most ticks are one stat.
+    private var stateStamp: Date?
+
     func refresh() {
+        let stamp = (try? FileManager.default.attributesOfItem(
+            atPath: Paths.state.path))?[.modificationDate] as? Date
+        if let stamp, stamp == stateStamp, let s = state {
+            // Unchanged file: skip the read + decode. Still publish while a
+            // surface is visible, so its relative clocks ("12s ago") keep ticking.
+            if anySurfaceVisible { objectWillChange.send() }
+            alive = Date().timeIntervalSince1970 - (s.ts ?? 0) < 5.0
+            return
+        }
+        stateStamp = stamp
         let s = (try? Data(contentsOf: Paths.state))
             .flatMap { try? JSONDecoder().decode(GState.self, from: $0) }
         if anySurfaceVisible { objectWillChange.send() }
@@ -481,10 +541,18 @@ final class TowerModel: ObservableObject {
     }
 
     /// Keep-awake, distilled to a lamp glow for the radar + beacon. Orthogonal
-    /// to the guard state — the Mac can be held awake in any of them.
+    /// to the guard state — the Mac can be held awake in any of them. Lit only
+    /// while the Mac is actually held; armed-but-standing-by is a dark core.
     var awakeGlow: AwakeGlow {
-        guard state?.keepawake?.on == true else { return .none }
-        return state?.keepawake?.mode == "clamshell" ? .clamshell : .idle
+        guard let ka = state?.keepawake, ka.on == true,
+              ka.holding ?? true else { return .none }
+        return ka.mode == "clamshell" ? .clamshell : .idle
+    }
+    /// The consequence line for the keep-awake row and card, from live policy.
+    var keepAwakeLine: String {
+        let ka = state?.keepawake
+        return KeepAwakeCopy.line(keepAwakeMode, reason: ka?.reason,
+                                  graceLeft: ka?.grace_left)
     }
     /// "off" | "idle" | "clamshell" — the effective keep-awake mode.
     var keepAwakeMode: String {
@@ -650,12 +718,19 @@ enum KeepAwakeCopy {
         default:          return "Sleep allowed"
         }
     }
-    /// The consequence, one line.
-    static func line(_ mode: String) -> String {
-        switch mode {
-        case "idle":      return "Long agents keep running while the lid is open."
-        case "clamshell": return "Agents keep running even after you close the lid."
-        default:          return "The Mac may sleep on its own — a long agent can be cut off."
+    /// The consequence, one line. Keep-awake holds only while there's work, so
+    /// an armed mode reports what the policy is doing right now.
+    static func line(_ mode: String, reason: String? = nil, graceLeft: Int? = nil) -> String {
+        if mode == "off" { return "The Mac may sleep on its own — a long agent can be cut off." }
+        switch reason {
+        case "standby": return "Armed — the Mac sleeps normally until an agent works."
+        case "grace":
+            let m = max(1, ((graceLeft ?? 0) + 59) / 60)
+            return "Agents idle — letting the Mac sleep in \(m) min."
+        default:
+            return mode == "clamshell"
+                ? "Agents keep running even after you close the lid."
+                : "Agents keep running; the screen still sleeps."
         }
     }
     /// Menu / picker option labels, in mode order [off, idle, clamshell].

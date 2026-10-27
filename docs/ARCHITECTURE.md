@@ -77,29 +77,39 @@ Runs these threads:
   On-demand **speed test** (`{"cmd":"speedtest"}`): downloads 25 MB from
   `speed.cloudflare.com` (OVH fallback), 15s cap, 60s cooldown, direct
   connection (`ProxyHandler({})`).
-- **agents** — the control tower. Every ~2s it enumerates `claude` processes
-  (`ps`), maps them to sessions (session id / transcript path straight from
-  the args; `lsof` cwd as fallback), and offset-tails each live session's
-  transcript to derive per-agent status: `working`, `pending_tool` (waiting
-  for approval — or a slow tool; honest heuristic), `asking`, `done`,
-  `failed`, `idle`, `gone`. It ranks a **needs-you queue**
-  (failed > blocked > asking > done), detects **same-repo collisions**
-  (escalating when two agents touch the same file), tracks momentum ticks
-  (tools done / files touched / errors), and publishes state transitions as
-  events the app turns into notifications. It also classifies each session's
-  **guard status** (`guarded: true|false|null`): a **routing timeline**
-  (`cfg["route_log"]`, on/off transitions written by `note_route_change`) answers
-  "was routing installed when this process launched?", and an **lsof latch**
-  (`_scan_proxy_clients`, one `lsof -iTCP@127.0.0.1:<port>` every ~5s) upgrades
-  that presumption to proof for any session with a live proxy connection. A launch
-  within ~5s of a route flip, or before the timeline's coverage, is `null`
-  (unknown — never counted). From these, `agents.summary` publishes `unguarded`
-  (started before the guard, routing on → restart to protect) and `pinned` (still
-  proxy-guarded, routing off → safe until restarted). **Read-only toward Claude
-  Code**: it never writes into `~/.claude`, never injects input, and reads only
-  process/network tables (`ps`/`lsof`), never a process's files or env.
-- **state writer** — writes `state.json` atomically ~1/s (and immediately after
-  any command, so the UI reflects changes in ~60ms).
+- **agents** — the control tower, fed by **Claude Code's own HTTP hooks**.
+  `hooks_on` adds one observation-only entry per lifecycle event (`HOOK_EVENTS`:
+  SessionStart/End, UserPromptSubmit, Pre/PostToolUse(+Failure),
+  PermissionRequest, Notification, Stop/StopFailure, SubagentStart/Stop,
+  Pre/PostCompact) to `~/.claude/settings.json` — `type: "http"` →
+  `http://127.0.0.1:<proxy port>/__tower/hook`, 2s timeout — leaving the user's
+  own hooks untouched; `hooks_off` removes exactly those on every clean exit,
+  atexit, and Reset. Claude POSTs each event to the proxy listener
+  (`_serve_hook`, origin- or absolute-form), which drains the body, answers an
+  **empty 200** (no decision — a hook can never change what Claude does) and
+  hands the event to `AgentMonitor.on_event`. Status is therefore the event,
+  not an inference: `working` (prompt / tool), `pending_tool` (permission
+  prompt), `asking` (AskUserQuestion / elicitation / "needs input:"), `done` /
+  `failed` (Stop / StopFailure / "failed:"), `idle`, `paused`, `gone`
+  (SessionEnd, or the process vanished). Events carrying `agent_id` drive
+  per-session **subagent** rows. Each event republishes `state.json` within
+  ~50ms. A 3s tick adds what events can't: the kernel process table
+  (`_LibProc` — libproc + `KERN_PROCARGS2`, ~1ms, `ps` only as fallback) for
+  liveness, pid/tty (focus) and SIGSTOP pauses, matched to sessions by
+  session id in the args or by cwd. Live processes with no hook traffic yet
+  get a placeholder row so counts stay truthful. The model/title come from one
+  bounded tail read of the transcript per turn — never a full parse. Tower's own
+  `claude -p /usage` runs with `disableAllHooks` (and its cwd is filtered) so it
+  never shows up. Needs-you queue, collisions (shared `file_path`s from
+  PostToolUse), momentum ticks, and transition events are as before. **Guard
+  status** (`guarded`) comes from the routing timeline (`cfg["route_log"]`):
+  "was routing installed when this process launched?" — a launch within ~5s of a
+  flip, or before the timeline, is `null` and never counted. `agents.summary`
+  publishes `unguarded` and `pinned` from it. Never injects input into a session.
+- **state writer** — builds state every 1s but writes `state.json` only when
+  it changed (plus a 2s heartbeat), immediately after any command, and within
+  ~50ms of a hook event. The app watches `~/.tower` (DispatchSource) and the TUI
+  re-parses only on a new mtime, so an agent row moves in milliseconds.
 - **command watcher** — polls `cmd/` every ~60ms, runs the command, writes an
   optional `<id>.done` result.
 
@@ -158,16 +168,28 @@ Runs these threads:
   SIGTERMs it (only while its flock is held) and reclaims the same sticky port, so
   the pinned chats come back under the guard. A signal (SIGTERM/SIGINT) still
   means a full exit — no relay.
-- **Transcript parsing is defensive.** The session JSONL format is
-  undocumented and drifts between Claude Code versions (observed mid-file).
-  Every line parse is wrapped; unknown types are skipped;
-  `agents.meta.parse_errors` surfaces drift instead of crashing. Worst case a
-  session shows an unknown status — guard features are never affected.
-- **Keep-awake.** `caffeinate` covers lid-open. Lid-closed needs root
-  (`pmset disablesleep`); we ask for the password **once** and install a
-  tightly-scoped, `visudo`-validated NOPASSWD rule for just those two commands,
-  so it never nags again. Reset removes it. (The sudoers file keeps its legacy
-  `geo-guard` name so existing installs don't re-prompt.)
+- **Transcript parsing is defensive** (usage estimate only). The session JSONL
+  format is undocumented and drifts; the usage index wraps every line parse. The
+  agent monitor no longer parses transcripts — status comes from hooks; a bad
+  hook body counts into `agents.meta.parse_errors` and is dropped.
+- **Keep-awake is a policy, not a switch** (`keepawake_loop`). Turning it on
+  *arms* it; the Mac is held only while an agent is working (or a request is
+  held on the guard), plus a 10-min grace between turns — otherwise it sleeps
+  exactly as it would without Tower. The hold is a lone
+  `PreventUserIdleSystemSleep` (`caffeinate -i -w <daemon pid>`): never a
+  display assertion, so the screen still sleeps, and tied to the daemon so a
+  crash can't orphan it. There are no thermal or battery cut-offs: a vigil keeps
+  the Mac working (macOS's own critical-battery sleep still applies). The armed
+  mode persists in `cfg["keepawake_mode"]`, so a respawned daemon resumes it.
+- **Lid-closed needs no password.** Lid sleep is lifted through the
+  `IOPMrootDomain` user client (`kPMSetClamshellSleepState`), callable by any
+  user — no root, no sudoers rule, no prompt. It's a *kernel* flag that outlives
+  the process, so three things release it: the daemon on startup (a crashed
+  predecessor's hold), the app the moment the daemon is found dead
+  (`LidSleep.restore`), and a reboot. While wanted, the daemon re-asserts it
+  every tick, so it self-heals. Older versions used a NOPASSWD
+  `pmset disablesleep` rule (`/etc/sudoers.d/geo-guard`); startup clears a
+  lingering `disablesleep` from it and Reset still removes the rule.
 - **Ports.** If :8888 is busy the proxy steps to the next free port.
 
 ## Command protocol (`cmd/<id>.json`)

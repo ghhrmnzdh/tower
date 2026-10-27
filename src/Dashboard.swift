@@ -549,10 +549,15 @@ struct AgentTableRow: View {
                 Text((st == .done ? session.result : nil) ?? session.title
                      ?? session.activity ?? session.last_prompt ?? "")
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                ForEach(session.subagentLines) { sub in
+                    Text(sub.line)
+                        .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                }
             }
             Spacer()
             if let t = session.ticks {
                 Text("\(t.tools_done ?? 0) ✓ · \(t.files ?? 0) files"
+                     + ((t.subagents ?? 0) > 0 ? " · \(t.subagents!) sub" : "")
                      + ((t.errors ?? 0) > 0 ? " · \(t.errors!) ✗" : ""))
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
             }

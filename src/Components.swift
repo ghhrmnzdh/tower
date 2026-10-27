@@ -116,8 +116,7 @@ extension View {
 }
 
 // Keep awake — the dashboard card. The beacon (the tower's lamp) states it at a
-// glance; the segmented control sets it; a line names the consequence. Picking
-// "Lid closed" routes through the pre-explained admin prompt, never a surprise.
+// glance; the segmented control sets it; a line names the consequence.
 struct KeepAwakeCard: View {
     @ObservedObject var model: TowerModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -131,7 +130,7 @@ struct KeepAwakeCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(KeepAwakeCopy.title(mode))
                             .font(.system(size: 15, weight: .semibold))
-                        Text(KeepAwakeCopy.line(mode))
+                        Text(model.keepAwakeLine)
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 6)
@@ -153,23 +152,18 @@ struct KeepAwakeCard: View {
         }
     }
 
-    /// The picker reflects real daemon state; choosing "Lid closed" hands off to
-    /// the pre-explained admin flow instead of writing state optimistically, so
-    /// the segment only moves once keep-awake actually engages.
+    /// The picker reflects real daemon state: the segment moves once the
+    /// daemon has taken the mode. Every mode is one tap — no password.
     private var modeBinding: Binding<String> {
         Binding(get: { model.keepAwakeMode }, set: { newMode in
-            if newMode == "clamshell" {
-                (NSApp.delegate as? AppDelegate)?.explainThenEnableClamshell(model: model)
-            } else {
-                model.send(["cmd": "keepawake", "on": newMode != "off", "mode": newMode])
-            }
+            model.send(["cmd": "keepawake", "on": newMode != "off", "mode": newMode])
         })
     }
 
     private func note(_ mode: String) -> String {
         switch mode {
-        case "idle":      return "No permission needed — caffeinate keeps the system awake."
-        case "clamshell": return "macOS asks for your password once, only to run pmset disablesleep."
+        case "idle":      return "Held only while agents work; the screen still sleeps."
+        case "clamshell": return "No password — lid sleep is lifted only while agents work."
         default:          return "Turn on to keep long agents running when you step away."
         }
     }

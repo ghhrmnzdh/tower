@@ -68,11 +68,21 @@ def cname(cc):
 # --------------------------------------------------------------------------- #
 # IPC
 # --------------------------------------------------------------------------- #
+_state_cache = [None, None]     # [(mtime_ns, size), parsed state]
+
+
 def read_state():
+    """state.json, re-parsed only when the daemon has rewritten it — the 80ms
+    tick then costs one stat, while a hook event still shows up next tick."""
     try:
-        with open(STATE_FILE) as f:
-            s = json.load(f)
-        if time.time() - s.get("ts", 0) < 5:
+        st = os.stat(STATE_FILE)
+        key = (st.st_mtime_ns, st.st_size)
+        if key != _state_cache[0]:
+            with open(STATE_FILE) as f:
+                _state_cache[1] = json.load(f)
+            _state_cache[0] = key
+        s = _state_cache[1]
+        if s and time.time() - s.get("ts", 0) < 5:
             return s
     except Exception:
         pass
@@ -255,6 +265,11 @@ def agent_row(sess, reason, since):
     done = ticks.get("tools_done") if isinstance(ticks, dict) else None
     if sess.get("status") == "working" and done:
         parts.append(f"{done} ✓")       # momentum, matched to the app row
+    subs = [x for x in (sess.get("subagents") or [])
+            if isinstance(x, dict) and x.get("status") == "working"]
+    if subs:                            # live subagents, from the hooks
+        kinds = sorted({x.get("type") or "subagent" for x in subs})
+        parts.append(f"↳ {len(subs)} {'/'.join(kinds)}")
     when = ago(since or sess.get("status_since") or sess.get("last_activity"))
     if when:
         parts.append(when)
@@ -403,6 +418,22 @@ def draw_shimmer(win, y, x, text, color):
         safe_addstr(win, y, x + i, chx, attr)
 
 
+
+def keepawake_line(kmode, ka):
+    """The keep-awake consequence line, from the daemon's live policy — it holds
+    only while agents work, so an armed mode says what it's doing right now."""
+    if kmode == "off":
+        return f"{DEVICE} may sleep — long agents can be interrupted"
+    reason = ka.get("reason")
+    if reason == "standby":
+        return f"armed — {DEVICE} sleeps normally until an agent works"
+    if reason == "grace":
+        m = max(1, ((ka.get("grace_left") or 0) + 59) // 60)
+        return f"agents idle — letting the {DEVICE} sleep in {m} min"
+    if kmode == "clamshell":
+        return "long agents keep running with the lid closed"
+    return "agents keep running; the screen still sleeps"
+
 def draw(win, s):
     win.erase()
     HITBOXES.clear()
@@ -494,16 +525,14 @@ def draw(win, s):
     ka = s.get("keepawake") or {}
     kmode = ka.get("mode", "off")
     kon = bool(ka.get("on")) and kmode != "off"
+    held = kon and ka.get("holding", True)   # armed ≠ held: it holds only for work
     cardw = w - 4
     if y + 3 <= h - 4:
         draw_box(win, y, 2, 3, cardw, "KEEP AWAKE")
-        dot = "●" if kon else "○"
+        dot = "●" if held else ("◐" if kon else "○")
         state_txt = {"idle": "on · lid open",
                      "clamshell": "on · survives lid close"}.get(kmode, "off")
-        desc = {"idle": f"{DEVICE} stays awake while the lid is open",
-                "clamshell": "long agents keep running with the lid closed"}.get(
-                    kmode if kon else "off",
-                    f"{DEVICE} may sleep — long agents can be interrupted")
+        desc = keepawake_line(kmode if kon else "off", ka)
         hint = "[w] change"
         safe_addstr(win, y + 1, 4, f"{dot} {state_txt}",
                     cp(C_GOOD if kon else C_DIM) | curses.A_BOLD)
@@ -1440,7 +1469,7 @@ def _sig(d):
               summary.get("done_today"))
     return (g.get("allowed"), g.get("blocked"), g.get("enforce"),
             g.get("block_all"), g.get("target_cc"), g.get("proxy_up"),
-            (d.get("routing") or {}).get("installed"), ka.get("mode"),
+            (d.get("routing") or {}).get("installed"), ka.get("mode"), ka.get("holding"), ka.get("reason"),
             loc.get("status"), loc.get("in_target"), loc.get("city"),
             len(rec), rec[-1].get("t") if rec else None,
             pl.get("updated"), pl.get("refreshing"), pl.get("ok"),

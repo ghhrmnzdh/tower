@@ -47,7 +47,8 @@ deliberately never amber/red so a hold always outranks it and the two facts
 compose in one mark. `AwakeGlow` (`Glyph.swift`) has three looks: **idle** is a
 still lit lamp; **clamshell** (a lid-closed vigil — the deeper commitment)
 breathes slowly; **none** is a plain dark core. Only the vigil with more to say
-(lid-closed) earns motion; Reduce Motion freezes it lit. The same lamp,
+(lid-closed) earns motion, and only on an open surface — the menu bar shows it
+still, since a vigil lasts hours; Reduce Motion freezes it lit. The same lamp,
 standalone, is the **beacon** (`drawBeacon`) on the keep-awake row and card —
 one glow, one meaning, everywhere. It is *felt* in the menu bar and *legible* in
 the popover, and it is never a number or a badge (the bar never counts running
@@ -114,7 +115,7 @@ The **dopamine layer**: the summary line (`3 at work · 41 jobs done today · 1
 needs you`) and per-row `n ✓` counters tick up with
 `.contentTransition(.numericText())` as agents complete tools — visible
 momentum. The done payoff is one composite ~0.6s gesture (check draws on, row
-glows, counter ticks), then quiet. The radar animation is driven at ~30fps only
+glows, counter ticks), then quiet. The menu-bar radar is driven at ~15fps only
 while the state warrants it, and paused otherwise.
 
 **Restraint rules** (enforced in review): at most one glowing row at a time

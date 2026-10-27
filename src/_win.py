@@ -70,14 +70,15 @@ ES_DISPLAY_REQUIRED = 0x00000002
 
 
 def keepawake(on):
-    """Keep the machine (and display) awake while `on`. No admin, no clamshell
-    concept — the Windows analog of `caffeinate -dimsu`. Returns True on success.
+    """Keep the machine awake while `on` — the system only, never the display,
+    which still sleeps on its own schedule. No admin, no clamshell concept — the
+    Windows analog of `caffeinate -i`. Returns True on success.
     The continuous state persists for the life of this process; releasing is
     just the ES_CONTINUOUS-only call."""
     _k32.SetThreadExecutionState.restype = wintypes.DWORD
     _k32.SetThreadExecutionState.argtypes = [wintypes.DWORD]
     if on:
-        flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED
     else:
         flags = ES_CONTINUOUS
     return _k32.SetThreadExecutionState(flags) != 0

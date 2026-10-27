@@ -19,7 +19,7 @@ import errno
 import json
 import os
 import re
-import shlex
+import select
 import shutil
 import signal
 import socket
@@ -108,11 +108,10 @@ PROXY_PORT = int(os.environ.get("TOWER_PORT",
 CLAUDE_HOST_HINTS = ("anthropic", "claude.ai", "claude.com")
 
 PMSET = "/usr/bin/pmset"
-# Legacy path kept on purpose: the rule may already be installed on disk under
-# this name and replacing it would cost the user another admin prompt.
+TASKPOLICY = "/usr/sbin/taskpolicy"
+# Legacy: older versions held the lid with a NOPASSWD `pmset disablesleep` rule.
+# Lid-closed no longer needs it; the path is kept so Reset can still remove it.
 SUDOERS_FILE = "/etc/sudoers.d/geo-guard"
-USER = (os.environ.get("USER") or os.environ.get("LOGNAME")
-        or os.environ.get("USERNAME") or "user")
 
 # per-MTok USD (input, output, cache-write, cache-read); estimates, overridable.
 PRICING = {
@@ -301,15 +300,27 @@ class State:
         self.last_claude_block = 0.0  # ts of the most recent blocked Claude request
         self.recent = deque(maxlen=50)
 
-        self.keepawake_on = False
-        self.keepawake_mode = "off"
+        # Keep-awake: the armed mode persists, so a respawned daemon resumes the
+        # vigil; whether the Mac is actually held right now is keepawake_loop's.
+        km = cfg.get("keepawake_mode")
+        self.keepawake_mode = km if km in ("idle", "clamshell") else "off"
+        self.keepawake_on = self.keepawake_mode != "off"
+        self.keepawake_reason = "off"
+        self.keepawake_grace_left = None
+        self._awake_poke = threading.Event()
+        self._awake_held = False
+        self._lid_held = False
         self._caffeinate = None
 
         # real plan usage, fetched by running `claude -p /usage` (no creds read)
         self.plan = None
-        self._refreshplan = False
+        self._refreshplan = threading.Event()   # "refresh now" — wakes plan_loop
 
         self.stop = threading.Event()
+        # Hook events land on proxy threads; the monitor's on_event is the sink.
+        # _publish wakes the state writer so a change reaches the UI in ms.
+        self.hook_sink = None
+        self._publish = threading.Event()
         # The proxy listener has its own stop: after a confirmed quit it outlives
         # the rest of the daemon so pinned chats keep a live endpoint (relay mode).
         self.proxy_stop = threading.Event()
@@ -546,11 +557,12 @@ def geo_loop(state, interval=15):
                 state.last_error = None
                 state._egress = egress
                 state._geo_ok_mono = time.monotonic()
-            state.cfg["last_location"] = {
-                "ip": state.ip, "city": state.city, "region": state.region,
-                "isp": state.isp, "country_name": state.country_name,
-                "country_cc": state.country_cc}
-            save_config(state.cfg)
+            last = {"ip": state.ip, "city": state.city, "region": state.region,
+                    "isp": state.isp, "country_name": state.country_name,
+                    "country_cc": state.country_cc}
+            if state.cfg.get("last_location") != last:   # not every 15s
+                state.cfg["last_location"] = last
+                save_config(state.cfg)
         else:
             with state.lock:
                 state.status = "ERROR"
@@ -934,6 +946,83 @@ def _plain(conn, state, method, target, raw):
             pass
 
 
+def _is_hook_target(target):
+    """Origin-form `/__tower/hook`, or absolute-form when Claude's HTTP client
+    sends the hook via its proxy env (which is this same listener)."""
+    if target.startswith("/"):
+        return target.split("?", 1)[0] == HOOK_PATH
+    from urllib.parse import urlsplit
+    p = urlsplit(target)
+    return p.hostname in ("127.0.0.1", "localhost") and p.path == HOOK_PATH
+
+
+_RE_HOOK_FIELD = re.compile(
+    rb'"(hook_event_name|session_id|cwd|transcript_path|agent_id|agent_type'
+    rb'|tool_name)"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _hook_head(data):
+    """The routing fields of an oversized hook body, without parsing it all."""
+    out = {}
+    for m in _RE_HOOK_FIELD.finditer(data[:65536]):
+        k = m.group(1).decode()
+        if k not in out:
+            try:
+                out[k] = json.loads(b'"' + m.group(2) + b'"')
+            except Exception:  # noqa: BLE001
+                pass
+    return out
+
+
+def _serve_hook(conn, state, raw):
+    """Claude Code's HTTP hook. Read the whole body (a half-read body would turn
+    into a client-side error), answer an empty 200 — "no decision", so the hook
+    can never alter what Claude does — and only then hand the event over."""
+    head, _, body = raw.partition(b"\r\n\r\n")
+    hl = head.lower()
+    chunks, got = [body], len(body)
+    if b"transfer-encoding: chunked" in hl:
+        buf = body
+        while not buf.endswith(b"0\r\n\r\n"):
+            c = conn.recv(65536)
+            if not c:
+                break
+            buf += c if len(buf) < HOOK_BODY_MAX else b""
+        data, rest = b"", buf
+        while rest:
+            size_line, _, rest = rest.partition(b"\r\n")
+            try:
+                n = int(size_line.split(b";")[0], 16)
+            except ValueError:
+                break
+            if n == 0:
+                break
+            data += rest[:n]
+            rest = rest[n + 2:]
+    else:
+        m = re.search(rb"content-length:\s*(\d+)", hl)
+        n = int(m.group(1)) if m else 0
+        while got < n:
+            c = conn.recv(min(65536, n - got))
+            if not c:
+                break
+            if got < HOOK_BODY_MAX:
+                chunks.append(c)
+            got += len(c)
+        data = b"".join(chunks)
+    conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n"
+                 b"Connection: close\r\n\r\n")
+    sink = state.hook_sink
+    if sink is None:
+        return                          # relay mode: acknowledge, nothing to do
+    try:
+        ev = json.loads(data) if len(data) < HOOK_BODY_MAX else _hook_head(data)
+    except Exception:  # noqa: BLE001
+        ev = _hook_head(data)
+    if isinstance(ev, dict):
+        sink(ev)
+
+
 def _handle_proxy_client(conn, state):
     try:
         try:
@@ -950,7 +1039,9 @@ def _handle_proxy_client(conn, state):
         if len(parts) < 3:
             return
         method, target = parts[0], parts[1]
-        if method.upper() == "CONNECT":
+        if method.upper() == "POST" and _is_hook_target(target):
+            _serve_hook(conn, state, raw)
+        elif method.upper() == "CONNECT":
             host, _, ps = target.partition(":")
             _tunnel(conn, state, host, int(ps or "443"))
         else:
@@ -1167,7 +1258,7 @@ class NetMonitor:
         self.checked = None
         self._pending = None                # (candidate status, streak)
         self._last_sample_mono = None
-        self._probe_now = False             # set by "recheck" (like _recheck)
+        self._probe_now = threading.Event()  # set by "recheck" — wakes loop()
         self._st_thread = None
         self.speedtest = {"running": False, "progress": 0.0,
                           "mbps_down": None, "ms": None, "bytes": None,
@@ -1226,13 +1317,8 @@ class NetMonitor:
                 # broken); "offline"/"captive"/"api_issue"/"checking" = no
                 # trustworthy path to Anthropic → Claude requests are blocked.
                 self.state.net_ok = self.status in ("online", "degraded")
-            waited = 0.0
-            while waited < interval and not self.state.stop.is_set():
-                if self._probe_now:
-                    self._probe_now = False
-                    break
-                time.sleep(0.25)
-                waited += 0.25
+            if self._probe_now.wait(interval):  # sleep, unless asked to probe
+                self._probe_now.clear()
 
     def _api_timeout(self):
         """Deadline for the next API probe (caller holds self.lock). See
@@ -1358,55 +1444,35 @@ class NetMonitor:
 
 # --------------------------------------------------------------------------- #
 # Agent monitoring — the summary (state.json "agents")
-# Merges the process table with offset-tailed transcript reads into one view:
-# per-session status, the needs-you queue, and repo/file collisions.
-# READ-ONLY toward ~/.claude: never writes there, never injects input.
+# Fed by Claude Code's own HTTP hooks: every session POSTs its lifecycle events
+# (prompt, tool start/end, permission prompt, subagent start/stop, turn end,
+# session end) to the proxy port at HOOK_PATH, so status IS the event — not a
+# guess from transcript mtimes — and lands the instant it happens, subagents
+# included. The hooks are observation-only: the endpoint always answers an empty
+# 200 (= no decision) and an unreachable Tower is a non-blocking failure Claude
+# ignores. The kernel process table (libproc, ~1ms) adds only what events can't
+# carry: is the process still alive, its pid/tty for focus, and paused (SIGSTOP).
 # The snapshot's field names are a contract with the Swift app — don't rename.
 # --------------------------------------------------------------------------- #
-AGENT_INTERVAL = 1.0          # full merge + status engine cadence
-AGENT_FAST_INTERVAL = 0.5     # between full refreshes: cheap activity-only tick
-# The `ps` table scan is the one costly part of a full refresh (~60ms); the
-# transcript tail + status engine are cheap (~20ms). So we run the whole refresh
-# every 1s (halving the 2-cycle status-transition debounce from ~4s to ~2s so an
-# agent flipping working↔idle/done surfaces fast) but reuse the last `ps` result
-# for up to this long — process presence changes rarely, and a ~2s lag on
-# detecting a *dead* process is fine. This keeps status near-realtime without
-# doubling the `ps` cost.
-PROC_RESCAN_S = 1.8
-# How often to latch which agents have a live TCP connection to the proxy — proof
-# they're actually routed. One lsof call (~50ms) on its own cadence, off the ps
-# path; positive-proof only (an idle agent shows nothing between keep-alives), so
-# the latch upgrades the routing-timeline presumption, never contradicts it.
-PROXY_CLIENT_RESCAN_S = 5.0
-# retail_known() (the 0.5s hot path) only re-tails transcripts touched within
-# this window. An agent that's actually producing activity has a sub-second
-# mtime, so bounding here keeps the hot path O(active-sessions) instead of
-# O(every-transcript-ever-seen) — the full scan() still tails everything each
-# cycle, so long-idle rows stay correct, just refreshed at 1s not 0.5s.
-RETAIL_ACTIVE_S = 90.0
+HOOK_PATH = "/__tower/hook"
+HOOK_TIMEOUT_S = 2            # a stuck Tower must never hold a tool call up
+HOOK_EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse",
+               "PostToolUse", "PostToolUseFailure", "PermissionRequest",
+               "Notification", "Stop", "StopFailure", "SubagentStart",
+               "SubagentStop", "PreCompact", "PostCompact")
+HOOK_BODY_MAX = 4 << 20       # parse at most this much (a huge Write still drains)
+AGENT_TICK_S = 3.0            # liveness + aging cadence; events publish at once
+PEEK_BYTES = 256 << 10        # transcript tail read for model/title, once a turn
 # Thresholds; each overridable via the same-named key in ~/.tower/config.json
-AGENT_WORKING_S = 10.0        # agent_working_s: fresher mtime = working
-AGENT_IDLE_S = 300.0          # agent_idle_s: staler (process alive) = idle
+AGENT_IDLE_S = 300.0          # agent_idle_s: a finished turn ages to idle
 AGENT_GONE_KEEP_S = 60.0      # agent_gone_keep_s: keep gone rows, then drop
-AGENT_TOOL_GRACE_S = 180.0    # agent_tool_grace_s: slow-tool grace period
 AGENT_PENDING_WARN_S = 600.0  # agent_pending_warn_s: pending_tool → warn
 AGENT_WORKING_WARN_S = 1200.0  # agent_working_warn_s: no completed turn → warn
-# Mid-turn dead silence past this = the signature of an in-progress API error /
-# retry storm. Claude Code writes NOTHING to the transcript while it retries an
-# overloaded / 500 / connection error (only the final outcome — a real reply, or
-# a terminal "API Error:" synthetic line — is written), so the turn just goes
-# quiet and the status engine would otherwise keep reading it as "working". This
-# is the only signal we have for a live API stall; kept well above a normal
-# think/first-token gap so a healthy turn never trips it. (agent_api_stall_s)
+# A working turn with no event at all for this long and no tool running: the
+# signature of an API retry storm or a dead network path. (agent_api_stall_s)
 AGENT_API_STALL_S = 90.0
-# Presentation hysteresis (not policy, so not cfg-overridable): once the last
-# tool has been closed for this long with nothing new open, a working turn is
-# the model reasoning/writing, so the row says "thinking…" instead of holding
-# the last tool's stale phrase. Kept just above a fast tool→tool gap so a quick
-# chain doesn't flicker between "editing X" and "thinking…".
-AGENT_THINK_AFTER_S = 2.0
+AGENT_FORGET_S = 6 * 3600.0   # an idle session with no process and no event
 AGENT_EDIT_WINDOW_S = 900.0   # recent-edit window for file-level collisions
-GRACE_TOOLS = ("Bash", "Task", "Agent", "Workflow")    # legitimately slow
 EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
 MODEL_TIERS = ("haiku", "sonnet", "opus", "fable")     # ascending caliber
 NEEDS_RANK = {"failed": 0, "pending_tool": 1, "asking": 2, "done": 3}
@@ -1415,14 +1481,6 @@ _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 _RE_SESSION_ID = re.compile(r"--session-id[= ](" + _UUID + r")")
 _RE_RESUME_PATH = re.compile(r"--resume[= ](\S+\.jsonl)")
 _RE_RESUME_ID = re.compile(r"--resume[= ](" + _UUID + r")(?:\s|$)")
-# `/effort` echoes its result into the transcript as a user message, e.g.
-# "<local-command-stdout>Set effort level to max (this session only): …". This
-# is the ONLY per-session record of the live effort — settings.json holds only
-# the startup default — so we parse it to show each agent's true value.
-_RE_EFFORT_CMD = re.compile(
-    r"[Ss]et effort level to (\w+)|[Rr]eset effort.*?to (default|\w+)")
-
-
 def _model_family(model):
     m = (model or "").lower()
     for fam in ("fable", "opus", "sonnet", "haiku"):
@@ -1518,83 +1576,6 @@ def _activity_phrase(tool):
     return f"using {name}"
 
 
-def _stall_secs(rec, threshold):
-    """Seconds a *working* turn has been silent MID-turn with nothing pending —
-    or None if it isn't stalled. This is Tower's only handle on an in-progress
-    API error / retry storm, which Claude Code doesn't record in the transcript
-    (see AGENT_API_STALL_S). Mid-turn = the last stop wasn't an end_turn (the
-    turn hasn't completed); nothing pending = no open tool (an open tool is the
-    legitimate 'pending_tool' wait, not a stall). Anything past `threshold` of
-    dead air here is abnormal — a healthy first-token / think gap is far shorter."""
-    if rec.get("last_stop") == "end_turn":
-        return None                     # turn completed — not mid-flight
-    if rec.get("open_tools"):
-        return None                     # a tool is genuinely pending, not a stall
-    mtime = rec.get("mtime")
-    if not mtime:
-        return None
-    age = time.time() - mtime
-    return int(age) if age > threshold else None
-
-
-def _thinking_phrase(rec):
-    """Between tools, with nothing genuinely open, the model is reasoning /
-    writing — say that instead of holding the last tool's stale phrase. Returns
-    None when the honest thing is still the last-tool phrase (a tool really is in
-    flight, or one just closed and we keep its phrase for a beat). Drift-safe: if
-    a tool_result is never parsed, open_tools stays non-empty and we degrade to
-    the old last-tool behaviour rather than a wrong "thinking…"."""
-    if rec.get("open_tools"):
-        return None                     # a tool is genuinely in flight
-    if rec.get("last_stop") == "end_turn":
-        return "finishing up…"          # turn over; "done" lands after debounce
-    if rec.get("last_tool") is None:
-        return "thinking…"              # turn started, no tool used yet
-    done_ts = rec.get("last_tool_done_ts")
-    if done_ts and time.time() - done_ts > AGENT_THINK_AFTER_S:
-        return "thinking…"
-    return None                         # just closed — keep its phrase briefly
-
-
-def _activity_for(rec, status, stall_s=AGENT_API_STALL_S):
-    """The live description line for a session: the API-error reason when the
-    turn has failed, an honest 'no response — possible API error' when a working
-    turn has gone silent mid-flight, 'thinking…' when the model is reasoning
-    between tools, otherwise the phrase for its latest tool_use. A finished row
-    (done/idle/gone) carries no activity — the status is the message, and a stale
-    'editing X' there is exactly the bug. Shared by the full-refresh row builder
-    and the between-refresh fast tick so both agree."""
-    if status == "paused":
-        return "paused — process suspended"
-    if status == "failed" and rec.get("api_error_msg"):
-        return rec.get("api_error_msg")
-    if status == "working":
-        stalled = _stall_secs(rec, stall_s)
-        if stalled is not None:
-            return (f"no response for {stalled}s — "
-                    "possible API error or network stall")
-        think = _thinking_phrase(rec)
-        if think:
-            return think
-    if status in ("done", "idle", "gone"):
-        return None
-    return _activity_phrase(rec.get("last_tool"))
-
-
-def _result_snippet(rec):
-    """First meaningful line of the final assistant text — what a done row shows
-    ("Fixed the race in the relay"). None for a synthetic error notice (a failed
-    row carries its api_error_msg instead) or an empty / freshly-reset turn. The
-    same trust level _finished_status already places in last_text."""
-    if rec.get("last_synth"):
-        return None
-    for raw in (rec.get("last_text") or "").splitlines():
-        ln = " ".join(raw.split()).lstrip("#>*` ").rstrip("*` ")
-        if ln:
-            return ln[:140]
-    return None
-
-
 def _norm_effort(v):
     """Normalise an effort value to Claude Code's own canonical name — low,
     medium, high, xhigh, max (NOT abbreviated). Aliases fold in; None for
@@ -1628,6 +1609,116 @@ def _git_branch_of(root):
         return None
 
 
+class _LibProc:
+    """The process table straight from the kernel (libproc + sysctl), instead of
+    forking `ps` every 1.8s: ~1ms per scan vs ~35ms, and no child process. A
+    process's argv never changes, so it's read once per (pid, start time) and
+    cached; steady state is one proc_pidinfo per pid. macOS only — callers fall
+    back to `ps` if anything here is unavailable."""
+    PIDTBSDINFO, BSDINFO_SIZE = 3, 136          # struct proc_bsdinfo
+    PIDVNODEPATHINFO, VNODEPATH_SIZE = 9, 2352  # struct proc_vnodepathinfo
+    CDIR_PATH_OFF = 152                         # pvi_cdir.vip_path
+    SSTOP = 4
+    NODEV = 0xFFFFFFFF
+
+    def __init__(self):
+        import ctypes
+        import ctypes.util
+        self._c = ctypes
+        lib = ctypes.CDLL(ctypes.util.find_library("System"))
+        lib.proc_listallpids.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                     ctypes.c_void_p, ctypes.c_int]
+        lib.sysctl.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_uint,
+                               ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t),
+                               ctypes.c_void_p, ctypes.c_size_t]
+        self._lib = lib
+        mib = (ctypes.c_int * 2)(1, 8)          # CTL_KERN, KERN_ARGMAX
+        v, n = ctypes.c_int(), ctypes.c_size_t(4)
+        lib.sysctl(mib, 2, ctypes.byref(v), ctypes.byref(n), None, 0)
+        self._argmax = v.value or 1 << 20
+        self._argbuf = ctypes.create_string_buffer(self._argmax)
+        self._bsd = ctypes.create_string_buffer(self.BSDINFO_SIZE)
+        self._args = {}         # (pid, start) -> argv string, or None (not claude)
+        self._ttys = {}         # st_rdev -> "ttys001"
+
+    def _argv(self, pid):
+        c = self._c
+        mib = (c.c_int * 3)(1, 49, pid)         # CTL_KERN, KERN_PROCARGS2
+        n = c.c_size_t(self._argmax)
+        if self._lib.sysctl(mib, 3, self._argbuf, c.byref(n), None, 0) != 0:
+            return None
+        raw = self._argbuf.raw[:n.value]
+        if len(raw) < 4:
+            return None
+        argc = int.from_bytes(raw[:4], "little")
+        rest = raw[4:]
+        rest = rest[rest.find(b"\0"):].lstrip(b"\0")   # skip exec path + pad
+        return " ".join(a.decode("utf-8", "replace")
+                        for a in rest.split(b"\0")[:argc])
+
+    def _tty(self, dev):
+        if dev == self.NODEV or dev == 0:
+            return None
+        if dev not in self._ttys:
+            try:
+                with os.scandir("/dev") as it:
+                    for e in it:
+                        if e.name.startswith("tty"):
+                            try:
+                                self._ttys[e.stat().st_rdev] = e.name
+                            except OSError:
+                                pass
+            except OSError:
+                pass
+            self._ttys.setdefault(dev, None)
+        return self._ttys[dev]
+
+    def entries(self):
+        c, lib, bsd = self._c, self._lib, self._bsd
+        n = lib.proc_listallpids(None, 0)
+        buf = (c.c_int * (n + 64))()
+        n = lib.proc_listallpids(buf, c.sizeof(buf))
+        if n <= 0:
+            raise OSError("proc_listallpids failed")
+        out, live = [], set()
+        for pid in buf[:n]:
+            if lib.proc_pidinfo(pid, self.PIDTBSDINFO, 0, bsd,
+                                self.BSDINFO_SIZE) != self.BSDINFO_SIZE:
+                continue
+            raw = bsd.raw
+            start = int.from_bytes(raw[120:128], "little")
+            key = (pid, start)
+            live.add(key)
+            if key not in self._args:
+                a = self._argv(pid)
+                exe = a.split(None, 1)[0] if a else ""
+                self._args[key] = (a if os.path.basename(exe)
+                                   in ("claude", "claude.exe") else None)
+            args = self._args[key]
+            if not args:
+                continue
+            exe = args.split(None, 1)[0]
+            _note_claude_exe(exe)
+            out.append({
+                "pid": pid,
+                "ppid": int.from_bytes(raw[16:20], "little"),
+                "tty": self._tty(int.from_bytes(raw[108:112], "little")),
+                "stopped": int.from_bytes(raw[4:8], "little") == self.SSTOP,
+                "lstart": float(start), "args": args})
+        for k in [k for k in self._args if k not in live]:
+            del self._args[k]
+        return out
+
+    def cwd(self, pid):
+        buf = self._c.create_string_buffer(self.VNODEPATH_SIZE)
+        if self._lib.proc_pidinfo(pid, self.PIDVNODEPATHINFO, 0, buf,
+                                  self.VNODEPATH_SIZE) != self.VNODEPATH_SIZE:
+            return None
+        path = buf.raw[self.CDIR_PATH_OFF:self.CDIR_PATH_OFF + 1024]
+        return path.split(b"\0", 1)[0].decode("utf-8", "replace") or None
+
+
 class ProcScanner:
     """Reads the process table for live claude processes. `lsof` (works
     without sudo) is used ONLY for pids whose args don't name a session, and
@@ -1637,6 +1728,12 @@ class ProcScanner:
     def __init__(self):
         self.lsof_ok = True
         self._cwd_cache = {}
+        self._libproc = None
+        if sys.platform == "darwin":
+            try:
+                self._libproc = _LibProc()
+            except Exception as e:  # noqa: BLE001
+                log(f"libproc unavailable, using ps: {e}")
 
     def _scan_entries(self):
         """Normalized raw process rows — one dict per candidate claude process
@@ -1649,6 +1746,12 @@ class ProcScanner:
             except Exception as e:  # noqa: BLE001
                 log(f"win proc scan error: {e}")
                 return []
+        if self._libproc is not None:
+            try:
+                return self._libproc.entries()
+            except Exception as e:  # noqa: BLE001
+                log(f"libproc scan failed, falling back to ps: {e}")
+                self._libproc = None
         try:
             r = subprocess.run(
                 ["ps", "-axo", "pid=,ppid=,tty=,state=,lstart=,args="],
@@ -1743,6 +1846,11 @@ class ProcScanner:
             return None
         if pid in self._cwd_cache:
             return self._cwd_cache[pid]
+        if self._libproc is not None:
+            cwd = self._libproc.cwd(pid)
+            if cwd:
+                self._cwd_cache[pid] = cwd
+                return cwd
         cwd = None
         try:
             r = subprocess.run(
@@ -1829,272 +1937,6 @@ def _read_new_lines(path, offset):
             return
 
 
-class TranscriptIndex:
-    """Offset-tailing reader of ~/.claude/projects/<encoded>/*.jsonl (depth 1
-    only — subagents/ etc. skipped). Per file keeps {mtime, size, offset,
-    summary}; on growth parses only the new complete lines, on shrink resets.
-    The dir encoding is lossy, so the literal per-line "cwd" field is truth.
-    Every line parse is defensive; failures count into parse_errors."""
-
-    def __init__(self):
-        self.parse_errors = 0
-        self._files = {}
-
-    def scan(self):
-        seen = set()
-        try:
-            dirs = _project_dirs()
-        except OSError:
-            return
-        for path, st in _iter_transcripts(dirs):
-            seen.add(path)
-            rec = self._files.get(path)
-            if (rec and rec["mtime"] == st.st_mtime
-                    and rec["size"] == st.st_size):
-                continue
-            if rec is None or st.st_size < rec["size"]:
-                # new file, or shrunk/replaced (compaction): reparse
-                rec = {"mtime": 0.0, "size": 0, "offset": 0,
-                       "summary": self._new_summary(path)}
-                self._files[path] = rec
-            self._tail(path, rec)
-            rec["mtime"] = st.st_mtime
-            rec["size"] = st.st_size
-            rec["summary"]["mtime"] = st.st_mtime
-        for path in list(self._files):
-            if path not in seen:
-                self._files.pop(path, None)
-
-    def retail_known(self):
-        """Cheap re-tail of already-tracked files only — no directory walk.
-        Stats each known transcript and parses any newly-appended lines. Skips
-        discovery of new files and shrink/compaction resets (the full scan()
-        handles those); this exists so the fast tick can refresh live activity
-        every ~0.5s at a fraction of scan()'s cost. Only recently-touched files
-        are re-tailed: a session producing activity has a sub-second mtime, so
-        this bounds the hot path to O(active) even when tens of thousands of old
-        transcripts have accumulated — full scan() still tails the rest at 1s."""
-        cutoff = time.time() - RETAIL_ACTIVE_S
-        for path, rec in list(self._files.items()):
-            if rec["mtime"] < cutoff:
-                continue
-            try:
-                st = os.stat(path)
-            except OSError:
-                continue
-            if rec["mtime"] == st.st_mtime and rec["size"] == st.st_size:
-                continue
-            if st.st_size < rec["size"]:
-                continue                # shrunk/replaced — defer to full scan()
-            self._tail(path, rec)
-            rec["mtime"] = st.st_mtime
-            rec["size"] = st.st_size
-            rec["summary"]["mtime"] = st.st_mtime
-
-    def summaries(self):
-        return {p: r["summary"] for p, r in self._files.items()}
-
-    @staticmethod
-    def _new_summary(path):
-        return {"path": path,
-                "session_id": os.path.basename(path)[:-len(".jsonl")],
-                "cwd": None, "git_branch": None, "version": None,
-                "session_kind": None, "model": None, "title": None,
-                "agent_name": None, "last_prompt": None,
-                "started": None, "last_ts": None, "last_user_ts": None,
-                "last_stop": None, "last_text": None, "last_synth": False,
-                "trailing_error": False, "turn_done_ts": None,
-                "api_retrying": False, "api_error_msg": None,
-                "effort_cmd": None,     # per-session /effort override (or None)
-                "open_tools": {}, "last_tool": None,
-                "err_ring": deque(maxlen=10), "tools_done": 0, "errors": 0,
-                "subagents": 0, "files": set(),
-                "last_tool_done_ts": None,   # wall ts the most recent tool_result landed
-                "recent_edits": deque(maxlen=100), "mtime": 0.0}
-
-    def _tail(self, path, rec):
-        for line, nxt in _read_new_lines(path, rec["offset"]):
-            if line.strip():
-                self._feed(rec["summary"], line)
-            rec["offset"] = nxt
-
-    def _feed(self, s, line):
-        try:
-            o = json.loads(line)
-        except Exception:  # noqa: BLE001
-            self.parse_errors += 1
-            return
-        if not isinstance(o, dict):
-            self.parse_errors += 1
-            return
-        try:
-            self._apply(s, o)
-        except Exception:  # noqa: BLE001
-            self.parse_errors += 1
-
-    def _apply(self, s, o):
-        ts = _parse_ts(o.get("timestamp"))
-        if ts is not None:
-            if s["started"] is None or ts < s["started"]:
-                s["started"] = ts
-            if s["last_ts"] is None or ts > s["last_ts"]:
-                s["last_ts"] = ts
-        v = o.get("sessionId") or o.get("session_id")
-        if v:
-            s["session_id"] = v
-        for src, dst in (("cwd", "cwd"), ("gitBranch", "git_branch"),
-                         ("version", "version")):
-            v = o.get(src)
-            if v:
-                s[dst] = v
-        if o.get("sessionKind") == "bg":
-            s["session_kind"] = "bg"
-        if o.get("isSidechain"):
-            return              # subagent chatter never drives main status
-        t = o.get("type")
-        if t == "ai-title":
-            v = o.get("aiTitle")
-            if v:
-                s["title"] = str(v)[:160]
-        elif t == "agent-name":
-            v = o.get("agentName")
-            if v:
-                s["agent_name"] = str(v)[:160]
-        elif t == "last-prompt":
-            v = o.get("lastPrompt")
-            if v:
-                s["last_prompt"] = str(v)[:300]
-        elif t == "system":
-            sub = o.get("subtype")
-            if sub == "turn_duration":
-                s["turn_done_ts"] = ts or s["last_ts"]
-            elif sub == "api_error":
-                # Claude is retrying a failed API call (connection / overload /
-                # rate-limit). These lines keep refreshing the transcript mtime,
-                # so without an explicit flag the agent would look "working"
-                # through the entire retry storm. Record it so the status engine
-                # can surface the truth in real time.
-                s["api_retrying"] = True
-                err = o.get("error") if isinstance(o.get("error"), dict) else {}
-                att, mx = o.get("retryAttempt"), o.get("maxRetries")
-                if att and mx:
-                    s["api_error_msg"] = f"API error — retrying {att}/{mx}"
-                else:
-                    s["api_error_msg"] = ("API error — " + str(
-                        err.get("formatted") or err.get("message")
-                        or "retrying"))[:160]
-        elif t == "assistant":
-            self._assistant(s, o, ts)
-        elif t == "user":
-            self._user(s, o, ts)
-
-    def _assistant(self, s, o, ts):
-        m = o.get("message")
-        if not isinstance(m, dict):
-            return
-        model = m.get("model")
-        if model == "<synthetic>":
-            s["last_synth"] = True      # error notice — never a real model
-        elif model:
-            s["model"] = model
-            s["last_synth"] = False
-            s["api_retrying"] = False   # a real reply landed — recovered
-            s["api_error_msg"] = None
-        stop = m.get("stop_reason")
-        if stop:                # multi-line msgs: last line carries the final
-            s["last_stop"] = stop
-            if stop == "end_turn":
-                s["turn_done_ts"] = ts or s["last_ts"]
-        s["trailing_error"] = False
-        content = m.get("content")
-        if not isinstance(content, list):
-            return
-        texts = []
-        for b in content:
-            if not isinstance(b, dict):
-                continue
-            bt = b.get("type")
-            if bt == "text":
-                if b.get("text"):
-                    texts.append(str(b.get("text")))
-            elif bt == "tool_use":
-                name = b.get("name") or "?"
-                inp = b.get("input") if isinstance(b.get("input"), dict) \
-                    else {}
-                tool = {"name": name, "detail": _tool_detail(name, inp),
-                        "since": ts or time.time()}
-                # The human-written one-liner Claude attaches to a Bash/Task call
-                # ("Run the test suite"). Kept separate from `detail` (the raw
-                # command, which the approval surface must show verbatim) — the
-                # live activity line prefers this when present.
-                desc = inp.get("description")
-                if desc:
-                    tool["desc"] = " ".join(str(desc).split())[:80]
-                tid = b.get("id")
-                if tid:
-                    s["open_tools"][tid] = tool
-                    while len(s["open_tools"]) > 40:
-                        s["open_tools"].pop(next(iter(s["open_tools"])))
-                s["last_tool"] = tool
-                fp = inp.get("file_path") or inp.get("notebook_path")
-                if name in EDIT_TOOLS and fp:
-                    s["files"].add(fp)
-                    s["recent_edits"].append((ts or time.time(), fp))
-                if name in ("Task", "Agent"):
-                    s["subagents"] += 1
-        if texts:
-            s["last_text"] = "\n".join(texts)[-2000:]
-        if model == "<synthetic>":
-            # A <synthetic> assistant message is Claude's own error notice. Only
-            # treat the API-error variety as a fault (a "[Request interrupted]"
-            # is also synthetic but is not a failure) — key off the explicit
-            # flag / top-level error, or the "API Error:" text Claude writes.
-            first = texts[0].strip() if texts else ""
-            if (o.get("isApiErrorMessage") or o.get("error")
-                    or "api error" in first.lower()):
-                s["api_retrying"] = False    # terminal error, not a retry line
-                s["api_error_msg"] = first[:160] or "API error"
-
-    def _user(self, s, o, ts):
-        m = o.get("message")
-        content = m.get("content") if isinstance(m, dict) else None
-        # `/effort` result echo: capture the live per-session effort. This is a
-        # command stdout, not a real turn — record it and return so it doesn't
-        # reset turn state below.
-        if isinstance(content, str) and "effort level to" in content.lower():
-            mm = _RE_EFFORT_CMD.search(content)
-            if mm:
-                lvl = mm.group(1) or mm.group(2)
-                # "reset to default" clears the override → fall back to settings
-                s["effort_cmd"] = None if (lvl or "").lower() == "default" \
-                    else _norm_effort(lvl)
-            return
-        handled = False
-        if isinstance(content, list):
-            for b in content:
-                if not (isinstance(b, dict)
-                        and b.get("type") == "tool_result"):
-                    continue
-                handled = True
-                s["open_tools"].pop(b.get("tool_use_id"), None)
-                s["last_tool_done_ts"] = ts or s["last_ts"] or time.time()
-                err = bool(b.get("is_error"))
-                s["err_ring"].append(err)
-                s["tools_done"] += 1
-                if err:
-                    s["errors"] += 1
-                s["trailing_error"] = err
-        if not handled:
-            # a real user prompt — a new turn begins
-            s["last_user_ts"] = ts or s["last_ts"]
-            s["last_stop"] = None
-            s["last_text"] = None
-            s["last_synth"] = False
-            s["trailing_error"] = False
-            s["api_retrying"] = False
-            s["api_error_msg"] = None
-
-
 class SettingsCache:
     """mtime-cached reader for Claude `settings.json` files (user + per-project).
     Resolves each session's effort level without re-parsing JSON every 2s cycle:
@@ -2124,449 +1966,471 @@ class SettingsCache:
         return data
 
 
+def _first_line(text, n=140):
+    """First meaningful line of an assistant message — what a done row shows."""
+    for raw in (text or "").splitlines():
+        ln = " ".join(raw.split()).lstrip("#>*` ").rstrip("*` ")
+        if ln:
+            return ln[:n]
+    return None
+
+
+def _finished(text):
+    """A turn's outcome from its final message: the "failed:" / "needs input:"
+    convention, else done."""
+    for ln in (text or "").splitlines():
+        ln = ln.strip().lower()
+        if ln.startswith("failed:"):
+            return "failed"
+        if ln.startswith("needs input:"):
+            return "asking"
+    return "done"
+
+
+_RE_PEEK_MODEL = re.compile(rb'"model":"((?:claude-|<)[^"]{1,80})"')
+_RE_PEEK_TITLE = re.compile(rb'"(?:aiTitle|agentName)":"((?:[^"\\]|\\.){1,160})"')
+
+
+def _peek_transcript(path):
+    """(model, title) from the tail of a transcript — one bounded read, done
+    once per turn, never a parse of the whole file. Either may be None."""
+    if not path or _is_protected(path):
+        return None, None
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - PEEK_BYTES))
+            tail = f.read()
+    except OSError:
+        return None, None
+    model = title = None
+    for m in _RE_PEEK_MODEL.finditer(tail):
+        if not m.group(1).startswith(b"<"):     # <synthetic> error notices
+            model = m.group(1).decode("utf-8", "replace")
+    for m in _RE_PEEK_TITLE.finditer(tail):
+        try:
+            title = json.loads(b'"' + m.group(1) + b'"')[:160]
+        except Exception:  # noqa: BLE001
+            pass
+    return model, title
+
+
 class AgentMonitor:
-    """Owns ProcScanner + TranscriptIndex and merges them: status engine,
-    2-cycle transition debounce, needs-you queue, collisions, summary counters,
-    events ring, plus focus/dismiss services for dispatch()."""
+    """Sessions as Claude Code reports them through its hooks (on_event, called
+    from the proxy thread), plus a slow liveness tick. Publishes a snapshot with
+    the same contract as before, now with live subagents per session."""
 
     def __init__(self, state):
         self.state = state
         self.lock = threading.Lock()
         self.procs = ProcScanner()
-        self._procs_cache = None     # last ps scan, reused between PROC_RESCAN_S
-        self._procs_ts = 0.0
-        self._proxy_seen = {}        # pid -> wall ts of last observed live proxy conn
-        self._proxy_scan_ts = 0.0
-        self.transcripts = TranscriptIndex()
+        self._procs_cache = {}
+        self._proxy_seen = {}       # kept for _pinned_pids (no lsof latch now)
         cfg = state.cfg
-        self.working_s = float(cfg.get("agent_working_s", AGENT_WORKING_S))
         self.idle_s = float(cfg.get("agent_idle_s", AGENT_IDLE_S))
-        self.gone_keep_s = float(cfg.get("agent_gone_keep_s",
-                                         AGENT_GONE_KEEP_S))
-        self.tool_grace_s = float(cfg.get("agent_tool_grace_s",
-                                          AGENT_TOOL_GRACE_S))
+        self.gone_keep_s = float(cfg.get("agent_gone_keep_s", AGENT_GONE_KEEP_S))
         self.pending_warn_s = float(cfg.get("agent_pending_warn_s",
                                             AGENT_PENDING_WARN_S))
         self.working_warn_s = float(cfg.get("agent_working_warn_s",
                                             AGENT_WORKING_WARN_S))
-        self.api_stall_s = float(cfg.get("agent_api_stall_s",
-                                         AGENT_API_STALL_S))
-        self._track = {}        # sid -> status/since/pending/gone_since/…
+        self.api_stall_s = float(cfg.get("agent_api_stall_s", AGENT_API_STALL_S))
+        self._sess = {}             # session_id -> live record (see _new)
+        self._pid_of = {}           # session_id -> pid, from the liveness tick
         self._settings = SettingsCache()
         self._dismissed = set()
         self._events = deque(maxlen=50)
         self._done_today = 0
         self._done_day = datetime.now().strftime("%Y-%m-%d")
         self._git_cache = {}
+        self._branch_cache = {}     # git_root -> (branch, read at)
+        self.hook_errors = 0
         self._snap = {"sessions": [], "needs_you": [], "collisions": [],
                       "summary": {"working": 0, "needs_you": 0,
-                               "done_today": 0, "top_tier": None,
-                               "unguarded": 0, "pinned": 0},
+                                  "done_today": 0, "top_tier": None,
+                                  "unguarded": 0, "pinned": 0},
                       "events": [],
-                      "meta": {"lsof_ok": True, "parse_errors": 0,
-                               "claude_versions": []}}
+                      "meta": {"source": "hooks", "lsof_ok": True,
+                               "parse_errors": 0, "claude_versions": []}}
 
-    def loop(self, interval=AGENT_INTERVAL, fast=AGENT_FAST_INTERVAL):
+    # -- events (proxy thread) -------------------------------------------- #
+    def on_event(self, ev):
+        name, sid = ev.get("hook_event_name"), ev.get("session_id")
+        if not name or not sid:
+            self.hook_errors += 1
+            return
+        cwd = ev.get("cwd")
+        if cwd and os.path.realpath(cwd) == os.path.realpath(CONFIG_DIR):
+            return                      # Tower's own `claude -p /usage` probe
+        now = time.time()
+        with self.lock:
+            s = self._sess.get(sid)
+            if s is None:
+                s = self._sess[sid] = self._new(sid, now)
+            self._apply(s, name, ev, now)
+            self._rebuild(now)
+        self.state._publish.set()       # front-ends see it within milliseconds
+
+    @staticmethod
+    def _new(sid, now):
+        return {"sid": sid, "cwd": None, "transcript": None, "model": None,
+                "title": None, "last_prompt": None, "status": "idle",
+                "since": now, "activity": None, "result": None, "tool": None,
+                "pending": None, "last": now, "started": now, "turn_at": None,
+                "effort": None, "tools_done": 0, "errors": 0,
+                "err_ring": deque(maxlen=10), "files": set(),
+                "recent_edits": deque(maxlen=100), "subs": {},
+                "subs_total": 0, "ended": False, "peeked": False}
+
+    def _set(self, s, status, now):
+        prev = s["status"]
+        if status == prev:
+            return
+        s["status"], s["since"] = status, now
+        if prev is not None:
+            self._events.append({"t": now, "session_id": s["sid"],
+                                 "from": prev, "to": status})
+        if status == "done":
+            self._done_today += 1
+        self._dismissed.discard(s["sid"])   # dismissal lasts until a transition
+
+    @staticmethod
+    def _tool(ev, now):
+        name = ev.get("tool_name") or "?"
+        inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+        return {"name": name, "detail": _tool_detail(name, inp),
+                "desc": inp.get("description") if name == "Bash" else None,
+                "since": now}
+
+    def _apply(self, s, name, ev, now):
+        s["last"] = now
+        for src, dst in (("cwd", "cwd"), ("transcript_path", "transcript"),
+                         ("model", "model"), ("session_title", "title")):
+            v = ev.get(src)
+            if isinstance(v, str) and v:
+                s[dst] = v
+        eff = ev.get("effort")
+        if isinstance(eff, dict) and eff.get("level"):
+            s["effort"] = _norm_effort(eff.get("level"))
+        if not s["peeked"]:
+            s["peeked"] = True
+            self._peek(s)
+        aid = ev.get("agent_id")
+
+        if name == "SubagentStart" and aid:
+            s["subs"][aid] = {"agent_id": aid, "type": ev.get("agent_type"),
+                              "status": "working", "since": now,
+                              "activity": "starting…", "result": None}
+            s["subs_total"] += 1
+            return
+        if name == "SubagentStop" and aid:
+            sub = s["subs"].setdefault(aid, {"agent_id": aid,
+                                             "type": ev.get("agent_type"),
+                                             "since": now})
+            sub.update(status="done", since=now, activity=None,
+                       result=_first_line(ev.get("last_assistant_message")))
+            return
+        if name in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
+            if name != "PreToolUse":
+                self._tool_done(s, ev, now, failed=name == "PostToolUseFailure")
+            if aid:                     # inside a subagent: its row, not ours
+                sub = s["subs"].setdefault(aid, {
+                    "agent_id": aid, "type": ev.get("agent_type"),
+                    "status": "working", "since": now, "result": None})
+                sub["activity"] = (_activity_phrase(self._tool(ev, now))
+                                   if name == "PreToolUse" else "thinking…")
+                return
+            if name == "PreToolUse":
+                t = self._tool(ev, now)
+                s["tool"], s["activity"] = t, _activity_phrase(t)
+                if t["name"] == "AskUserQuestion":
+                    s["pending"] = t
+                    self._set(s, "asking", now)
+                else:
+                    s["pending"] = None
+                    self._set(s, "working", now)
+            else:
+                s["tool"], s["pending"] = None, None
+                s["activity"] = "thinking…"
+                self._set(s, "working", now)
+            return
+
+        if name == "UserPromptSubmit":
+            p = ev.get("prompt")
+            if isinstance(p, str) and p.strip():
+                s["last_prompt"] = " ".join(p.split())[:300]
+            s.update(activity="thinking…", result=None, tool=None, pending=None,
+                     turn_at=now)
+            s["subs"] = {k: v for k, v in s["subs"].items()
+                         if v.get("status") == "working"}
+            self._set(s, "working", now)
+        elif name == "PermissionRequest":
+            t = self._tool(ev, now)
+            s["pending"] = t
+            s["activity"] = f"needs approval · {_activity_phrase(t)}"
+            self._set(s, "pending_tool", now)
+        elif name == "Notification":
+            kind = ev.get("notification_type")
+            if kind == "permission_prompt" and s["status"] != "pending_tool":
+                s["pending"] = s["pending"] or s["tool"]
+                s["activity"] = ev.get("message") or "needs your approval"
+                self._set(s, "pending_tool", now)
+            elif kind == "elicitation_dialog":
+                s["activity"] = ev.get("message") or "asking you a question"
+                self._set(s, "asking", now)
+        elif name == "Stop":
+            msg = ev.get("last_assistant_message")
+            s.update(tool=None, pending=None, activity=None,
+                     result=_first_line(msg))
+            self._peek(s)
+            self._set(s, _finished(msg), now)
+        elif name == "StopFailure":
+            s.update(tool=None, pending=None,
+                     activity=(_first_line(ev.get("last_assistant_message"))
+                               or f"API error · {ev.get('error') or 'unknown'}"))
+            self._set(s, "failed", now)
+        elif name == "PreCompact":
+            s["activity"] = "compacting context…"
+            self._set(s, "working", now)
+        elif name == "PostCompact":
+            if s["status"] == "working":
+                s["activity"] = "thinking…"
+        elif name == "SessionStart":
+            if ev.get("source") != "compact":
+                s.update(ended=False, activity=None, tool=None, pending=None)
+                self._set(s, "idle", now)
+        elif name == "SessionEnd":
+            s.update(ended=True, tool=None, pending=None, activity=None)
+            self._set(s, "gone", now)
+
+    def _tool_done(self, s, ev, now, failed):
+        s["tools_done"] += 1
+        interrupted = bool(ev.get("is_interrupt"))
+        s["err_ring"].append(failed and not interrupted)
+        if failed and not interrupted:
+            s["errors"] += 1
+        name = ev.get("tool_name")
+        inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+        fp = inp.get("file_path") or inp.get("notebook_path")
+        if name in EDIT_TOOLS and fp and not failed:
+            s["files"].add(fp)
+            s["recent_edits"].append((now, fp))
+
+    def _peek(self, s):
+        model, title = _peek_transcript(s.get("transcript"))
+        if model:
+            s["model"] = model
+        if title:
+            s["title"] = title
+
+    # -- liveness tick (own thread) --------------------------------------- #
+    def loop(self, interval=AGENT_TICK_S):
         while not self.state.stop.is_set():
             try:
-                self.refresh()
+                self.tick()
             except Exception as e:  # noqa: BLE001
-                log(f"agents refresh error: {e}")
-            waited = 0.0
-            while waited < interval - 1e-6 and not self.state.stop.is_set():
-                time.sleep(fast)
-                waited += fast
-                if waited < interval - 1e-6:    # the last tick == next refresh
-                    try:
-                        self._fast_tick()
-                    except Exception as e:  # noqa: BLE001
-                        log(f"agents fast tick error: {e}")
+                log(f"agents tick error: {e}")
+            self.state.stop.wait(interval)
 
-    def _fast_tick(self):
-        """Between full refreshes, keep the live description honest without a
-        full cycle. Re-tails only known transcripts (no `ps`/lsof, no status
-        engine, no directory walk) and patches the transcript-derived fields —
-        activity line, last-activity clock, tick counters — onto the existing
-        snapshot. Status/pending/health stay as the last full refresh computed
-        them; they get re-evaluated on the next 2s cycle. Rows are NOT re-sorted
-        (reordering agents every 0.5s would be visually jarring)."""
-        self.transcripts.retail_known()
-        by_sid = {}
-        for rec in self.transcripts.summaries().values():
-            sid = rec.get("session_id")
-            if sid:
-                prev = by_sid.get(sid)
-                if prev is None or rec["mtime"] > prev["mtime"]:
-                    by_sid[sid] = rec
-        with self.lock:
-            for sess in self._snap["sessions"]:
-                rec = by_sid.get(sess["session_id"])
-                if rec is None:
-                    continue
-                sess["activity"] = _activity_for(rec, sess["status"],
-                                                 self.api_stall_s)
-                sess["result"] = _result_snippet(rec)
-                sess["last_activity"] = rec.get("mtime")
-                # Live per-session effort: a `/effort` change lands in the
-                # transcript and is picked up here within ~0.5s (settings default
-                # otherwise), so the badge tracks the true value in near-realtime.
-                sess["effort"] = (rec.get("effort_cmd")
-                                  or self._effort_of(sess.get("cwd"),
-                                                     sess.get("git_root")))
-                sess["ticks"] = {"tools_done": rec.get("tools_done", 0),
-                                 "files": len(rec.get("files") or ()),
-                                 "errors": rec.get("errors", 0),
-                                 "subagents": rec.get("subagents", 0)}
-
-    # -- merge + status engine ------------------------------------------- #
-    def refresh(self):
+    def tick(self):
         now = time.time()
         day = datetime.now().strftime("%Y-%m-%d")
-        if day != self._done_day:       # done_today counts since local midnight
-            self._done_day = day
-            self._done_today = 0
-        # The `ps` scan is the costly part; reuse it across sub-PROC_RESCAN_S
-        # refreshes so the 1s status cadence doesn't pay for a `ps` every cycle.
-        if self._procs_cache is None or now - self._procs_ts >= PROC_RESCAN_S:
-            self._procs_cache = self.procs.scan()
-            self._procs_ts = now
-        procs = self._procs_cache
-        # Latch live proxy connections on their own (slower) cadence, then forget
-        # pids that are no longer running so the guard-proof map can't go stale.
-        if now - self._proxy_scan_ts >= PROXY_CLIENT_RESCAN_S:
-            self._scan_proxy_clients(now)
-            self._proxy_scan_ts = now
-            self._proxy_seen = {pid: t for pid, t in self._proxy_seen.items()
-                                if pid in procs}
-        self.transcripts.scan()
-        by_sid = {}
-        for rec in self.transcripts.summaries().values():
-            sid = rec.get("session_id")
-            if sid:
-                prev = by_sid.get(sid)
-                if prev is None or rec["mtime"] > prev["mtime"]:
-                    by_sid[sid] = rec
+        procs = self.procs.scan()
+        self._procs_cache = procs
+        live = [p for p in procs.values() if p["kind"] != "infra"]
+        with self.lock:
+            if day != self._done_day:   # done_today counts since local midnight
+                self._done_day, self._done_today = day, 0
+            self._pid_of = self._match(live)
+            for sid, s in list(self._sess.items()):
+                pid = self._pid_of.get(sid)
+                if pid:
+                    s["had_pid"] = True
+                    paused = procs[pid].get("stopped")
+                    if paused and s["status"] != "paused":
+                        s["unpause_to"] = s["status"]
+                        self._set(s, "paused", now)
+                    elif not paused and s["status"] == "paused":
+                        self._set(s, s.pop("unpause_to", None) or "working", now)
+                elif s.get("had_pid") and s["status"] != "gone":
+                    # The process is gone without a SessionEnd: killed/crashed.
+                    if s["status"] in ("working", "pending_tool"):
+                        s["activity"] = "process ended mid-turn"
+                        self._set(s, "failed", now)
+                    elif s["status"] != "failed" or now - s["since"] > \
+                            self.gone_keep_s:
+                        s["ended"] = True
+                        self._set(s, "gone", now)
+                if s["status"] == "done" and now - s["since"] > self.idle_s:
+                    self._set(s, "idle", now)
+                for aid, sub in list(s["subs"].items()):
+                    if sub.get("status") != "working" and \
+                            now - sub.get("since", now) > self.gone_keep_s:
+                        del s["subs"][aid]
+                if (s["status"] == "gone" and now - s["since"] > self.gone_keep_s) \
+                        or (not pid and now - s["last"] > AGENT_FORGET_S):
+                    del self._sess[sid]
+            self._rebuild(now)
+        self.state._publish.set()
 
-        proc_by_sid, loose = {}, []
-        for p in procs.values():
-            if p["kind"] == "infra":    # never listed
-                continue
-            sid = p.get("session_id")
-            if not sid and p.get("transcript"):
-                sid = os.path.basename(p["transcript"])[:-len(".jsonl")]
-            if sid:
-                sid = sid.lower()
-                cur = proc_by_sid.get(sid)
-                if cur is None or (p.get("lstart") or 0) > \
-                        (cur.get("lstart") or 0):
-                    proc_by_sid[sid] = p
+    def _match(self, live):
+        """session_id -> pid. A process whose args name its session wins; the
+        rest pair up by working folder, oldest process with oldest session."""
+        out, loose = {}, []
+        for p in live:
+            sid = (p.get("session_id")
+                   or (os.path.basename(p["transcript"])[:-len(".jsonl")]
+                       if p.get("transcript") else None))
+            if sid and sid.lower() in self._sess:
+                out[sid.lower()] = p["pid"]
             else:
                 loose.append(p)
-
-        # Bare interactive `claude`: lsof cwd + newest transcript, launch-time
-        # tie-break (oldest process claims first so a transient newcomer
-        # can't steal a long-lived session's transcript).
-        claimed = set(proc_by_sid)
-        loose.sort(key=lambda p: p.get("lstart") or 0)
-        for p in loose:
+        by_cwd = defaultdict(list)
+        for p in sorted(loose, key=lambda p: p.get("lstart") or 0):
             cwd = self.procs.cwd_of(p["pid"])
-            if not cwd:
-                continue
-            cands = [r for r in by_sid.values()
-                     if r.get("cwd") == cwd
-                     and r["session_id"] not in claimed]
-            if not cands:
-                continue
-            ls = p.get("lstart") or 0
-            fresh = [r for r in cands if (r.get("started") or 0) >= ls - 120]
-            if fresh:
-                pick = min(fresh, key=lambda r: (r.get("started") or 0) - ls)
-            else:
-                pick = max(cands, key=lambda r: r["mtime"])
-            proc_by_sid[pick["session_id"]] = p
-            claimed.add(pick["session_id"])
+            if cwd:
+                by_cwd[cwd].append(p["pid"])
+        sess_by_cwd = defaultdict(list)
+        for sid, s in sorted(self._sess.items(), key=lambda kv: kv[1]["started"]):
+            if sid not in out and s["cwd"] and not s["ended"]:
+                sess_by_cwd[s["cwd"]].append(sid)
+        for cwd, sids in sess_by_cwd.items():
+            pids = by_cwd.get(cwd, [])
+            # Fewer processes than sessions: the newest sessions are the live ones.
+            for sid, pid in zip(sids[-len(pids):] if pids else [], pids):
+                out[sid] = pid
+        self._unmatched = [p for p in loose if p["pid"] not in out.values()]
+        return out
 
-        active = {sid for sid, r in by_sid.items()
-                  if now - r["mtime"] <= self.gone_keep_s}
-        rows = []
-        for sid in set(proc_by_sid) | active | set(self._track):
-            rec = by_sid.get(sid)
-            p = proc_by_sid.get(sid)
-            tr = self._track.get(sid)
-            if tr is None:
-                if rec is None and p is None:
-                    continue
-                tr = {"status": None, "since": now, "pending": None,
-                      "gone_since": None, "had_pid": False}
-                self._track[sid] = tr
-            if p:
-                tr["had_pid"] = True
-                tr["gone_since"] = None
-            elif tr["gone_since"] is None:
-                tr["gone_since"] = now
-            if p is None and sid not in active and \
-                    now - (tr["gone_since"] or now) > self.gone_keep_s:
-                self._track.pop(sid, None)      # gone: kept 60s, then dropped
-                continue
-            if rec is None and p is None:
-                self._track.pop(sid, None)
-                continue
-
-            raw, pt = self._raw_status(rec, p, tr, now)
-            status = self._debounce(sid, tr, raw, now)
-            rows.append(self._row(sid, rec, p, tr, status, pt, now))
-
+    # -- snapshot --------------------------------------------------------- #
+    def _rebuild(self, now):
+        procs = self._procs_cache or {}
+        rows = [self._row(s, procs.get(self._pid_of.get(sid)), now)
+                for sid, s in self._sess.items()]
+        # A live claude process with no hook traffic yet (opened before Tower,
+        # or idle since): still a row, so counts and warnings stay truthful.
+        for p in getattr(self, "_unmatched", []):
+            rows.append(self._placeholder(p, now))
         rows.sort(key=lambda r: -(r["last_activity"] or 0))
         needs = [{"session_id": r["session_id"], "reason": r["status"],
                   "since": r["status_since"]}
                  for r in rows
                  if r["status"] in NEEDS_RANK and not r["dismissed"]]
         needs.sort(key=lambda n: (NEEDS_RANK[n["reason"]], n["since"] or 0))
-
-        colls = self._collisions(rows, by_sid, now)
-
-        working = [r for r in rows
-                   if r["status"] in ("working", "pending_tool")]
+        working = [r for r in rows if r["status"] in ("working", "pending_tool")]
         tiers = [MODEL_TIERS.index(r["model_family"]) for r in working
                  if r["model_family"] in MODEL_TIERS]
-        # Guard-coverage counts. routed_now = the user wants routing AND it's
-        # installed on disk this cycle. Only definite verdicts count (unknown never
-        # does): unguarded = live agents started before the guard while routing is
-        # on (restart them to protect them); pinned = live agents still guarded by a
-        # proxy the user has since turned off (they stay protected until restarted).
+        # Guard-coverage counts: unguarded = live agents started before the guard
+        # while routing is on; pinned = live agents still guarded by a proxy the
+        # user has since turned off. Only definite verdicts count.
         routed_now = bool(self.state.routed and self.state.routing_now)
-        live = [r for r in rows if r.get("pid") and r.get("kind") != "infra"
-                and r["status"] != "gone"]
-        unguarded = sum(1 for r in live if r.get("guarded") is False) \
-            if routed_now else 0
-        pinned = sum(1 for r in live if r.get("guarded") is True) \
-            if not routed_now else 0
-        summary = {"working": len(working), "needs_you": len(needs),
-                "done_today": self._done_today,
-                "top_tier": MODEL_TIERS[max(tiers)] if tiers else None,
-                "unguarded": unguarded, "pinned": pinned}
+        live = [r for r in rows if r.get("pid") and r["status"] != "gone"]
+        summary = {
+            "working": len(working), "needs_you": len(needs),
+            "done_today": self._done_today,
+            "top_tier": MODEL_TIERS[max(tiers)] if tiers else None,
+            "unguarded": sum(1 for r in live if r.get("guarded") is False)
+            if routed_now else 0,
+            "pinned": sum(1 for r in live if r.get("guarded") is True)
+            if not routed_now else 0}
+        self._snap = {"sessions": rows, "needs_you": needs,
+                      "collisions": self._collisions(rows, now),
+                      "summary": summary, "events": list(self._events),
+                      "meta": {"source": "hooks", "lsof_ok": True,
+                               "parse_errors": self.hook_errors,
+                               "claude_versions": []}}
 
-        versions = sorted({(by_sid.get(r["session_id"]) or {}).get("version")
-                           for r in rows} - {None})
-        snap = {"sessions": rows, "needs_you": needs, "collisions": colls,
-                "summary": summary, "events": list(self._events),
-                "meta": {"lsof_ok": self.procs.lsof_ok,
-                         "parse_errors": self.transcripts.parse_errors,
-                         "claude_versions": versions}}
-        with self.lock:
-            self._snap = snap
-
-    def _raw_status(self, rec, p, tr, now):
-        """Undebounced status + pending-tool info for this cycle."""
-        prev = tr.get("status")
-        if p is None:
-            if prev in ("working", "pending_tool") and tr.get("had_pid"):
-                return "failed", None   # process died mid-work
-            if prev == "failed":
-                return "failed", None   # stays failed for its keep window
-            return "gone", None
-        if p.get("stopped"):
-            # SIGSTOP-suspended: the process is frozen, not working and not
-            # erroring. Report it honestly as paused BEFORE the stall/api-error
-            # inference below — a frozen turn writes nothing, which would
-            # otherwise read as "no response — possible API error".
-            return "paused", None
-        if rec is None:
-            return "working", None      # process up, transcript not seen yet
-        # A trailing API error surfaces IMMEDIATELY — before the freshness gate
-        # below — because an active retry storm keeps writing api_error lines
-        # that refresh mtime, which would otherwise mask the fault as "working".
-        # Cleared the moment a real reply lands (recovery) or a new turn starts.
-        if rec.get("api_retrying") or rec.get("api_error_msg"):
-            return "failed", None
-        age = now - rec["mtime"]
-        open_tools = rec.get("open_tools") or {}
-        # A COMPLETED turn is terminal REGARDLESS of freshness — the same reason
-        # the API-error check above pre-empts the gate. The final assistant
-        # message refreshes the transcript mtime, so a turn that JUST ended still
-        # reads as < working_s old; the freshness gate below would then keep
-        # mislabelling it "working" for the first ~10s after it actually
-        # finished — the "still shows running when it's already done" lag. An
-        # end_turn with no tool left open IS the completion signal: classify it
-        # now (done / failed / asking), only aging to "idle" once it has been
-        # quiet past idle_s. The next real user prompt resets last_stop to None,
-        # so a new turn correctly reads as working again.
-        if rec.get("last_stop") == "end_turn" and not open_tools:
-            return ("idle", None) if age > self.idle_s \
-                else self._finished_status(rec)
-        if age < self.working_s:
-            return "working", None
-        if age > self.idle_s:
-            return "idle", None
-        # stalled between working_s and idle_s. "pending_tool" means a tool call
-        # is genuinely OPEN — a tool_use with no matching tool_result yet — i.e.
-        # actually awaiting approval or a slow run. Do NOT infer it from
-        # last_stop=="tool_use": that stays set through the think-gap AFTER a
-        # tool's result comes back, so on auto-accept it produced a phantom
-        # "waiting to edit X" from the stale last_tool. Require an open tool.
-        if open_tools:
-            tool = max(open_tools.values(),
-                       key=lambda t: t.get("since") or 0)
-            name = tool.get("name") or "?"
-            pt = {"name": name, "detail": tool.get("detail"),
-                  "since": tool.get("since") or rec["mtime"]}
-            if name == "AskUserQuestion":
-                return "asking", pt     # a question is waiting, not a tool
-            if name in GRACE_TOOLS and \
-                    now - (pt["since"] or now) < self.tool_grace_s:
-                return "working", None  # slow tool, still within grace
-            return "pending_tool", pt
-        return "working", None          # prompt sent, reply not started
-
-    def _finished_status(self, rec):
-        """Classify a turn that has ENDED (stop_reason end_turn, no tool still
-        open): "done" normally, or failed/asking when the final assistant text
-        says so. Split out of _raw_status so the completion signal can pre-empt
-        the freshness gate there instead of trailing it."""
-        if rec.get("trailing_error") or rec.get("last_synth"):
-            return "failed", None
-        lines = [ln.strip().lower()
-                 for ln in (rec.get("last_text") or "").splitlines()]
-        if any(ln.startswith("failed:") for ln in lines):
-            return "failed", None
-        if any(ln.startswith("needs input:") for ln in lines):
-            return "asking", None
-        return "done", None             # "result:" and everything else
-
-    def _debounce(self, sid, tr, raw, now):
-        """Publish a transition only after 2 scan cycles agree."""
-        prev = tr["status"]
-        if prev is None:
-            tr["status"], tr["since"], tr["pending"] = raw, now, None
-            return raw
-        if raw == prev:
-            tr["pending"] = None
-            return prev
-        cand, n = tr["pending"] or (None, 0)
-        n = n + 1 if cand == raw else 1
-        if n < 2:
-            tr["pending"] = (raw, n)
-            return prev
-        tr["status"], tr["since"], tr["pending"] = raw, now, None
-        self._events.append({"t": now, "session_id": sid,
-                             "from": prev, "to": raw})
-        if raw == "done":
-            self._done_today += 1
-        self._dismissed.discard(sid)    # dismissal lasts until a transition
-        return raw
-
-    def _scan_proxy_clients(self, now):
-        """Latch which pids currently hold an ESTABLISHED TCP connection to the
-        proxy port — hard proof they're routed through the guard. One lsof over
-        network fds (no TCC: these are sockets, not files). A client's `n` line
-        ends `->127.0.0.1:<port>`; the daemon's own accept-side fds point the other
-        way and are naturally excluded. Positive-proof only: absence never means
-        unguarded (an idle agent has no live connection between keep-alives)."""
-        port = self.state.proxy_port
-        try:
-            r = subprocess.run(
-                ["lsof", "-nP", f"-iTCP@127.0.0.1:{port}",
-                 "-sTCP:ESTABLISHED", "-Fpn"],
-                capture_output=True, text=True, timeout=10)
-        except Exception as e:  # noqa: BLE001
-            log(f"lsof proxy-client scan error: {e}")
-            return
-        pid = None
-        suffix = f"->127.0.0.1:{port}"
-        for ln in r.stdout.splitlines():
-            if ln.startswith("p"):
-                try:
-                    pid = int(ln[1:])
-                except ValueError:
-                    pid = None
-            elif ln.startswith("n") and pid is not None and \
-                    ln.rstrip().endswith(suffix):
-                self._proxy_seen[pid] = now
-
-    def _guarded_of(self, p):
-        """Per-agent guard truth: True (proven or presumed routed), False (started
-        before the guard), or None (unknown — no proc, or launch too close to a
-        route flip to call). A live proxy connection is proof; otherwise fall back
-        to whether routing was installed at the process's launch time."""
-        if not p or not p.get("pid"):
-            return None
-        if p["pid"] in self._proxy_seen:
-            return True
-        return guarded_at(self.state.cfg, p.get("lstart"))
-
-    def _row(self, sid, rec, p, tr, status, pt, now):
-        rec = rec or {}
-        cwd = rec.get("cwd")
-        if not cwd and p and p["kind"] == "interactive":
-            cwd = self.procs.cwd_of(p["pid"])
-        model = rec.get("model")
+    def _row(self, s, p, now):
+        cwd = s["cwd"]
         git_root = self._git_root_of(cwd)
+        model = s["model"] or self._configured_model(cwd, git_root)
+        fam = _model_family(model)
+        status = s["status"]
         tty = p.get("tty") if p else None
-        if p:
-            kind = p["kind"]
-        else:
-            kind = ("background" if rec.get("session_kind") == "bg"
-                    else "interactive")
+        subs = sorted(s["subs"].values(), key=lambda x: x.get("since") or 0)
         return {
-            "session_id": sid,
+            "session_id": s["sid"],
             "pid": p["pid"] if p else None,
-            "kind": kind,
+            "kind": p["kind"] if p else "interactive",
             "model": model,
-            "model_family": _model_family(model),
-            "effort": rec.get("effort_cmd") or self._effort_of(cwd, git_root),
-            "context": self._ctx_tag_of(cwd, git_root, _model_family(model)),
+            "model_family": fam,
+            "effort": s["effort"] or self._effort_of(cwd, git_root),
+            "context": self._ctx_tag_of(cwd, git_root, fam),
             "project_name": os.path.basename(cwd) if cwd else None,
             "cwd": cwd,
             "git_root": git_root,
-            "git_branch": rec.get("git_branch") or _git_branch_of(git_root),
-            "title": rec.get("title") or rec.get("agent_name"),
-            "last_prompt": rec.get("last_prompt"),
+            "git_branch": self._branch_of(git_root, now),
+            "title": s["title"],
+            "last_prompt": s["last_prompt"],
             "status": status,
-            "status_since": tr["since"],
-            "activity": _activity_for(rec, status, self.api_stall_s),
-            "result": _result_snippet(rec),
-            "pending_tool": pt if status in ("pending_tool", "asking")
+            "status_since": s["since"],
+            "activity": s["activity"] if status not in ("done", "idle", "gone")
             else None,
+            "result": s["result"],
+            "pending_tool": ({k: s["pending"].get(k) for k in
+                              ("name", "detail", "since")}
+                             if s["pending"] and status in ("pending_tool", "asking")
+                             else None),
             "tty": tty,
             "focusable": bool(p and p["kind"] == "interactive" and tty),
-            "guarded": self._guarded_of(p),
-            "last_activity": rec.get("mtime"),
-            "started": (p.get("lstart") if p else None) or rec.get("started"),
-            "ticks": {"tools_done": rec.get("tools_done", 0),
-                      "files": len(rec.get("files") or ()),
-                      "errors": rec.get("errors", 0),
-                      "subagents": rec.get("subagents", 0)},
-            "health": self._health(rec, status, tr, now),
+            "guarded": guarded_at(self.state.cfg, p.get("lstart")) if p else None,
+            "last_activity": s["last"],
+            "started": (p.get("lstart") if p else None) or s["started"],
+            "ticks": {"tools_done": s["tools_done"], "files": len(s["files"]),
+                      "errors": s["errors"], "subagents": s["subs_total"]},
+            "subagents": [{k: x.get(k) for k in ("agent_id", "type", "status",
+                                                  "activity", "result", "since")}
+                          for x in subs],
+            "health": self._health(s, status, now),
+            "dismissed": s["sid"] in self._dismissed,
+        }
+
+    def _placeholder(self, p, now):
+        cwd = self.procs.cwd_of(p["pid"])
+        git_root = self._git_root_of(cwd)
+        model = self._configured_model(cwd, git_root)
+        sid = p.get("session_id") or f"pid-{p['pid']}"
+        return {
+            "session_id": sid, "pid": p["pid"], "kind": p["kind"],
+            "model": model, "model_family": _model_family(model),
+            "effort": self._effort_of(cwd, git_root), "context": None,
+            "project_name": os.path.basename(cwd) if cwd else None,
+            "cwd": cwd, "git_root": git_root,
+            "git_branch": self._branch_of(git_root, now), "title": None,
+            "last_prompt": None,
+            "status": "paused" if p.get("stopped") else "idle",
+            "status_since": p.get("lstart"), "activity": None, "result": None,
+            "pending_tool": None, "tty": p.get("tty"),
+            "focusable": bool(p["kind"] == "interactive" and p.get("tty")),
+            "guarded": guarded_at(self.state.cfg, p.get("lstart")),
+            "last_activity": p.get("lstart"), "started": p.get("lstart"),
+            "ticks": {"tools_done": 0, "files": 0, "errors": 0, "subagents": 0},
+            "subagents": [], "health": {"level": "ok", "reasons": []},
             "dismissed": sid in self._dismissed,
         }
 
-    def _health(self, rec, status, tr, now):
+    def _health(self, s, status, now):
         if status == "paused":
             return {"level": "ok", "reasons": []}   # user-suspended, not a fault
         reasons = []
-        ring = list(rec.get("err_ring") or ())
+        ring = list(s["err_ring"])
         errs = sum(1 for e in ring if e)
         if errs >= 3:
-            reasons.append(f"{errs} failed tool calls in last "
-                           f"{len(ring)} results")
-        if status == "pending_tool" and \
-                now - (tr["since"] or now) > self.pending_warn_s:
+            reasons.append(f"{errs} failed tool calls in last {len(ring)} results")
+        if status == "pending_tool" and now - s["since"] > self.pending_warn_s:
             reasons.append(
-                f"tool pending over {int(self.pending_warn_s // 60)} min")
+                f"waiting for approval over {int(self.pending_warn_s // 60)} min")
         if status == "working":
-            stalled = _stall_secs(rec, self.api_stall_s)
-            if stalled is not None:
-                reasons.append(f"no model response for {stalled}s — "
+            quiet = now - s["last"]
+            if not s["tool"] and quiet > self.api_stall_s:
+                reasons.append(f"no activity for {int(quiet)}s — "
                                "possible API error or network stall")
-            base = max(rec.get("turn_done_ts") or 0,
-                       rec.get("last_user_ts") or 0,
-                       rec.get("started") or 0) or tr["since"]
-            if now - base > self.working_warn_s:
+            if now - (s["turn_at"] or s["since"]) > self.working_warn_s:
                 reasons.append(f"no completed turn in over "
                                f"{int(self.working_warn_s // 60)} min")
         return {"level": "warn" if reasons else "ok", "reasons": reasons}
 
-    def _collisions(self, rows, by_sid, now):
+    def _collisions(self, rows, now):
         groups = defaultdict(list)
         for r in rows:
             if r["git_root"] and r["status"] not in ("idle", "gone"):
@@ -2577,10 +2441,9 @@ class AgentMonitor:
                 continue
             fcount = defaultdict(int)
             for r in grp:
-                rec = by_sid.get(r["session_id"]) or {}
-                files = {fp for t, fp in (rec.get("recent_edits") or ())
-                         if now - t <= AGENT_EDIT_WINDOW_S}
-                for fp in files:
+                s = self._sess.get(r["session_id"]) or {}
+                for fp in {fp for t, fp in (s.get("recent_edits") or ())
+                           if now - t <= AGENT_EDIT_WINDOW_S}:
                     fcount[fp] += 1
             shared = sorted(fp for fp, c in fcount.items() if c >= 2)
             out.append({"git_root": root,
@@ -2588,6 +2451,30 @@ class AgentMonitor:
                         "level": "file" if shared else "repo",
                         "files": shared})
         return out
+
+    def _branch_of(self, git_root, now):
+        if not git_root:
+            return None
+        hit = self._branch_cache.get(git_root)
+        if hit and now - hit[1] < 10:
+            return hit[0]
+        b = _git_branch_of(git_root)
+        self._branch_cache[git_root] = (b, now)
+        return b
+
+    def _configured_model(self, cwd, git_root):
+        """The model the settings cascade selects — the fallback until a
+        session's own transcript names its model."""
+        def _m(d):
+            return d.get("model") if isinstance(d, dict) else None
+        mid = _m(self._settings.get(CLAUDE_SETTINGS))
+        base = git_root or cwd
+        if base and not _is_protected(base):
+            for name in ("settings.json", "settings.local.json"):
+                v = _m(self._settings.get(os.path.join(base, ".claude", name)))
+                if v:
+                    mid = v
+        return mid
 
     def _effort_of(self, cwd, git_root):
         """A session's reasoning effort, resolved from the settings cascade
@@ -2660,6 +2547,10 @@ class AgentMonitor:
         with self.lock:
             return json.loads(json.dumps(self._snap))
 
+    def working_count(self):
+        with self.lock:
+            return self._snap["summary"]["working"]
+
     # -- services for dispatch() ------------------------------------------ #
     def dismiss(self, session_id, on=True):
         with self.lock:
@@ -2667,6 +2558,8 @@ class AgentMonitor:
                 self._dismissed.add(session_id)
             else:
                 self._dismissed.discard(session_id)
+            self._rebuild(time.time())
+        self.state._publish.set()
         return {"ok": True, "dismissed": bool(on)}
 
     def focus(self, session_id):
@@ -2761,6 +2654,7 @@ class AgentMonitor:
 # --------------------------------------------------------------------------- #
 # Usage (reads Claude Code transcripts)
 # --------------------------------------------------------------------------- #
+USAGE_RECALC_S = 60.0   # rebuild an unchanged view at most this often (decay)
 USAGE_SERIES_DAYS = 7   # the day series; the week (since Monday) always fits inside
 
 
@@ -2786,6 +2680,7 @@ class UsageIndex:
         # path -> {"mtime", "size", "ino", "offset", "rows": {key: row}}
         self._files = {}
         self.snapshot = self._empty()
+        self._calc_key, self._calc_ts = None, 0.0
 
     @staticmethod
     def _empty():
@@ -2806,10 +2701,7 @@ class UsageIndex:
                 self.refresh()
             except Exception as e:  # noqa: BLE001
                 log(f"usage refresh error: {e}")
-            waited = 0.0
-            while waited < interval and not self.state.stop.is_set():
-                time.sleep(0.5)
-                waited += 0.5
+            self.state.stop.wait(interval)
 
     def _scan(self, window_start):
         """Bring every transcript written since `window_start` up to date and
@@ -2817,7 +2709,8 @@ class UsageIndex:
         try:
             dirs = _project_dirs()
         except OSError:
-            return                      # keep the last view on a transient error
+            return False                # keep the last view on a transient error
+        changed = False
         seen = set()
         for path, st in _iter_transcripts(dirs, nested=True):
             if st.st_mtime < window_start:
@@ -2836,9 +2729,12 @@ class UsageIndex:
             self._tail(path, rec)
             rec["mtime"] = st.st_mtime
             rec["size"] = st.st_size
+            changed = True
         for path in list(self._files):
             if path not in seen:
                 del self._files[path]
+                changed = True
+        return changed
 
     def _tail(self, path, rec):
         rows = rec["rows"]
@@ -2890,8 +2786,16 @@ class UsageIndex:
         today_start = day_starts[-1]
         week_start = time.mktime(
             (today - timedelta(days=today.weekday())).timetuple())
-        self._scan(min(day_starts[0], week_start))
+        changed = self._scan(min(day_starts[0], week_start))
         now_e = time.time()
+        # Nothing appended and the day hasn't turned: every number is the same
+        # except the time-decaying ones (live tokens/min, pace), which only need
+        # a refresh once a minute. Skip the full re-merge until then.
+        key = (today_start, self.state.plan_week_tokens)
+        if (not changed and key == self._calc_key
+                and now_e - self._calc_ts < USAGE_RECALC_S):
+            return
+        self._calc_key, self._calc_ts = key, now_e
         elapsed_frac = max((now_e - week_start) / (7 * 86400.0), 1e-3)
 
         # One row per message: a subagent transcript can repeat a message its
@@ -3222,7 +3126,10 @@ def fetch_plan(cfg=None):
         return {"ok": False, "error": "claude CLI not found"}
     env = _claude_env(claude)
     argv = [claude, "-p", "/usage",
-            "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE]
+            "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE,
+            # No hooks for the probe: it must not appear as an agent, and it
+            # doesn't need to POST a dozen lifecycle events every minute.
+            "--settings", '{"disableAllHooks": true}']
     # Never save the probe as a session: persisted, each run left a transcript in
     # ~/.claude/projects (PROBE_PROJECT_DIR) — about 1,400 a day, forever.
     if claude not in _NO_PERSIST_UNSUPPORTED:
@@ -3231,6 +3138,13 @@ def fetch_plan(cfg=None):
     # can't exec a batch file directly (WinError 193), so run it through cmd /c.
     if IS_WINDOWS and claude.lower().endswith((".cmd", ".bat")):
         argv = ["cmd", "/c"] + argv
+    # Once a minute, all day: run it on the efficiency cores (background QoS
+    # clamp) — it's a ~1s CLI boot nobody waits on — and skip the CLI's
+    # auto-update check and telemetry, which /usage doesn't need.
+    if os.path.exists(TASKPOLICY):
+        argv = [TASKPOLICY, "-c", "background"] + argv
+    env.update(DISABLE_AUTOUPDATER="1", DISABLE_TELEMETRY="1",
+               DISABLE_ERROR_REPORTING="1")
     last = {"ok": False, "error": "could not parse /usage output"}
     # `claude -p /usage` occasionally returns a run-stats blob instead of the
     # usage report; retry a few times so one bad response doesn't fail the cycle.
@@ -3274,13 +3188,8 @@ def plan_loop(state, interval=60):
             # Live plan-fetching off → never run claude (no Photos/Music prompts).
             with state.lock:
                 state.plan = {"ok": False, "disabled": True}
-            waited = 0.0
-            while waited < 2.0 and not state.stop.is_set():
-                if state._refreshplan:
-                    state._refreshplan = False
-                    break
-                time.sleep(0.25)
-                waited += 0.25
+            if state._refreshplan.wait(2.0):
+                state._refreshplan.clear()
             continue
         if not state.claude_allowed():
             # Same fail-closed gate as the proxy: `claude -p /usage` IS a Claude
@@ -3293,13 +3202,8 @@ def plan_loop(state, interval=60):
                               "gated": True, "refreshing": False,
                               "gate_reason": "net" if not state.net_ok else "geo",
                               "checked": time.time()}
-            waited = 0.0
-            while waited < 2.0 and not state.stop.is_set():
-                if state._refreshplan:
-                    state._refreshplan = False
-                    break
-                time.sleep(0.25)
-                waited += 0.25
+            if state._refreshplan.wait(2.0):
+                state._refreshplan.clear()
             continue
         with state.lock:
             if state.plan and state.plan.get("ok"):
@@ -3318,13 +3222,8 @@ def plan_loop(state, interval=60):
         if outcome != logged:
             log(f"plan fetch: {outcome}")
             logged = outcome
-        waited = 0.0
-        while waited < interval and not state.stop.is_set():
-            if state._refreshplan:
-                state._refreshplan = False
-                break
-            time.sleep(0.5)
-            waited += 0.5
+        if state._refreshplan.wait(interval):   # sleep, unless asked to refresh
+            state._refreshplan.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -3471,6 +3370,83 @@ def route_on(proxy_port):
         return False
 
 
+def _is_our_hook(h):
+    return (isinstance(h, dict) and h.get("type") == "http"
+            and HOOK_PATH in str(h.get("url", "")))
+
+
+def _strip_our_hooks(hooks):
+    """hooks dict without Tower's entries (user hooks untouched). -> (new, n)"""
+    out, n = {}, 0
+    for ev, groups in hooks.items():
+        if not isinstance(groups, list):
+            out[ev] = groups
+            continue
+        kept = []
+        for g in groups:
+            hs = g.get("hooks") if isinstance(g, dict) else None
+            if isinstance(hs, list) and any(_is_our_hook(h) for h in hs):
+                rest = [h for h in hs if not _is_our_hook(h)]
+                n += len(hs) - len(rest)
+                if not rest:
+                    continue
+                g = {**g, "hooks": rest}
+            kept.append(g)
+        if kept:
+            out[ev] = kept
+    return out, n
+
+
+def hooks_on(proxy_port):
+    """Point Claude Code's lifecycle hooks at this daemon (observation only).
+    Idempotent: rewrites only when an entry is missing or carries an old port.
+    Claude's settings watcher picks the change up in running sessions too."""
+    url = f"http://127.0.0.1:{proxy_port}{HOOK_PATH}"
+    data = _read_settings()
+    cur = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
+    want = {"type": "http", "url": url, "timeout": HOOK_TIMEOUT_S}
+    if all(any(isinstance(g, dict) and g.get("hooks") == [want]
+               for g in (cur.get(ev) or []) if isinstance(cur.get(ev), list))
+           for ev in HOOK_EVENTS):
+        return True
+    hooks, _ = _strip_our_hooks(cur)
+    for ev in HOOK_EVENTS:
+        groups = hooks.get(ev) if isinstance(hooks.get(ev), list) else []
+        hooks[ev] = groups + [{"hooks": [dict(want)]}]
+    data["hooks"] = hooks
+    if os.path.exists(CLAUDE_SETTINGS) and not os.path.exists(SETTINGS_BAK):
+        try:
+            shutil.copyfile(CLAUDE_SETTINGS, SETTINGS_BAK)
+        except OSError:
+            pass
+    try:
+        os.makedirs(os.path.dirname(CLAUDE_SETTINGS), exist_ok=True)
+        _atomic_write(CLAUDE_SETTINGS, json.dumps(data, indent=2) + "\n")
+        return True
+    except OSError as e:
+        log(f"hooks_on failed: {e}")
+        return False
+
+
+def hooks_off():
+    """Remove Tower's hook entries (and only those). -> number removed."""
+    if not os.path.isfile(CLAUDE_SETTINGS):
+        return 0
+    data = _read_settings()
+    cur = data.get("hooks")
+    if not isinstance(cur, dict):
+        return 0
+    hooks, n = _strip_our_hooks(cur)
+    if not n:
+        return 0
+    if hooks:
+        data["hooks"] = hooks
+    else:
+        data.pop("hooks", None)
+    _atomic_write(CLAUDE_SETTINGS, json.dumps(data, indent=2) + "\n")
+    return n
+
+
 def route_off():
     if not os.path.isfile(CLAUDE_SETTINGS):
         return []
@@ -3506,6 +3482,8 @@ def reset_to_default():
     off = route_off()
     if off:
         removed.append("proxy from settings.json")
+    if hooks_off():
+        removed.append("agent hooks from settings.json")
         if os.path.exists(SETTINGS_BAK):
             backups.append(SETTINGS_BAK)
     if IS_WINDOWS:
@@ -3539,77 +3517,159 @@ def _pmset_nopasswd(val):
         return False
 
 
-def _install_clamshell_rule(val):
-    rule = (f"{USER} ALL=(root) NOPASSWD: {PMSET} -a disablesleep 1, "
-            f"{PMSET} -a disablesleep 0\n")
-    tmp = tempfile.NamedTemporaryFile("w", delete=False, suffix="-tower")
-    tmp.write(rule)
-    tmp.close()
-    os.chmod(tmp.name, 0o644)
-    q = shlex.quote(tmp.name)
-    ok = _osascript_admin(
-        f"/usr/sbin/visudo -cf {q} && "
-        f"/usr/bin/install -m 0440 -o root -g wheel {q} {SUDOERS_FILE} && "
-        f"{PMSET} -a disablesleep {val}")
-    try:
-        os.remove(tmp.name)
-    except OSError:
-        pass
-    return ok
-
-
-def _clamshell(enable):
-    val = "1" if enable else "0"
-    if _pmset_nopasswd(val):
-        return True
-    if not enable:
-        return True
-    return _install_clamshell_rule(val)
-
-
 def _remove_clamshell_rule():
     _pmset_nopasswd("0")
     if os.path.exists(SUDOERS_FILE):
         _osascript_admin(f"{PMSET} -a disablesleep 0; /bin/rm -f {SUDOERS_FILE}")
 
 
-def set_keepawake(state, on, mode):
+# Keep-awake is a *policy*, not a switch. Turning it on arms it; Tower then holds
+# the Mac awake only while it has a job: an agent working (or a Claude request
+# held on the guard), plus a grace window so the gap between two turns doesn't
+# drop the Mac to sleep. Nothing working → no hold at all, and the Mac sleeps
+# exactly as it would without Tower. The hold itself is the cheapest one macOS
+# has: a single PreventUserIdleSystemSleep assertion (`caffeinate -i`) — no
+# display assertion, so the screen still dims and sleeps on its own schedule.
+# The assertion is tied to the daemon (`-w`), so a crash can't orphan it.
+# Lid-closed needs no password: the lid's sleep is switched off through the
+# IOPMrootDomain user client (kPMSetClamshellSleepState), which any user may call
+# — the same mechanism no-admin keep-awake apps use. That flag lives in the
+# kernel, not in this process, so a crash would leave the lid unable to sleep the
+# Mac: the daemon clears it on startup, and the app clears it the moment the
+# daemon is found dead (AppDelegate.superviseDaemon). A reboot clears it too.
+AWAKE_TICK_S = 5.0            # policy cadence; a mode change pokes it at once
+AWAKE_GRACE_S = 600.0         # keep holding this long after the last working agent
+PM_SET_CLAMSHELL_SLEEP_STATE = 12   # kPMSetClamshellSleepState, IOPMLibDefs.h
+
+_rootdomain = None     # (IOKit, connection) to IOPMrootDomain, opened once
+
+
+def _lid_sleep_disabled(disable):
+    """Stop (True) or restore (False) sleep-on-lid-close. No root, no prompt.
+    Returns True when the kernel accepted it."""
+    global _rootdomain
     if IS_WINDOWS:
-        # SetThreadExecutionState replaces the whole caffeinate/pmset/sudoers
-        # stack. No admin, no clamshell — modes collapse to off / idle.
-        if not on:
-            _win.keepawake(False)
-            state.keepawake_on = False
-            state.keepawake_mode = "off"
-            return {"on": False, "mode": "off"}
-        _win.keepawake(True)
-        state.keepawake_on = True
-        state.keepawake_mode = "idle"
-        return {"on": True, "mode": "idle", "needs_admin": False}
-    if state._caffeinate and state._caffeinate.poll() is None:
-        try:
-            state._caffeinate.terminate()
-            state._caffeinate.wait(timeout=3)
-        except Exception:
-            pass
-    state._caffeinate = None
-    if not on:
-        state.keepawake_on = False
-        state.keepawake_mode = "off"
-        _clamshell(False)
-        return {"on": False, "mode": "off"}
+        return False
     try:
-        state._caffeinate = subprocess.Popen(
-            ["caffeinate", "-dimsu"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
-    needs_admin = False
-    if mode == "clamshell":
-        needs_admin = not _clamshell(True)
-    state.keepawake_on = True
+        import ctypes
+        if _rootdomain is None:
+            import ctypes.util
+            iokit = ctypes.CDLL(ctypes.util.find_library("IOKit"))
+            libc = ctypes.CDLL(ctypes.util.find_library("System"))
+            iokit.IOServiceMatching.restype = ctypes.c_void_p
+            iokit.IOServiceMatching.argtypes = [ctypes.c_char_p]
+            iokit.IOServiceGetMatchingService.restype = ctypes.c_uint
+            iokit.IOServiceGetMatchingService.argtypes = [ctypes.c_uint,
+                                                          ctypes.c_void_p]
+            iokit.IOServiceOpen.argtypes = [ctypes.c_uint, ctypes.c_uint,
+                                            ctypes.c_uint,
+                                            ctypes.POINTER(ctypes.c_uint)]
+            iokit.IOConnectCallScalarMethod.argtypes = [
+                ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_uint64),
+                ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+            svc = iokit.IOServiceGetMatchingService(
+                0, iokit.IOServiceMatching(b"IOPMrootDomain"))
+            conn = ctypes.c_uint()
+            task = ctypes.c_uint.in_dll(libc, "mach_task_self_").value
+            if not svc or iokit.IOServiceOpen(svc, task, 0,
+                                              ctypes.byref(conn)) != 0:
+                return False
+            _rootdomain = (iokit, conn.value)
+        iokit, conn = _rootdomain
+        arg = (ctypes.c_uint64 * 1)(1 if disable else 0)
+        return iokit.IOConnectCallScalarMethod(
+            conn, PM_SET_CLAMSHELL_SLEEP_STATE, arg, 1, None, None) == 0
+    except Exception as e:  # noqa: BLE001
+        log(f"lid sleep call failed: {e}")
+        return False
+
+
+def _sleep_disabled():
+    """True when `pmset disablesleep 1` is in force system-wide."""
+    try:
+        out = subprocess.run([PMSET, "-g"], capture_output=True, text=True,
+                             timeout=5).stdout
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(re.search(r"SleepDisabled\s+1", out))
+
+
+def set_keepawake(state, on, mode):
+    """Arm or disarm keep-awake (a user command). The hold itself is owned by
+    keepawake_loop; this only records the choice and persists it, so a
+    respawned daemon resumes the vigil. Every mode is one tap — no password."""
+    mode = mode if (on and mode in ("idle", "clamshell")) else "off"
+    if IS_WINDOWS and mode == "clamshell":
+        mode = "idle"               # no clamshell concept there
+    state.keepawake_on = mode != "off"
     state.keepawake_mode = mode
-    return {"on": True, "mode": mode, "needs_admin": needs_admin}
+    state.cfg["keepawake_mode"] = mode
+    save_config(state.cfg)
+    state._awake_poke.set()
+    return {"on": state.keepawake_on, "mode": mode}
+
+
+def _awake_apply(state, hold, lid):
+    """Make the OS match the decision. Only transitions cost anything."""
+    if IS_WINDOWS:
+        if hold != state._awake_held:
+            _win.keepawake(hold)    # this thread owns the execution state
+    else:
+        alive = state._caffeinate is not None and state._caffeinate.poll() is None
+        if hold and not alive:
+            try:
+                state._caffeinate = subprocess.Popen(
+                    ["caffeinate", "-i", "-w", str(os.getpid())],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:  # noqa: BLE001
+                log(f"caffeinate start failed: {e}")
+        elif not hold and alive:
+            try:
+                state._caffeinate.terminate()
+                state._caffeinate.wait(timeout=3)
+            except Exception:  # noqa: BLE001
+                pass
+            state._caffeinate = None
+        # Re-assert every tick while wanted (one IOKit call): the flag is global,
+        # so if anything restored lid sleep behind our back, it heals in a tick.
+        if lid or state._lid_held:
+            if _lid_sleep_disabled(lid) or not lid:
+                state._lid_held = lid
+    state._awake_held = hold
+
+
+def keepawake_release(state):
+    """Drop every hold now (shutdown). The armed mode stays persisted."""
+    _awake_apply(state, False, False)
+
+
+def keepawake_loop(state, agents):
+    last_work = None
+    while not state.stop.is_set():
+        try:
+            now = time.monotonic()
+            hold, lid, reason = False, False, "off"
+            state.keepawake_grace_left = None
+            if state.keepawake_on:
+                if agents.working_count() > 0 or state.retry_pending():
+                    last_work = now
+                if last_work is None or now - last_work >= AWAKE_GRACE_S:
+                    reason = "standby"
+                else:
+                    hold = True
+                    reason = "working" if last_work == now else "grace"
+                    lid = state.keepawake_mode == "clamshell"
+                if reason == "grace":
+                    state.keepawake_grace_left = int(
+                        AWAKE_GRACE_S - (now - last_work))
+            if state.keepawake_reason != reason:
+                log(f"keep-awake: {reason}")
+            state.keepawake_reason = reason
+            _awake_apply(state, hold, lid)
+        except Exception as e:  # noqa: BLE001
+            log(f"keep-awake error: {e}")
+        state._awake_poke.wait(AWAKE_TICK_S)
+        state._awake_poke.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -3639,7 +3699,12 @@ def build_state(state, usage, net, agents):
                   "holding": state.holding},
         "routing": {"installed": installed,
                     "intended": state.routed},
-        "keepawake": {"on": state.keepawake_on, "mode": state.keepawake_mode},
+        "keepawake": {"on": state.keepawake_on, "mode": state.keepawake_mode,
+                      # holding = the Mac is held awake right now; reason says
+                      # why (working/grace) or why not (standby/off).
+                      "holding": state._awake_held,
+                      "reason": state.keepawake_reason,
+                      "grace_left": state.keepawake_grace_left},
         "settings": {"theme": state.theme, "country": state.target_cc,
                      "plan_week_tokens": state.plan_week_tokens,
                      "plan_enabled": state.plan_enabled},
@@ -3659,13 +3724,26 @@ def build_state(state, usage, net, agents):
 
 
 def state_writer(state, usage, net, agents, interval=1.0):
+    """Build state every second, but only write it when something other than the
+    timestamp changed — or every STATE_HEARTBEAT_S, so front-ends still see a
+    live daemon. An idle Tower then writes (and the app decodes) half as often."""
+    last_body, last_t = None, 0.0
     while not state.stop.is_set():
         try:
-            _atomic_write(STATE_FILE,
-                          json.dumps(build_state(state, usage, net, agents)))
+            d = build_state(state, usage, net, agents)
+            ts = d.pop("ts")
+            body = json.dumps(d)
+            if body != last_body or ts - last_t >= STATE_HEARTBEAT_S:
+                d["ts"] = ts
+                _atomic_write(STATE_FILE, json.dumps(d))
+                last_body, last_t = body, ts
         except Exception as e:  # noqa: BLE001
             log(f"state write error: {e}")
-        time.sleep(interval)
+        # Sleep until something publishes (a hook event) or the 1s beat; then
+        # coalesce a burst of events into one write.
+        if state._publish.wait(interval):
+            state._publish.clear()
+            time.sleep(STATE_COALESCE_S)
 
 
 def dispatch(state, usage, net, agents, req):
@@ -3697,10 +3775,10 @@ def dispatch(state, usage, net, agents, req):
         return {"ok": True, "target_cc": state.target_cc}
     if cmd == "recheck":
         state._recheck = True
-        net._probe_now = True   # one user gesture refreshes both signals
+        net._probe_now.set()    # one user gesture refreshes both signals
         return {"ok": True}
     if cmd == "refreshplan":
-        state._refreshplan = True
+        state._refreshplan.set()
         return {"ok": True}
     if cmd == "speedtest":
         return net.start_speedtest()
@@ -3714,7 +3792,7 @@ def dispatch(state, usage, net, agents, req):
         state.plan_enabled = bool(req.get("on", True))
         state.cfg["plan_enabled"] = state.plan_enabled
         save_config(state.cfg)
-        state._refreshplan = True
+        state._refreshplan.set()
         return {"plan_enabled": state.plan_enabled}
     if cmd == "enforce":
         state.enforce = bool(req.get("on", True))
@@ -3730,8 +3808,8 @@ def dispatch(state, usage, net, agents, req):
             _win.keepawake(False)   # no persistent permission to remove
         else:
             _remove_clamshell_rule()
-        state.keepawake_on = False
-        state.keepawake_mode = "off"
+            state._lid_held = False
+        set_keepawake(state, False, "off")
         return {"removed": IS_WINDOWS or not os.path.exists(SUDOERS_FILE)}
     if cmd == "theme":
         state.theme = str(req.get("theme", "Daybreak"))
@@ -3747,8 +3825,36 @@ def dispatch(state, usage, net, agents, req):
     return {"error": f"unknown cmd {cmd!r}"}
 
 
+CMD_IDLE_S = 5.0        # kqueue fallback wake (a missed event can't strand a cmd)
+STATE_COALESCE_S = 0.05  # batch a burst of hook events into one state write
+STATE_HEARTBEAT_S = 2.0  # rewrite an unchanged state.json this often (front-ends
+                         # treat a state older than 5s as a dead daemon)
+
+
+def _cmd_dir_watch():
+    """A kqueue that fires when a file lands in CMD_DIR, or None (Windows, or
+    any failure — the caller then polls). Lets the watcher sleep until a
+    front-end actually writes a command instead of listing the dir 4×/s."""
+    if not hasattr(select, "kqueue"):
+        return None
+    try:
+        fd = os.open(CMD_DIR, getattr(os, "O_EVTONLY", 0x8000))
+    except OSError:
+        return None
+    try:
+        kq = select.kqueue()
+        kq.control([select.kevent(
+            fd, select.KQ_FILTER_VNODE,
+            select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)], 0)
+        return kq, fd
+    except OSError:
+        os.close(fd)
+        return None
+
+
 def command_watcher(state, usage, net, agents):
     os.makedirs(CMD_DIR, exist_ok=True)
+    watch = _cmd_dir_watch()
     while not state.stop.is_set():
         did = False
         try:
@@ -3793,7 +3899,19 @@ def command_watcher(state, usage, net, agents):
                     pass
         except FileNotFoundError:
             os.makedirs(CMD_DIR, exist_ok=True)
-        time.sleep(0.06 if not did else 0.0)   # poll fast; loop hot after a cmd
+            if watch:                   # the watched dir was replaced: re-arm
+                watch[0].close()
+                os.close(watch[1])
+            watch = _cmd_dir_watch()
+        if did:
+            continue                    # loop hot after a cmd
+        if watch:
+            try:
+                watch[0].control(None, 1, CMD_IDLE_S)
+            except OSError:
+                time.sleep(0.25)
+        else:
+            time.sleep(0.25)
 
 
 # --------------------------------------------------------------------------- #
@@ -3851,6 +3969,11 @@ def _route_off_idempotent(reason):
             log(f"route_off on {reason}: {removed}")
     except Exception as e:  # noqa: BLE001
         log(f"route_off on {reason} failed: {e}")
+    try:                    # the agent hooks only point at a live daemon
+        if hooks_off():
+            log(f"hooks removed on {reason}")
+    except Exception as e:  # noqa: BLE001
+        log(f"hooks_off on {reason} failed: {e}")
 
 
 RELAY_POLL_S = 5.0       # how often a relay checks whether its pinned chats exited
@@ -3872,9 +3995,8 @@ def _pid_alive(pid):
 def _pinned_pids(agents):
     """Live Claude processes that may hold our HTTPS_PROXY env: every claude
     process (from the raw process table, not agent rows — a chat with no
-    transcript yet has no row, and headless `-p` runs are pinned too) that was
-    launched while routing was installed,
-    or that we've seen connected to the proxy. An unknown launch verdict counts
+    hook traffic yet has no row, and headless `-p` runs are pinned too) that was
+    launched while routing was installed. An unknown launch verdict counts
     as pinned: keeping an idle listener a little longer is free, while dropping
     it strands a chat on ECONNREFUSED."""
     try:
@@ -3883,10 +4005,8 @@ def _pinned_pids(agents):
         procs = None
     if not procs:
         procs = agents._procs_cache or {}
-    seen = set(agents._proxy_seen)
     pids = {pid for pid, p in procs.items()
-            if pid in seen
-            or guarded_at(agents.state.cfg, p.get("lstart")) is not False}
+            if guarded_at(agents.state.cfg, p.get("lstart")) is not False}
     pids.discard(os.getpid())
     return {p for p in pids if _pid_alive(p)}
 
@@ -4032,6 +4152,18 @@ def main():
                      daemon=True).start()
     threading.Thread(target=command_watcher, args=(state, usage, net, agents),
                      daemon=True).start()
+    # A crash (or kill -9) can't run the release above, and `pmset disablesleep`
+    # outlives the process — the Mac would then never sleep, lid closed, in a
+    # bag. If Tower's rule is installed, assume a lingering disablesleep is ours
+    # and clear it; keepawake_loop re-takes it only if the policy wants it.
+    if not IS_WINDOWS:
+        _lid_sleep_disabled(False)      # a crashed predecessor's lid hold
+        # Older versions held the lid with `pmset disablesleep` (root).
+        if os.path.exists(SUDOERS_FILE) and _sleep_disabled():
+            if _pmset_nopasswd("0"):
+                log("keep-awake: cleared a legacy pmset lid hold")
+    threading.Thread(target=keepawake_loop, args=(state, agents),
+                     daemon=True).start()
 
     # ON BY DEFAULT: unless you have EXPLICITLY turned routing off before
     # (cfg["routed"] == False), the guard routes Claude the moment the daemon
@@ -4041,6 +4173,11 @@ def main():
     if state.cfg.get("routed", True):
         if route_on(state.proxy_port):
             log("routing on at startup (default-on)")
+    # Agent monitor: Claude Code reports its lifecycle to this daemon via HTTP
+    # hooks. Independent of routing — it observes, it doesn't guard.
+    state.hook_sink = agents.on_event
+    if hooks_on(state.proxy_port):
+        log("agent hooks installed")
     # Seed the routing timeline with the actual on-disk truth at boot: starts the
     # history and self-corrects a record left stranded by a previous kill -9.
     note_route_change(state, routing_installed())
@@ -4068,10 +4205,10 @@ def main():
         signal.signal(signal.SIGBREAK, _sig)
 
     try:
-        while not state.stop.is_set():
-            time.sleep(0.2)
+        while not state.stop.wait(1.0):     # 1s cap so signal handlers still run
+            pass
     finally:
-        set_keepawake(state, False, "off")
+        keepawake_release(state)
         # SAFETY: never leave Claude Code pointed at a proxy that is stopping.
         # Routing is active ONLY while the guard is alive; always restore
         # settings.json on the way out.

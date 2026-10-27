@@ -2,6 +2,7 @@
 
 import AppKit
 import CoreText
+import IOKit
 import SwiftUI
 
 @MainActor
@@ -23,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// assertion, so idle sleep still works and keep-awake stays a separate,
     /// opt-in feature. Held for the process lifetime; never ended.
     var pollActivity: NSObjectProtocol?
-    /// Smooth ~30fps clock, live only while the radar has motion to show.
+    /// ~15fps clock, live only while the radar has motion to show.
     var animTimer: Timer?
     var daemon: Process?
     var confirmedQuit = false
@@ -95,7 +96,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         let now = Date()
-        if daemonDeadSince == nil { daemonDeadSince = now }
+        if daemonDeadSince == nil {
+            daemonDeadSince = now
+            // Fail-safe: a lid-closed hold is a kernel flag that outlives the
+            // daemon. With nobody left to release it, a closed lid could never
+            // sleep the Mac — restore lid sleep now; a live daemon re-takes it
+            // on its next tick if an agent is still working.
+            LidSleep.restore()
+        }
         guard now.timeIntervalSince(daemonDeadSince ?? now) > 10 else { return }
         if let last = lastRespawn, now.timeIntervalSince(last) < 30 { return }
         lastRespawn = now
@@ -108,8 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// freezes everything). This keeps the menu bar smooth but battery-quiet.
     private var radarShouldAnimate: Bool {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
-        // The lid-closed vigil breathes; idle is a still lit lamp (no clock).
-        if model.awakeGlow == .clamshell { return true }
+        // Keep-awake never starts the clock: it is held for hours or days, and a
+        // breathing lamp in the bar re-rendered the icon 30×/s the whole time. In
+        // the bar both modes are a still lit lamp; the vigil breathes only in
+        // the popover / dashboard, while they're on screen.
         switch model.radarState {
         case .verify, .holdNet, .holdGeo: return true
         case .clear: return model.agentsWorking > 0
@@ -120,7 +130,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func refreshAnimClock() {
         let want = radarShouldAnimate
         if want, animTimer == nil {
-            let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            // 15fps: each frame is a full SwiftUI ImageRenderer pass + a menu-bar
+            // recomposite, and "agents working" can keep this live all day.
+            let t = Timer(timeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tickIcon() }
             }
             RunLoop.main.add(t, forMode: .common)   // keep ticking during menu tracking
@@ -140,7 +152,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // The Tower radar (see StatusIcon.swift). Badge text: needs-you count, then
     // optional usage %.
 
-    /// One animation frame (~30fps, only while the radar has motion): repaint the
+    /// One animation frame (~15fps, only while the radar has motion): repaint the
     /// radar and nothing else. The badge, tooltip and title belong to the 1 Hz
     /// poll — re-assigning them every frame re-laid-out the menu bar item 30×/s.
     private func tickIcon() {
@@ -292,28 +304,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     // ---- Quit (Cmd-Q, or the popover button) ---- //
-    @objc func confirmQuit() { NSApp.terminate(nil) }
-
-    // Gently predict & explain a permission BEFORE macOS shows its prompt.
-    func explainThenEnableClamshell(model: TowerModel) {
-        popover.performClose(nil)
-        let a = NSAlert()
-        a.messageText = "Keep your Mac awake with the lid closed?"
-        a.informativeText = """
-        macOS will ask for your password once, right after this.
-
-        Tower uses it only to run “pmset disablesleep” so long-running \
-        Claude agents keep working after you close the lid. Nothing else is \
-        accessed. You can switch it off anytime, and Reset removes it.
-        """
-        a.alertStyle = .informational
-        a.addButton(withTitle: "Continue")
-        a.addButton(withTitle: "Not now")
-        NSApp.activate(ignoringOtherApps: true)
-        if a.runModal() == .alertFirstButtonReturn {
-            model.send(["cmd": "keepawake", "on": true, "mode": "clamshell"])
-        }
+    func applicationWillTerminate(_ note: Notification) {
+        LidSleep.restore()      // the daemon releases too; this covers its death
     }
+
+    @objc func confirmQuit() { NSApp.terminate(nil) }
 
     /// Register the bundled JetBrains Mono faces (Resources/Fonts/*.ttf) with the
     /// process font manager so `Font.custom("JetBrainsMono-…")` resolves. Scoped
@@ -388,5 +383,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         a.informativeText = msg
         a.alertStyle = .critical
         a.runModal()
+    }
+}
+
+/// Sleep-on-lid-close, restored from the app side (the daemon owns turning it
+/// off). IOPMrootDomain's kPMSetClamshellSleepState needs no privileges — the
+/// same call the daemon makes — so the fail-safe never prompts.
+enum LidSleep {
+    static func restore() {
+        let svc = IOServiceGetMatchingService(kIOMainPortDefault,
+                                              IOServiceMatching("IOPMrootDomain"))
+        guard svc != 0 else { return }
+        defer { IOObjectRelease(svc) }
+        var conn: io_connect_t = 0
+        guard IOServiceOpen(svc, mach_task_self_, 0, &conn) == KERN_SUCCESS else { return }
+        defer { IOServiceClose(conn) }
+        var enable: UInt64 = 0          // 0 = clamshell sleep NOT disabled
+        _ = IOConnectCallScalarMethod(conn, 12 /* kPMSetClamshellSleepState */,
+                                      &enable, 1, nil, nil)
     }
 }

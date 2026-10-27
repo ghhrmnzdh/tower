@@ -117,10 +117,15 @@ condition (your location or your connection) recovers.
   a neutral `cwd=CONFIG_DIR`, and `--no-session-persistence`. The CLI itself is
   located by plain stats of known install paths (`find_claude`), never by asking
   a login shell. The only prompts Tower may ever cause are
-  Notifications (lazy, first real alert), Terminal/iTerm control (only on a
-  user-initiated focus), and the keep-awake admin password (opt-in, pre-explained).
-- **Read-only toward Claude Code sessions:** the agent monitor never writes
-  into `~/.claude` and never injects input into a session.
+  Notifications (lazy, first real alert) and Terminal/iTerm control (only on a
+  user-initiated focus). Keep-awake — lid-closed included — needs no password
+  (`kPMSetClamshellSleepState`); don't reintroduce an admin prompt for it.
+- **Observe, never steer, Claude Code sessions.** The agent monitor is fed by
+  HTTP hooks Tower adds to `~/.claude/settings.json` (`hooks_on`, next to the
+  routing env; the user's own hooks are never touched, and `hooks_off` removes
+  ours on every exit and Reset). The hook endpoint always answers an empty 200 —
+  never a decision, never a block — and Tower never injects input. Don't infer
+  agent status from transcripts again; the hooks are the source of truth.
 - **Daemon is single-instance** (`flock` on `~/.tower/daemon.lock`).
 - **Front-ends are thin:** read `~/.tower/state.json`, write `cmd/*.json`.
   All logic lives in the daemon. Keep the app and TUI feature-matched
@@ -129,8 +134,8 @@ condition (your location or your connection) recovers.
   raw sockets (macOS urllib silently picks up system proxies).
 - **Real plan usage** comes from `claude -p /usage` (Claude does the auth — never
   read the token). Local token/cost is a separate, clearly-labeled estimate.
-- **Transcript parsing is defensive:** the JSONL format is undocumented and
-  drifts; per-line try/except, surface `meta.parse_errors`, never crash.
+- **Transcript parsing is defensive** (the usage estimate): the JSONL format is
+  undocumented and drifts; per-line try/except, never crash.
 - **Cost scales with change, never with history.** Tower runs for weeks over a
   transcript corpus that only grows, and it once heated the laptop doing exactly
   that. Periodic work must be proportional to what changed: offset-tail

@@ -42,7 +42,7 @@ The menu bar is a single mark, the **radar**, whose state *is* the guard
 | **holdGeo** — amber ring + rotating fence + off-country blip | Wrong country / VPN — held, not failed |
 | **off** — red dashed ring, hollow core | Routing off — Claude connects directly, **unguarded** |
 
-It animates smoothly (~30fps) only while a state has motion to show — a hold, a
+In the menu bar it animates (~15fps) only while a state has motion to show — a hold, a
 verify sweep, or a calm scan while agents are working — and freezes under Reduce
 Motion. It also skips frames while the menu bar itself is hidden (a full-screen
 app, a sleeping or locked display).
@@ -54,11 +54,15 @@ continuous animation — model marks, radar, beacon, shimmer, spinners — pause
 `\.surfaceVisible`. Opening a surface catches it up, without animation, before it
 is shown.
 
-When **keep-awake** is on, the radar's core lights — a soft, neutral **vigil
+When **keep-awake** is holding the Mac, the radar's core lights — a soft, neutral **vigil
 lamp** meaning "the tower is holding your Device awake." It's subliminal and never
 amber/red, so a guard hold always outranks it: the two facts compose in one mark
 instead of colliding. It's a still lit lamp while the lid may stay open, and
-breathes slowly on a lid-closed vigil.
+breathes slowly on a lid-closed vigil — in the popover and dashboard only. In the
+menu bar both are a still lit lamp: keep-awake runs for hours, and must never keep
+the bar's render clock going on its own. Keep-awake
+holds only while agents work: armed with nothing to do, the core stays dark and
+the row reads "Armed — the Mac sleeps normally until an agent works."
 
 The bar **never counts running agents.** The only number it can show is the
 **needs-you count** (red when something failed, orange otherwise) — and even
