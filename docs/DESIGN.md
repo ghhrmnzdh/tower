@@ -132,7 +132,7 @@ status card (radar, verdict, where — tinted only on a hold or danger); the
 footer is one slim bar (Open Dashboard pill + Settings / Terminal / Quit icons).
 Default order = attention order: net weather (an Internet · API reading strip) →
 Agents (Needs You → collisions → working → resting) → location (flag tile) →
-Claude Desktop (only while unguarded) → keep-awake → plan rings or bars → footer.
+Claude apps (off by default: Desktop + the web, launchers) → keep-awake → plan rings or bars → footer.
 **Color:** Tower's interactive color is a white ink (near-black in light mode),
 never the system blue — selections, rings, charts, the primary button. Switches
 are green when on. Amber and red stay reserved for holds and danger; nothing

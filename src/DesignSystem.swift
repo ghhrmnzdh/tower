@@ -223,8 +223,8 @@ enum PopPref {
     /// Settings: every section on in attention order, comfortable, resting
     /// shown (collapsed), the needs-you badge on.
     static let defaults: [String: Any] = [
-        // Claude Desktop starts hidden: most people only run Claude Code, and
-        // Tower sees no live activity from Desktop — switch it on in Settings.
+        // Claude apps start hidden: most people only run Claude Code, and Tower
+        // sees no live activity from Desktop or the web — switch it on in Settings.
         net: true, agents: true, location: true, keepawake: true, plan: true, apps: false,
         resting: true, density: "comfy", needsBadge: true, order: defaultOrder,
         planStyle: "rings", subagents: true, ip: true,
@@ -250,7 +250,7 @@ enum PopSection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .net: return "Network weather"; case .agents: return "Agents"
-        case .location: return "Location"; case .apps: return "Claude Desktop"
+        case .location: return "Location"; case .apps: return "Claude apps"
         case .keepawake: return "Keep awake"; case .plan: return "Plan usage"
         }
     }
@@ -259,7 +259,7 @@ enum PopSection: String, CaseIterable, Identifiable {
         case .net:       return "Latency to the internet and Anthropic, and any fault"
         case .agents:    return "Needs you, collisions, working agents, resting"
         case .location:  return "Where the fence thinks you are"
-        case .apps:      return "Only while Desktop runs unguarded"
+        case .apps:      return "Open Desktop or claude.ai through the guard"
         case .keepawake: return "The lamp and the sleep switch"
         case .plan:      return "Session, weekly and Fable rings"
         }

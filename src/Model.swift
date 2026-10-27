@@ -705,8 +705,11 @@ final class TowerModel: ObservableObject {
         return agentSessions.filter { $0.guarded == false && $0.pid != nil
             && $0.kind != "infra" && $0.status != "gone" }.count
     }
-    /// Claude Desktop is installed — the dashboard's coverage row has something to say.
-    var hasClaudeApps: Bool { state?.apps?.desktop?.installed == true }
+    /// Something to open through the guard: Desktop installed, or a Chrome-family
+    /// browser for claude.ai.
+    var hasClaudeApps: Bool {
+        state?.apps?.desktop?.installed == true || state?.apps?.web?.available == true
+    }
     /// Claude Desktop is running WITHOUT the guard — the only Desktop state
     /// worth a popover row (Tower sees no live activity from it otherwise).
     var desktopGap: Bool {

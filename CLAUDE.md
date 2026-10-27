@@ -174,12 +174,15 @@ condition (your location or your connection) recovers.
 - **Claude Desktop is fenced per app, never system-wide.** Tower opens it with
   Chromium's `--proxy-server` pointed at its proxy — covering its chats and the
   Claude Code it runs. Never change the macOS system proxy / PAC settings, and
-  never quit the user's Desktop without an explicit relaunch click. Tower sees
-  no live activity from Desktop, so the popover shows it only while it runs
-  unguarded (and the section is off by default). The old "Claude on the web"
-  launcher is gone from every front-end: it could only open a Tower-only
-  browser profile (a fresh sign-in), never the user's own Chrome — the daemon's
-  `web` command remains but nothing offers it.
+  never quit the user's Desktop without an explicit relaunch click. "Claude on
+  the web" is claude.ai in a Chrome-family app window on a **Tower-only
+  profile** (`--user-data-dir` + `--proxy-server`): guarded, but a separate
+  sign-in, never the user's own Chrome profile — say so wherever it's offered.
+  Both are *launchers*, not monitors (Tower sees no live activity from either):
+  the popover's "Claude apps" section is **off by default** (Settings adds it),
+  the dashboard offers them from its toolbar's **Open Claude** menu, the TUI
+  from its actions. Desktop running unguarded is amber, and its fix is the
+  explicit "Relaunch guarded".
 - **Daemon is single-instance** (`flock` on `~/.tower/daemon.lock`).
 - **Front-ends are thin:** read `~/.tower/state.json`, write `cmd/*.json`.
   All logic lives in the daemon. Keep the app and TUI feature-matched

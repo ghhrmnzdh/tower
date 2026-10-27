@@ -43,7 +43,7 @@ struct PopoverView: View {
             case .net: return showNet
             case .agents: return showAgents
             case .location: return showLocation
-            case .apps: return showApps && model.desktopGap
+            case .apps: return showApps && model.hasClaudeApps
             case .keepawake: return showKeepAwake
             case .plan: return showPlan
             }
@@ -952,44 +952,80 @@ struct LocationRow: View {
 }
 
 // --------------------------------------------------------------------------- //
-// Claude Desktop — the same fence, for the app (its chats AND the Claude Code
-// it runs). Tower sees no live activity from Desktop, so it earns a row only
-// while there's a gap to close: running without the guard. Amber and
-// actionable, never red — a gap, not a failure. The dashboard's Guard panel
-// carries the full coverage line (guarded / not running / open).
-// (The old "Claude on the web" launcher is gone: it could only open a
-// Tower-only browser profile, which meant signing in all over again.)
+// Claude apps — the same fence, for Claude Desktop (its chats AND the Claude
+// Code it runs) and for claude.ai in a guarded Chrome-family window. Off by
+// default (Settings adds it): Tower sees no live activity from either, so this
+// is a launcher with an honest status line, not a monitor. Desktop running
+// unguarded is the one amber state — a gap, never a failure — and closing it
+// quits the user's app, so that action says "Relaunch" out loud.
 // --------------------------------------------------------------------------- //
 struct ClaudeAppsSection: View {
     @ObservedObject var model: TowerModel
-    /// The dashboard shows Desktop in every state; the popover only the gap.
-    var always = false
     var body: some View {
-        if let d = model.state?.apps?.desktop, d.installed == true,
-           always || model.desktopGap {
-            let gap = d.running == true && d.guarded != true
-            ClaudeAppRow(
-                icon: .app("/Applications/Claude.app"),
-                title: "Claude Desktop",
-                line: d.running != true ? "Chats + Claude Code — open it through the guard"
-                    : gap ? "Unguarded — its chats and Claude Code go direct"
-                    : "Guarded — its chats and Claude Code go through Tower",
-                warn: gap,
-                action: d.running != true ? "Open guarded"
-                    : gap ? "Relaunch guarded" : "Show",
-                help: gap ? "Quit Claude Desktop and reopen it through Tower"
-                    : "Open Claude Desktop through the guard",
-                // The popover row can be waved away on hover; Settings brings it back.
-                onHide: always ? nil : {
-                    withAnimation(TowerDesign.Motion.settle) {
-                        UserDefaults.standard.set(false, forKey: PopPref.apps)
-                    }
-                }
-            ) {
-                model.send(["cmd": "desktop", "relaunch": gap])
+        let apps = model.state?.apps
+        // The row's ✕ hides the whole section; Settings brings it back.
+        let hide = {
+            withAnimation(TowerDesign.Motion.settle) {
+                UserDefaults.standard.set(false, forKey: PopPref.apps)
+            }
+        }
+        VStack(spacing: 0) {
+            if let d = apps?.desktop, d.installed == true {
+                let gap = d.running == true && d.guarded != true
+                ClaudeAppRow(
+                    icon: .app(ClaudeLaunch.desktopApp),
+                    title: "Claude Desktop",
+                    line: ClaudeLaunch.desktopLine(d),
+                    warn: gap,
+                    action: ClaudeLaunch.desktopAction(d),
+                    help: gap ? "Quit Claude Desktop and reopen it through Tower"
+                        : "Open Claude Desktop through the guard",
+                    onHide: hide
+                ) { ClaudeLaunch.desktop(model) }
+            }
+            if let w = apps?.web, w.available == true {
+                ClaudeAppRow(
+                    icon: .app(ClaudeLaunch.browserApp(w)),
+                    title: "Claude on the web",
+                    line: ClaudeLaunch.webLine(w),
+                    warn: false,
+                    action: "Open",
+                    help: "claude.ai in its own guarded \(w.browser ?? "Chrome") window — sign in once there",
+                    onHide: hide
+                ) { ClaudeLaunch.web(model) }
             }
         }
     }
+}
+
+/// One place for what the launchers say and do — the popover rows and the
+/// dashboard's toolbar menu read the same words.
+enum ClaudeLaunch {
+    static let desktopApp = "/Applications/Claude.app"
+    static func browserApp(_ w: GApps.Web) -> String {
+        "/Applications/\(w.browser ?? "Google Chrome").app"
+    }
+    static func desktopLine(_ d: GApps.Desktop) -> String {
+        if d.running != true { return "Chats + Claude Code, through the guard" }
+        return d.guarded == true ? "Guarded — its chats and Claude Code go through Tower"
+                                 : "Unguarded — its chats and Claude Code go direct"
+    }
+    static func desktopAction(_ d: GApps.Desktop) -> String {
+        if d.running != true { return "Open" }
+        return d.guarded == true ? "Show" : "Relaunch guarded"
+    }
+    static func webLine(_ w: GApps.Web) -> String {
+        w.running == true ? "Guarded \(w.browser ?? "Chrome") window open"
+                          : "claude.ai in a guarded \(w.browser ?? "Chrome") window"
+    }
+    /// Relaunching quits the user's own Desktop, so only an unguarded running
+    /// Desktop asks for it — and it is always this explicit click.
+    static func desktop(_ model: TowerModel) {
+        let d = model.state?.apps?.desktop
+        model.send(["cmd": "desktop",
+                    "relaunch": d?.running == true && d?.guarded != true])
+    }
+    static func web(_ model: TowerModel) { model.send(["cmd": "web"]) }
 }
 
 struct ClaudeAppRow: View {

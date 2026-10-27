@@ -83,9 +83,11 @@ banner when not fine — *"Anthropic API unreachable — your internet is fine
 click a row to show that agent's terminal; hover to dismiss → collision banners → each working agent: its model
 mark, project, live activity line, its `n ✓` counter, and its **subagents as a
 tree** → Resting, collapsed) → **location** (a flag tile with an in/out badge,
-city, ISP, IP, an animated re-check) → **Claude Desktop** (only while it runs
-unguarded — its chats and Claude Code go direct — with one "Relaunch guarded"
-action and a hover ✕; off by default) → **keep awake** (the beacon and the
+city, ISP, IP, an animated re-check) → **Claude apps** (off by default; add
+it in Settings): Claude Desktop — *Open*, or the amber *Relaunch guarded* while
+it runs unguarded — and Claude on the web, claude.ai in a guarded Chrome-family
+window on Tower's own profile (sign in once there); a hover ✕ hides the section
+→ **keep awake** (the beacon and the
 three-way switch) → **plan rings** (or, while the guard holds Claude, one calm *Usage paused* row
 saying whether it waits on the connection or your location) (Session · Weekly · Fable, each with an exact
 countdown — or slim bars, your pick; white until your warn line; hover for the
@@ -101,9 +103,11 @@ never use it).
 
 ## The dashboard window
 A native macOS window: a source-list sidebar (Agents carries the needs-you
-badge; the guard rides at its foot), a unified toolbar with each page's title,
-a live subtitle and its actions (Re-check location, Run speed test, Refresh
-plan, Terminal dashboard), and pages built from one panel vocabulary. It adapts
+badge; the guard rides at its foot; collapsing it folds it to an icon rail), a
+unified toolbar with each page's title, a live subtitle and its actions
+(Re-check location, Run speed test, Refresh plan, **Open Claude** — Desktop or
+the web through the guard, amber while Desktop runs unguarded — and Terminal
+dashboard), and pages built from one panel vocabulary. It adapts
 to its width — single column when narrow, panels paired two-up from ~640 pt of
 content, columns past ~820 pt, three columns past ~1240 pt — and caps content
 width so a huge window stays legible. Its size and place are remembered.

@@ -201,6 +201,41 @@ struct SidebarWidthPin: NSViewRepresentable {
     }
 }
 
+/// "Open Claude" in the toolbar: Desktop and claude.ai through the guard, on
+/// every page. Desktop running unguarded marks the button amber — the one gap
+/// this menu exists to close.
+struct ClaudeAppsMenu: View {
+    @ObservedObject var model: TowerModel
+
+    var body: some View {
+        let apps = model.state?.apps
+        Menu {
+            if let d = apps?.desktop, d.installed == true {
+                Button { ClaudeLaunch.desktop(model) } label: {
+                    Label(d.running == true && d.guarded != true
+                          ? "Relaunch Claude Desktop Guarded" : "Claude Desktop",
+                          systemImage: "macwindow")
+                    Text(ClaudeLaunch.desktopLine(d))
+                }
+            }
+            if let w = apps?.web, w.available == true {
+                Button { ClaudeLaunch.web(model) } label: {
+                    Label("Claude on the Web", systemImage: "globe")
+                    Text(ClaudeLaunch.webLine(w))
+                }
+            }
+            Divider()
+            Text("Opened here, they go through the guard. Tower doesn't see their chats.")
+        } label: {
+            Label("Open Claude", systemImage: model.desktopGap
+                  ? "exclamationmark.triangle" : "macwindow.on.rectangle")
+        }
+        .foregroundStyle(model.desktopGap ? Color(nsColor: .systemOrange) : Color.primary)
+        .help(model.desktopGap ? "Claude Desktop is running without the guard"
+                               : "Open Claude Desktop or claude.ai through the guard")
+    }
+}
+
 // --------------------------------------------------------------------------- //
 // Layout classes, measured on the detail column (the sidebar excluded).
 // --------------------------------------------------------------------------- //
@@ -458,6 +493,7 @@ struct DashDetail: View {
         case .agents, .settings:
             EmptyView()
         }
+        if model.hasClaudeApps { ClaudeAppsMenu(model: model) }
         Button {
             (NSApp.delegate as? AppDelegate)?.openTerminalDashboard()
         } label: {
