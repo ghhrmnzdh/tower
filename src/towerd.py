@@ -2346,6 +2346,15 @@ class AgentMonitor:
                     sub["tools"] = sub.get("tools", 0) + 1
                 sub["activity"] = (_activity_phrase(self._tool(ev, now))
                                    if name == "PreToolUse" else "thinking…")
+                if sub.get("status") == "working" and s["status"] in ("done", "idle"):
+                    # A subagent the parent's Stop didn't count — it started
+                    # before this daemon did (a restart mid-run) — is still at
+                    # work, so the turn isn't over: back to working, and the
+                    # parent settles once its subagents report back.
+                    n = sum(x.get("status") == "working" for x in s["subs"].values())
+                    s["awaiting_subs"] = True
+                    s["activity"] = f"waiting on {n} subagent{'s' if n != 1 else ''}…"
+                    self._set(s, "working", now)
                 return
             if name == "PreToolUse":
                 t = self._tool(ev, now)
