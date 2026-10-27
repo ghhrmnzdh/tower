@@ -108,18 +108,96 @@ final class SelectedTab: ObservableObject {
 struct DashboardView: View {
     @ObservedObject var model: TowerModel
     @ObservedObject var selected: SelectedTab
+    /// The sidebar folds to an icon rail; it never disappears.
+    @AppStorage("dash.sidebarRail") private var rail = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationSplitView {
-            DashSidebar(model: model, selected: selected)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 214, max: 270)
+        // Visibility is pinned to .all: anything that would hide the sidebar
+        // — the toggle, ⌃⌘S, dragging the divider shut — folds it to the rail
+        // instead, and the same gestures unfold it.
+        NavigationSplitView(columnVisibility: Binding(
+            get: { .all },
+            set: { v in if v != .all { setRail(!rail) } })) {
+            DashSidebar(model: model, selected: selected, rail: rail)
+                .background(SidebarWidthPin(rail: rail, animated: !reduceMotion))
+                .toolbar(removing: .sidebarToggle)
+                // Read once, when the split view is built; SidebarWidthPin
+                // carries every later fold. Must stay the outermost modifier.
+                .navigationSplitViewColumnWidth(min: rail ? DashSidebar.railWidth : 200,
+                                                ideal: rail ? DashSidebar.railWidth : 214,
+                                                max: rail ? DashSidebar.railWidth : 270)
         } detail: {
             DashDetail(model: model, selected: selected)
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button { setRail(!rail) } label: {
+                            Label(rail ? "Expand Sidebar" : "Collapse Sidebar",
+                                  systemImage: "sidebar.left")
+                        }
+                        .help(rail ? "Show the sidebar's labels" : "Fold the sidebar to icons")
+                    }
+                }
         }
         .environment(\.surfaceVisible, model.dashboardVisible)
         .tint(TowerDesign.ink)
         .toggleStyle(.tower)
         .dangerAlerts(model)
+    }
+
+    private func setRail(_ on: Bool) {
+        withAnimation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion)) { rail = on }
+    }
+}
+
+/// Folds and unfolds the sidebar column. SwiftUI applies
+/// `navigationSplitViewColumnWidth` only when the split view is first built,
+/// so a later change has to reach the split item itself: pin its thickness
+/// and move the divider (animated unless Reduce Motion).
+struct SidebarWidthPin: NSViewRepresentable {
+    let rail: Bool
+    let animated: Bool
+
+    final class Probe: NSView { var applied: Bool? }
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        guard probe.applied != rail else { return }
+        // On the next turn: the probe needs to be in the window's hierarchy.
+        DispatchQueue.main.async { apply(probe) }
+    }
+
+    private func apply(_ probe: Probe) {
+        var v: NSView? = probe.superview
+        while let cur = v, !(cur is NSSplitView) { v = cur.superview }
+        guard let split = v as? NSSplitView,
+              let item = (split.delegate as? NSSplitViewController)?.splitViewItems.first
+        else { return }
+        let first = probe.applied == nil
+        probe.applied = rail
+        let (lo, hi): (CGFloat, CGFloat) = rail ? (DashSidebar.railWidth, DashSidebar.railWidth) : (200, 270)
+        let target = rail ? DashSidebar.railWidth : 214
+        if first && abs((split.arrangedSubviews.first?.frame.width ?? 0) - target) < 1 { return }
+        // Widen the range before moving, so neither limit blocks the move.
+        item.minimumThickness = min(lo, item.minimumThickness)
+        item.maximumThickness = max(hi, item.maximumThickness)
+        let finish = {
+            item.minimumThickness = lo
+            item.maximumThickness = hi
+        }
+        if animated && !first {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.28
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.allowsImplicitAnimation = true
+                split.setPosition(target, ofDividerAt: 0)
+                split.layoutSubtreeIfNeeded()
+            }, completionHandler: finish)
+        } else {
+            split.setPosition(target, ofDividerAt: 0)
+            finish()
+        }
     }
 }
 
@@ -150,6 +228,9 @@ extension EnvironmentValues {
 struct DashSidebar: View {
     @ObservedObject var model: TowerModel
     @ObservedObject var selected: SelectedTab
+    /// Icons only — the folded sidebar. Wide enough to clear the traffic lights.
+    var rail = false
+    static let railWidth: CGFloat = 78
 
     var body: some View {
         // Our own items rather than List selection: every row is a real button
@@ -161,17 +242,17 @@ struct DashSidebar: View {
                         id: \.element) { i, tab in
                     SidebarItem(tab: tab, selected: selected.tab == tab,
                                 badge: tab == .agents ? model.urgentCount : 0,
-                                key: KeyEquivalent(Character("\(i + 1)"))) { selected.show(tab) }
+                                key: KeyEquivalent(Character("\(i + 1)")), rail: rail) { selected.show(tab) }
                 }
                 Divider().padding(.vertical, 8).padding(.horizontal, 6)
                 SidebarItem(tab: .settings, selected: selected.tab == .settings,
-                            badge: 0, key: "5") { selected.show(.settings) }
+                            badge: 0, key: "5", rail: rail) { selected.show(.settings) }
             }
-            .padding(.horizontal, 10).padding(.top, 6)
+            .padding(.horizontal, rail ? 12 : 10).padding(.top, 6)
         }
         .scrollBounceBehavior(.basedOnSize)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            SidebarGuardFoot(model: model, still: selected.tab == .overview) {
+            SidebarGuardFoot(model: model, still: selected.tab == .overview, rail: rail) {
                 selected.show(.overview)
             }
         }
@@ -183,31 +264,36 @@ struct SidebarItem: View {
     let selected: Bool
     let badge: Int
     let key: KeyEquivalent
+    var rail = false
     let action: () -> Void
     @State private var hovering = false
     @State private var pressed = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: tab.symbol)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .frame(width: 20)
-                    .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                Text(tab.title)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 4)
-                if badge > 0 {
-                    Text("\(badge)")
-                        .font(.system(size: 10, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 16)
-                        .background(Capsule().fill(Color(nsColor: .systemOrange)))
-                        .contentTransition(.numericText())
+            Group {
+                if rail {
+                    // The folded rail: the symbol alone, its badge worn on the
+                    // corner — the title moves to the tooltip.
+                    icon(size: 15)
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .topTrailing) {
+                            if badge > 0 { badgeView.offset(x: 2, y: -7) }
+                        }
+                        .frame(height: 38)
+                } else {
+                    HStack(spacing: 10) {
+                        icon(size: 13).frame(width: 20)
+                        Text(tab.title)
+                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if badge > 0 { badgeView }
+                    }
+                    .padding(.horizontal, 10).frame(height: 32)
                 }
             }
-            .padding(.horizontal, 10).frame(height: 32)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.primary.opacity(selected ? 0.11 : hovering ? 0.05 : 0)))
             .scaleEffect(pressed ? 0.98 : 1)
@@ -219,7 +305,23 @@ struct SidebarItem: View {
         .animation(.spring(response: 0.25, dampingFraction: 0.75), value: pressed)
         .animation(.easeOut(duration: 0.15), value: selected)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityLabel(tab.title)
         .help("\(tab.title)  ⌘\(String(key.character))")
+    }
+
+    private func icon(size: CGFloat) -> some View {
+        Image(systemName: tab.symbol)
+            .font(.system(size: size, weight: selected ? .semibold : .regular))
+            .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+    }
+
+    private var badgeView: some View {
+        Text("\(badge)")
+            .font(.system(size: 10, weight: .bold)).monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5).frame(minWidth: 16, minHeight: 16)
+            .background(Capsule().fill(Color(nsColor: .systemOrange)))
+            .contentTransition(.numericText())
     }
 }
 
@@ -244,6 +346,7 @@ struct InkButtonStyle: ButtonStyle {
 struct SidebarGuardFoot: View {
     @ObservedObject var model: TowerModel
     let still: Bool
+    var rail = false
     let open: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
@@ -255,6 +358,8 @@ struct SidebarGuardFoot: View {
                 TowerRadar(state: model.radarState, size: 28, awake: model.awakeGlow,
                            animated: !still)
                     .frame(width: 28, height: 28)
+                    .frame(maxWidth: rail ? .infinity : nil)
+                if !rail {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(st.title)
                         .font(.system(size: 12, weight: .semibold))
@@ -272,17 +377,18 @@ struct SidebarGuardFoot: View {
                     }
                 }
                 Spacer(minLength: 0)
+                }
             }
-            .padding(.horizontal, 10).padding(.vertical, 9)
+            .padding(.horizontal, rail ? 0 : 10).padding(.vertical, 9)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(hovering ? 0.08 : 0.05)))
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .padding(10)
+        .padding(rail ? 12 : 10)
         .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion), value: st.title)
-        .help("Guard status — open the Overview")
+        .help(rail ? "\(st.title) — \(model.whereLine)" : "Guard status — open the Overview")
     }
 }
 
@@ -892,35 +998,42 @@ struct GuardHero: View {
         let st = model.status
         let routed = model.state?.routing?.installed ?? false
         let wash: Color? = (st == .protected || st == .monitor || st == .starting) ? nil : st.swiftUIColor
-        HStack(alignment: .center, spacing: 16) {
-            TowerRadar(state: model.radarState, size: 52, awake: model.awakeGlow)
-                .frame(width: 52, height: 52)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(st.title)
-                    .font(.system(size: 20, weight: .bold))
-                    .contentTransition(.opacity)
-                if model.retryPending {
-                    Text("Reconnecting Claude…")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(st.swiftUIColor)
-                        .shimmer(!reduceMotion)
-                } else {
-                    Text(model.guardSentence)
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if layout.width < 600 {
+                // Narrow: the mark, the verdict and the switch share one header
+                // row; the sentence and where get the full width under it.
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        TowerRadar(state: model.radarState, size: 38, awake: model.awakeGlow)
+                            .frame(width: 38, height: 38)
+                        Text(st.title)
+                            .font(.system(size: 18, weight: .bold))
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                        Spacer(minLength: 8)
+                        guardSwitch(routed, label: false)
+                    }
+                    sentence
+                    locationLine
                 }
-                locationLine.padding(.top, 1)
-            }
-            Spacer(minLength: 16)
-            VStack(alignment: .trailing, spacing: 6) {
-                Toggle(isOn: Binding(get: { routed }, set: { model.setRouting($0) })) {
-                    Text("Guard").font(.system(size: 13, weight: .medium))
+            } else {
+                HStack(alignment: .center, spacing: 16) {
+                    TowerRadar(state: model.radarState, size: 52, awake: model.awakeGlow)
+                        .frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(st.title)
+                            .font(.system(size: 20, weight: .bold))
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                        sentence
+                        locationLine.padding(.top, 1)
+                    }
+                    Spacer(minLength: 16)
+                    guardSwitch(routed, label: true)
                 }
-                .toggleStyle(.tower)
-                .help("Route Claude through the guard")
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 14)
+        .padding(.horizontal, layout.width < 600 ? 16 : 18).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             ZStack {
@@ -935,27 +1048,70 @@ struct GuardHero: View {
         .animation(.tower(TowerDesign.Motion.settle, reduced: reduceMotion), value: st.title)
     }
 
+    @ViewBuilder private var sentence: some View {
+        if model.retryPending {
+            Text("Reconnecting Claude…")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(model.status.swiftUIColor)
+                .shimmer(!reduceMotion)
+        } else {
+            Text(model.guardSentence)
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private func guardSwitch(_ routed: Bool, label: Bool) -> some View {
+        let toggle = Toggle(isOn: Binding(get: { routed }, set: { model.setRouting($0) })) {
+            Text("Guard").font(.system(size: 13, weight: .medium))
+        }
+        Group {
+            if label { toggle } else { toggle.labelsHidden() }
+        }
+        .fixedSize()
+        .help("Route Claude through the guard")
+        .accessibilityLabel("Guard")
+    }
+
+    /// Where you are, on one line at any width: it sheds the ISP, then the IP,
+    /// then the region before it would ever wrap.
     @ViewBuilder private var locationLine: some View {
         let loc = model.state?.location
-        HStack(spacing: 6) {
+        Group {
             if let loc, loc.status == "OK" {
-                Text(flag(loc.country_cc))
-                Text([loc.city, loc.region].compactMap { $0 }.joined(separator: ", "))
-                if let isp = loc.isp { dot; Text(isp).lineLimit(1) }
-                if let ip = loc.ip {
-                    dot
-                    Text(ip).font(TowerDesign.Font.mono(11)).textSelection(.enabled)
-                }
-                if loc.in_target == false {
-                    Chip(text: "outside \(model.targetCC)", tint: Color(nsColor: .systemOrange))
+                let city = [loc.city, loc.region].compactMap { $0 }.joined(separator: ", ")
+                ViewThatFits(in: .horizontal) {
+                    whereRow(loc, place: city, isp: loc.isp, ip: loc.ip)
+                    whereRow(loc, place: city, isp: nil, ip: loc.ip)
+                    whereRow(loc, place: city, isp: nil, ip: nil)
+                    whereRow(loc, place: loc.city ?? city, isp: nil, ip: nil)
                 }
             } else {
-                Image(systemName: "location").foregroundStyle(.tertiary)
-                Text(loc?.error ?? "Locating…")
+                HStack(spacing: 6) {
+                    Image(systemName: "location").foregroundStyle(.tertiary)
+                    Text(loc?.error ?? "Locating…").lineLimit(1)
+                }
             }
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
+    }
+
+    private func whereRow(_ loc: GLocation, place: String, isp: String?, ip: String?) -> some View {
+        HStack(spacing: 6) {
+            Text(flag(loc.country_cc))
+            Text(place)
+            if let isp { dot; Text(isp) }
+            if let ip {
+                dot
+                Text(ip).font(TowerDesign.Font.mono(11)).textSelection(.enabled)
+            }
+            if loc.in_target == false {
+                Chip(text: "outside \(model.targetCC)", tint: Color(nsColor: .systemOrange))
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
     }
     private var dot: some View { Text("·").foregroundStyle(.quaternary) }
 }
