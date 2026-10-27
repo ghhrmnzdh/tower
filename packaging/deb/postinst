@@ -11,6 +11,19 @@ set -e
 
 case "$1" in
   configure)
+    # An upgrade ($2 = the version we came from): the running guard was left
+    # alone on purpose (see prerm) — say how to pick up the new version.
+    if [ -n "${2:-}" ]; then
+      cat <<'MSG'
+
+  Tower upgraded. A guard that was already running keeps guarding on the
+  previous version until you reopen Tower (quit it from the tray or the
+  dashboard, then start it again), or:
+
+    systemctl --user restart tower        if you run it as a user service
+
+MSG
+    fi
     # Refresh the desktop/icon caches so the launchers show up without a
     # re-login. Both are optional tools; a missing one is not an error.
     if command -v update-desktop-database >/dev/null 2>&1; then
@@ -20,6 +33,7 @@ case "$1" in
       gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
     fi
 
+    [ -n "${2:-}" ] && exit 0
     cat <<'MSG'
 
   Tower installed.

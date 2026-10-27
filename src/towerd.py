@@ -4500,6 +4500,14 @@ def main():
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(CMD_DIR, exist_ok=True)
     if not IS_WINDOWS:
+        # Yours alone: state.json carries your location, IP, agents' folders and
+        # prompts, and cmd/ is how front-ends steer the guard — on a shared box
+        # no other account may read the one or write the other.
+        for d in (CONFIG_DIR, CMD_DIR):
+            try:
+                os.chmod(d, 0o700)
+            except OSError:
+                pass
         raise_fd_limit()
     # single instance
     if IS_WINDOWS:

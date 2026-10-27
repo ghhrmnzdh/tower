@@ -15,7 +15,7 @@ case "$1" in
     #   rm -rf ~/.tower ~/.cache/tower
     #
     # ~/.claude/settings.json was already restored by the daemon's own exit
-    # path (prerm sends it SIGTERM); there is nothing here to undo.
+    # path (prerm sends it SIGTERM on remove); there is nothing here to undo.
     ;;
 esac
 

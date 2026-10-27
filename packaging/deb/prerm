@@ -1,12 +1,18 @@
 #!/bin/sh
-# Stop what is running before the files go. For the daemon this matters twice
-# over: it must get its SIGTERM so it un-routes ~/.claude/settings.json on the
-# way out. A daemon killed without that leaves Claude Code pointed at a proxy
+# Stop what is running before the files go — on a real *remove* only. The
+# daemon must get its SIGTERM so it un-routes ~/.claude/settings.json on the
+# way out; a daemon killed without that leaves Claude Code pointed at a proxy
 # that no longer exists.
+#
+# An *upgrade* stops nothing: the running daemon keeps guarding (Python has its
+# code in memory) and keeps the proxy port every pinned chat captured at launch.
+# Stopping it here would turn the guard off with nothing to restart it, and the
+# chats still pointed at the proxy would hit ECONNREFUSED. The new version takes
+# over the next time Tower is opened (postinst says so).
 set -e
 
 case "$1" in
-  remove|upgrade|deconfigure)
+  remove|deconfigure)
     if command -v systemctl >/dev/null 2>&1; then
       # `systemctl --user` from root needs that user's own bus, so run it as
       # them with their XDG_RUNTIME_DIR (runuser is util-linux, always present;
