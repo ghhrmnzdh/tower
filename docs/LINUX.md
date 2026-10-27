@@ -150,16 +150,28 @@ lamp lighting the core underneath. The geometry is a Cairo port of
 own *reduce animations* setting freezes each state at its legible still frame.
 
 Left-click is the menu: status, the guard toggle, keep-awake, target country,
-the running agents (click one to raise its tab), and **Open Tower…** for the
-full panel — network weather, the needs-you queue, agents, location,
-keep-awake, and plan usage, in the popover's fixed attention order.
-Middle-click opens the panel directly. Closing the panel never stops the guard.
+the agents (needs-you first; a row is clickable only when its terminal can be
+raised, which on Linux means tmux), and **Open Tower…** for the full panel:
+network weather, the needs-you queue, agents, location, keep-awake, and plan
+usage, in the popover's fixed attention order. Middle-click opens the panel
+directly, and so does launching Tower again while it runs. Closing the panel
+never stops the guard.
+
+As in the macOS menu bar, the number beside the radar counts only what needs
+you: a failure, an approval, a question. A finished turn is listed ("your
+turn") but never counted. Notifications follow the app: on →failed, →needs
+approval and →asking; on →done only if the panel hasn't been open in the last
+minute; never for a transition older than ~3 minutes unless the agent is still
+waiting on you.
 
 Turning the guard off and quitting are warned and confirmed **twice**, and the
 warning quotes how many agents are working right now (they would start sending
 unguarded requests immediately); quitting also quotes how many chats are pinned
 to the proxy — they keep working through a lingering relay, but unguarded,
 until Tower is reopened. Same rule, same numbers, as the app and the TUI.
+A confirmed quit stays quit: the tray stops supervising the daemon at once.
+Otherwise it restarts a daemon that has been gone for ~10 s (at most once every
+30 s), as the app does.
 
 ### Why AppIndicator, and what GNOME needs
 
@@ -231,9 +243,12 @@ port your open chats captured — until you reopen Tower on the new version.
 
 ## Not on Linux
 
-- **Desktop notifications.** macOS gets them from the app
-  (`src/Notifier.swift`); the daemon itself has never sent any, on any
-  platform, so the top bar and the dashboard are where status shows up here.
+- **Notifications from a headless guard.** The daemon itself sends none, on
+  any platform; on Linux they come from `tower-tray` (over
+  `org.freedesktop.Notifications`), so a machine running only `tower` or the
+  daemon has no popups.
+- **Claude Desktop.** There is no Linux build to fence, so the tray has no
+  Desktop section.
 - **The model marks.** The per-model glyphs (`drawModelMark`) are not ported;
   the tray names the model in the row's accent colour, which is what the TUI
   does too.
