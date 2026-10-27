@@ -13,7 +13,7 @@
 # leaves Claude Code on a working direct connection.
 [Unit]
 Description=Tower — control tower for your Claude Code agents
-Documentation=https://github.com/imanimen/tower
+Documentation=https://github.com/ghhrmnzdh/tower
 
 [Service]
 Type=simple

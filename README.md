@@ -47,7 +47,7 @@ no app, no `swiftc`. From a checkout: `python3 src/tower-tui.py`.
 dashboard and the radar for your top bar, all in one:
 
 ```sh
-curl -fLO https://github.com/imanimen/tower/releases/latest/download/tower_all.deb
+curl -fLO https://github.com/ghhrmnzdh/tower/releases/latest/download/tower_all.deb
 sudo apt install ./tower_all.deb
 tower-tray                                 # the radar in your top bar
 ```
@@ -287,8 +287,8 @@ codebase small and the [Windows port](windows_plan.md) straightforward.
 - **Xcode Command Line Tools** — only to *build* the Mac app (`xcode-select --install`).
 - **Claude Code** installed, so there are agents to tower.
 
-No root, no daemons installed system-wide (except the optional keep-awake
-"lid-closed" mode, which asks for admin once and can be fully removed).
+No root, no daemons installed system-wide, and no password for anything —
+keep-awake's lid-closed mode included.
 Nothing leaves your machine but the public-IP country lookup and the network
 probes.
 
@@ -300,7 +300,7 @@ All three parts run on Linux, packaged: the daemon, the terminal dashboard, and
 **the radar in your top bar** — the Linux counterpart of the macOS menu-bar app.
 
 ```sh
-curl -fLO https://github.com/imanimen/tower/releases/latest/download/tower_all.deb
+curl -fLO https://github.com/ghhrmnzdh/tower/releases/latest/download/tower_all.deb
 sudo apt install ./tower_all.deb
 
 tower-tray                                 # the radar in your top bar
@@ -344,8 +344,10 @@ Installing starts nothing on purpose — the daemon opens a proxy and edits
 `~/.claude/settings.json`, so switching it on stays your call. "On by default"
 still holds where it counts: opening either front-end starts the daemon.
 Stopping it (`systemctl --user stop tower`, `Q` in the dashboard, **Quit
-Tower** in the menu) sends `SIGTERM`, and the daemon un-routes Claude Code
-before it exits.
+Tower** in the menu — the last two confirmed twice) un-routes Claude Code
+before the daemon exits; chats already pinned to the proxy keep working
+through a lingering relay, unguarded, until Tower is reopened. Upgrading the
+package leaves a running guard alone.
 
 Build it from a checkout — the only build dependency is `dpkg` itself:
 
@@ -362,11 +364,11 @@ desktop's own setting) freezes each state at its legible still frame, and the
 two dangerous switch-offs are confirmed twice with the agent counts quoted,
 exactly as in the app.
 
-Four OS edges differ from macOS, all in [`src/_linux.py`](src/_linux.py):
-keep-awake is `systemd-inhibit` (which covers idle, sleep **and the lid** with
-no admin password — the one macOS feature that costs `sudo` is free here),
-and reading a process's cwd, finding who is connected to the guard, and
-focusing a tab go through `/proc` and `tmux` instead of `lsof` and `osascript`.
+Three OS edges differ from macOS, in [`src/_linux.py`](src/_linux.py):
+keep-awake is `systemd-inhibit` (idle, sleep **and the lid**, no password, and
+released even if the daemon is killed), and reading a process's cwd and
+focusing a tab go through `/proc` and `tmux` instead of libproc and
+`osascript`.
 There is no TCC on Linux either, so the agent monitor reads git roots and
 branches for agents working anywhere. Everything else — the proxy, the
 fail-closed gate, geolocation, the network probe, `/usage`, the transcript

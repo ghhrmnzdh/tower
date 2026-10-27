@@ -7,7 +7,7 @@
 # to have the guard running and visible from login.
 [Unit]
 Description=Tower — the radar in your top bar
-Documentation=https://github.com/imanimen/tower
+Documentation=https://github.com/ghhrmnzdh/tower
 # A tray icon needs a session to live in: without this the unit would start at
 # login on a headless boot and exit immediately.
 PartOf=graphical-session.target

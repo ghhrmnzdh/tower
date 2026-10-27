@@ -123,7 +123,7 @@ install -m 0644 "$ROOT/README.md" "$PKG/usr/share/doc/tower/README.md"
   printf 'tower (%s) unstable; urgency=medium\n\n' "$VERSION"
   printf '  * Tower %s for Debian/Ubuntu: daemon, terminal dashboard,\n' "$VERSION"
   printf '    and the top-bar radar.\n'
-  printf '    Release notes: https://github.com/imanimen/tower/releases\n\n'
+  printf '    Release notes: https://github.com/ghhrmnzdh/tower/releases\n\n'
   printf ' -- %s  %s\n' "$MAINTAINER" "$(date -R)"
 } > "$PKG/usr/share/doc/tower/changelog.Debian"
 gzip -9n "$PKG/usr/share/doc/tower/changelog.Debian"

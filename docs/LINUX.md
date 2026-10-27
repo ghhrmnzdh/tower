@@ -20,22 +20,22 @@ says so and names the packages it wants.
 The split that makes all of this cheap is the same one the Windows port uses:
 **one daemon owns all logic and state; the front-ends read
 `~/.tower/state.json` and write `~/.tower/cmd/*.json`.** `towerd.py` is stdlib
-Python and already portable; only four OS edges differ, and they live in
+Python and already portable; only three OS edges differ, and they live in
 `src/_linux.py`.
 
 ## Install
 
 ```sh
-curl -fLO https://github.com/imanimen/tower/releases/latest/download/tower_all.deb
+curl -fLO https://github.com/ghhrmnzdh/tower/releases/latest/download/tower_all.deb
 
 sudo apt install ./tower_all.deb                       # desktop: radar included
 sudo apt install --no-install-recommends ./tower_all.deb   # server: guard only
 ```
 
 The asset is version-less so that URL always points at the newest release (the
-package inside knows its own version — `apt policy tower`). CI builds it from
-the tag and attaches it after running the install/run/remove matrix against it,
-so what you download is what was tested.
+package inside knows its own version — `apt policy tower`). When a release is
+published, CI builds the package, runs the install/run/remove matrix against
+it, and only then attaches it, so what you download is what was tested.
 
 Ubuntu 22.04 through 26.04 (and Debian 12+). `Architecture: all` — Tower on
 Linux compiles nothing, so one package covers amd64 and arm64.
@@ -61,7 +61,7 @@ dragging GTK onto a server.
 | `python3-gi`, `gir1.2-gtk-3.0` | GTK3 through the distro's own bindings — the toolkit the top-bar panel is built in |
 | `python3-gi-cairo` | Cairo, which draws the radar and the meters |
 | `gir1.2-ayatanaappindicator3-0.1` \| `gir1.2-appindicator3-0.1` | the StatusNotifierItem itself. Ayatana is the maintained fork and what Ubuntu 22.04+ ships; the older name survives on some spins, so either satisfies it |
-| `tmux` | raising an agent's terminal tab. Without it both front-ends hand you `claude --resume <id>` instead |
+| `tmux` | raising an agent's terminal tab when you click it. Without it there is no tab to raise, and the click does nothing |
 | `systemd` | the two **user** units, Tower's login-item analogs |
 
 **Suggests** — never installed automatically:
@@ -95,8 +95,8 @@ No root at runtime, and nothing system-wide: the daemon is a per-user process
 whose entire world is `~/.tower` and the `env` block of
 `~/.claude/settings.json`. No PPA, no pip, no third-party Python packages — the
 GTK bindings above are the distro's own. Keep-awake, including the lid-closed
-mode, needs no password (logind grants the inhibitor to any user), which is the
-one place Linux is *less* demanding than macOS.
+mode, needs no password on either OS (logind grants the inhibitor to any user;
+macOS gets the lid through IOKit's clamshell call).
 
 ### To build it, rather than install it
 
@@ -158,8 +158,8 @@ Middle-click opens the panel directly. Closing the panel never stops the guard.
 Turning the guard off and quitting are warned and confirmed **twice**, and the
 warning quotes how many agents are working right now (they would start sending
 unguarded requests immediately); quitting also quotes how many chats are pinned
-to the proxy and will lose their connection until restarted. Same rule, same
-numbers, as the app and the TUI.
+to the proxy — they keep working through a lingering relay, but unguarded,
+until Tower is reopened. Same rule, same numbers, as the app and the TUI.
 
 ### Why AppIndicator, and what GNOME needs
 
@@ -180,14 +180,13 @@ toolkit, GTK is Ubuntu's, and neither arrives through pip.
 
 ## What differs from macOS
 
-Four edges, all in `src/_linux.py`:
+Three edges, in `src/_linux.py` and behind `IS_LINUX` in the daemon:
 
 | | macOS | Linux |
 |---|---|---|
-| Keep-awake | `caffeinate` + `pmset disablesleep` (lid mode needs an admin password and a sudoers rule) | `systemd-inhibit` — covers idle, sleep **and the lid switch**, for any user |
-| A process's cwd | `lsof -d cwd` | `readlink /proc/<pid>/cwd` |
-| Who is connected to the guard | `lsof -iTCP@127.0.0.1:<port>` | `/proc/net/tcp{,6}` inodes → `/proc/<pid>/fd` |
-| Focus an agent's tab | Terminal.app / iTerm2 via `osascript`, then tmux | tmux only; otherwise the dashboard hands you `claude --resume <id>` |
+| Keep-awake | `caffeinate -w <pid>` + IOKit's clamshell call for the lid (no password) | `systemd-inhibit` — idle, sleep **and the lid switch**, for any user; its holder watches the daemon's pid, so even a kill -9 releases it |
+| A process's cwd | libproc (`lsof -d cwd` as fallback) | `readlink /proc/<pid>/cwd` |
+| Focus an agent's tab | Terminal.app / iTerm2 via `osascript`, then tmux | tmux only |
 
 Two macOS concerns simply do not exist here:
 
@@ -196,9 +195,8 @@ Two macOS concerns simply do not exist here:
   permission prompt attributed to Tower. Linux has no such prompt, so
   `_PROTECTED_ROOTS` is empty and the agent monitor reads git roots and
   branches for agents working anywhere.
-- **No admin password, ever.** The lid-closed keep-awake mode is the one macOS
-  feature that needs `sudo`; logind grants the same inhibitor lock to any user,
-  so on Linux it is free.
+- **No admin password, ever** — on either OS. logind grants the inhibitor
+  lock, lid included, to any user.
 
 Everything else is shared code: the proxy, the fail-closed gate, multi-source
 geolocation, the network probe, `claude -p /usage` parsing, the transcript
@@ -228,6 +226,8 @@ check.
 
 Removing the package stops any running daemon first (so each one un-routes on
 its way out) and leaves `~/.tower` alone. To clear it: `rm -rf ~/.tower`.
+Upgrading stops nothing: a running guard keeps guarding — and keeps the proxy
+port your open chats captured — until you reopen Tower on the new version.
 
 ## Not on Linux
 

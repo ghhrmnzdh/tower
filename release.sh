@@ -29,7 +29,7 @@ ZIP="$HERE/Tower.app.zip"
 # links to itself rather than sending its users upstream.
 REPO="$(git -C "$HERE" remote get-url origin 2>/dev/null \
         | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')"
-REPO="${REPO:-imanimen/tower}"
+REPO="${REPO:-ghhrmnzdh/tower}"
 
 DRAFT=""
 [ "${1:-}" = "--draft" ] && DRAFT="--draft"
@@ -57,10 +57,10 @@ echo "▸ packaging $ZIP"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 
-# Create-if-missing, then upload with --clobber. The deb workflow does exactly
-# the same from CI for tower_all.deb, so the Mac app and the Debian package land
-# on one release in whichever order they finish, and re-running either side
-# replaces only its own asset.
+# Create-if-missing, then upload with --clobber. This script owns the release
+# (its notes, Tower.app.zip); publishing it triggers the deb workflow, which
+# only attaches tower_all.deb — so re-running either side replaces only its own
+# asset.
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "▸ $TAG exists — replacing its asset"
   gh release upload "$TAG" "$ZIP" --clobber
@@ -92,8 +92,8 @@ sudo apt install ./tower_all.deb
 tower-tray
 \`\`\`
 
-It is attached by CI on the tag, so it may appear a few minutes after this
-release does. Details and the full requirement list: [docs/LINUX.md](https://github.com/$REPO/blob/main/docs/LINUX.md).
+It is attached by CI once this release is published, so it may appear a few
+minutes after it. Details and the full requirement list: [docs/LINUX.md](https://github.com/$REPO/blob/main/docs/LINUX.md).
 
 ### Downloading by hand instead?
 
