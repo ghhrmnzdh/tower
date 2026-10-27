@@ -39,12 +39,20 @@ except ImportError:                       # zoneinfo is stdlib on 3.9+
 # Platform split. Everything Unix-only (fcntl lock, caffeinate/pmset keep-awake,
 # ps/lsof process scan, osascript focus, os.setsid) lives behind IS_WINDOWS; the
 # Windows equivalents (named mutex, SetThreadExecutionState, toolhelp snapshot)
-# live in _win.py, imported only here. macOS/Linux behavior is unchanged.
+# live in _win.py, imported only here.
+#
+# Linux is POSIX like macOS — same fcntl lock, same `ps` table, same setsid —
+# but it is not macOS: there is no caffeinate/IOKit, no osascript, no TCC, and
+# /proc answers what macOS needs lsof/libproc for. Those edges live in
+# _linux.py behind IS_LINUX. macOS behavior is unchanged everywhere.
 IS_WINDOWS = os.name == "nt"
+IS_LINUX = sys.platform.startswith("linux")
 if IS_WINDOWS:
     import _win
 else:
     import fcntl
+if IS_LINUX:
+    import _linux
 
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(HOME, ".tower")
@@ -80,10 +88,10 @@ PROBE_PROJECT_DIR = re.sub(r"[^A-Za-z0-9]", "-", CONFIG_DIR)
 # string, no I/O); we simply skip the git-root/branch/collision file reads for
 # it. See the "Never trip a TCC prompt" invariant in CLAUDE.md. (/Volumes covers
 # external/network disks, also gated by TCC on recent macOS.)
-# Windows has no TCC prompt system, so nothing is "protected" there — the agent
-# monitor can read git roots/branches freely. Empty tuple ⇒ _is_protected is a
+# Windows and Linux have no TCC prompt system, so nothing is "protected" there —
+# the agent monitor can read git roots/branches freely. Empty tuple ⇒ _is_protected is a
 # no-op (always False). The macOS list (and hardcoded /Volumes) stays as-is.
-if IS_WINDOWS:
+if IS_WINDOWS or IS_LINUX:
     _PROTECTED_ROOTS = ()
 else:
     _PROTECTED_ROOTS = tuple(os.path.join(HOME, d) for d in (
@@ -310,6 +318,8 @@ class State:
         self._awake_poke = threading.Event()
         self._awake_held = False
         self._lid_held = False
+        self._inhibit_want = None   # Linux: the logind lock currently asked for
+        self._inhibit_failed = False
         self._caffeinate = None
 
         # real plan usage, fetched by running `claude -p /usage` (no creds read)
@@ -1922,7 +1932,10 @@ class ProcScanner:
                 pid, ppid = int(parts[0]), int(parts[1])
             except ValueError:
                 continue
-            tty = parts[2] if parts[2] not in ("??", "-") else None
+            # No controlling terminal: macOS `ps` prints "??", Linux "?".
+            # Getting this wrong on Linux would type every headless agent as
+            # "interactive" and make it focusable at a tty that isn't there.
+            tty = parts[2] if parts[2] not in ("??", "?", "-") else None
             # ps STAT: a leading 'T' (or 't', traced) is a SIGSTOP-suspended
             # process. It writes nothing while frozen, so the transcript goes
             # silent exactly like an API stall — distinguish the two here so a
@@ -1994,6 +2007,12 @@ class ProcScanner:
             return None
         if pid in self._cwd_cache:
             return self._cwd_cache[pid]
+        if IS_LINUX:
+            # /proc/<pid>/cwd is the answer lsof would go looking for anyway,
+            # minus the subprocess (and Ubuntu doesn't ship lsof by default).
+            cwd = _linux.proc_cwd(pid)
+            self._cwd_cache[pid] = cwd
+            return cwd
         if self._libproc is not None:
             cwd = self._libproc.cwd(pid)
             if cwd:
@@ -2829,7 +2848,11 @@ class AgentMonitor:
         return {"ok": True, "dismissed": bool(on)}
 
     def focus(self, session_id):
-        """Bring the session's terminal tab frontmost. Never raises."""
+        """Bring the session's terminal tab frontmost. Never raises.
+
+        Linux has no osascript/Terminal.app to ask and no portable way to raise
+        an arbitrary terminal emulator's tab, so tmux is the only real path
+        there; anything else answers with the resume fallback."""
         if IS_WINDOWS:
             # No osascript/tmux tab-raising analog on Windows (and no tty to
             # match a tab by). Offer the resume command as the fallback.
@@ -2860,13 +2883,15 @@ class AgentMonitor:
                 '  end repeat\n'
                 'end tell\n'
                 'return "notfound"')
-            try:
-                r = subprocess.run(["osascript", "-e", script],
-                                   capture_output=True, text=True, timeout=15)
-                if r.returncode == 0 and "ok" in (r.stdout or ""):
-                    return {"ok": True, "via": "terminal"}
-            except Exception:  # noqa: BLE001
-                pass
+            if not IS_LINUX:
+                try:
+                    r = subprocess.run(["osascript", "-e", script],
+                                       capture_output=True, text=True,
+                                       timeout=15)
+                    if r.returncode == 0 and "ok" in (r.stdout or ""):
+                        return {"ok": True, "via": "terminal"}
+                except Exception:  # noqa: BLE001
+                    pass
             # tmux fallback: match the pane by its tty
             try:
                 r = subprocess.run(
@@ -2886,7 +2911,7 @@ class AgentMonitor:
             except Exception:  # noqa: BLE001
                 pass
             # iTerm2 branch — coded but untested (not installed here)
-            if os.path.isdir("/Applications/iTerm.app"):
+            if not IS_LINUX and os.path.isdir("/Applications/iTerm.app"):
                 it = (
                     'tell application "iTerm2"\n'
                     '  repeat with w in windows\n'
@@ -3198,6 +3223,7 @@ def _claude_candidates():
            os.path.join(h, ".claude", "local", "claude"),   # legacy local install
            "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude",
            os.path.join(h, ".npm-global", "bin", "claude"),
+           "/snap/bin/claude",                              # Snap (Linux)
            os.path.join(h, ".volta", "bin", "claude"),
            os.path.join(h, ".bun", "bin", "claude"),
            os.path.join(h, "Library", "pnpm", "claude"),
@@ -3420,7 +3446,13 @@ def _claude_env(claude=None):
     env["ZDOTDIR"] = USAGE_NORC_DIR     # zsh sources $ZDOTDIR/.z* → none exist
     env["ENV"] = ""                     # sh: no startup file
     env["BASH_ENV"] = ""                # bash non-interactive: no startup file
-    extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    if IS_LINUX:
+        # No Homebrew; do include ~/.local/bin and /snap/bin, which is where a
+        # user-scoped node/claude lives and which a systemd unit's PATH omits.
+        extra = [os.path.join(HOME, ".local", "bin"), "/usr/local/bin",
+                 "/usr/bin", "/bin", "/snap/bin"]
+    else:
+        extra = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
     if claude:
         own = [os.path.dirname(claude), os.path.dirname(os.path.realpath(claude))]
         extra = list(dict.fromkeys(own + extra))
@@ -3802,6 +3834,8 @@ def reset_to_default():
             backups.append(SETTINGS_BAK)
     if IS_WINDOWS:
         _win.keepawake(False)       # no pmset/sudoers on Windows
+    elif IS_LINUX:
+        pass                        # the inhibitor lock dies with its holder
     else:
         _pmset_nopasswd("0")
         if os.path.exists(SUDOERS_FILE):
@@ -3862,8 +3896,8 @@ def _lid_sleep_disabled(disable):
     """Stop (True) or restore (False) sleep-on-lid-close. No root, no prompt.
     Returns True when the kernel accepted it."""
     global _rootdomain
-    if IS_WINDOWS:
-        return False
+    if sys.platform != "darwin":
+        return False                # IOKit is macOS-only (Linux: logind lock)
     try:
         import ctypes
         if _rootdomain is None:
@@ -3928,6 +3962,40 @@ def _awake_apply(state, hold, lid):
     if IS_WINDOWS:
         if hold != state._awake_held:
             _win.keepawake(hold)    # this thread owns the execution state
+    elif IS_LINUX:
+        # logind does idle, sleep AND the lid for any user — no admin. One
+        # `systemd-inhibit` holder per decision, restarted only when the
+        # decision changes (idle ↔ lid). The holder watches the daemon's pid,
+        # so a kill -9 can't leave the machine unable to sleep. A holder that
+        # dies on its own (polkit denial over SSH, no logind) is logged once,
+        # not retried every tick, and `holding` reports what's really held.
+        want = ("clamshell" if lid else "idle") if hold else None
+        alive = state._caffeinate is not None and state._caffeinate.poll() is None
+        if want != state._inhibit_want:
+            if alive:
+                try:
+                    state._caffeinate.terminate()
+                    state._caffeinate.wait(timeout=3)
+                except Exception:  # noqa: BLE001
+                    pass
+            state._caffeinate, state._inhibit_want = None, want
+            state._inhibit_failed = False
+            argv = _linux.keepawake_argv(want, os.getpid()) if want else None
+            if want and argv is None:
+                log("keep-awake: systemd-inhibit not found")
+                state._inhibit_failed = True
+            elif argv:
+                try:
+                    state._caffeinate = subprocess.Popen(
+                        argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception as e:  # noqa: BLE001
+                    log(f"keep-awake: systemd-inhibit start failed: {e}")
+                    state._inhibit_failed = True
+        elif want and not alive and not state._inhibit_failed:
+            log("keep-awake: the systemd-inhibit lock was refused or lost")
+            state._inhibit_failed = True
+        hold = state._caffeinate is not None and state._caffeinate.poll() is None
+        state._lid_held = hold and lid
     else:
         alive = state._caffeinate is not None and state._caffeinate.poll() is None
         if hold and not alive:
@@ -4034,6 +4102,10 @@ def build_state(state, usage, net, agents):
                               if state._caffeinate
                               and state._caffeinate.poll() is None else None),
         },
+        # Which OS produced this state. Front-ends read it instead of guessing
+        # from their own platform (lid mode, whether a tab can be focused).
+        "platform": ("windows" if IS_WINDOWS
+                     else "linux" if IS_LINUX else "macos"),
         "version": "3.0",
     }
 
@@ -4125,11 +4197,14 @@ def dispatch(state, usage, net, agents, req):
     if cmd == "removekeepawake":
         if IS_WINDOWS:
             _win.keepawake(False)   # no persistent permission to remove
+        elif IS_LINUX:
+            pass                    # nothing persistent: a logind lock, held by a child
         else:
             _remove_clamshell_rule()
             state._lid_held = False
         set_keepawake(state, False, "off")
-        return {"removed": IS_WINDOWS or not os.path.exists(SUDOERS_FILE)}
+        return {"removed": (IS_WINDOWS or IS_LINUX
+                            or not os.path.exists(SUDOERS_FILE))}
     if cmd == "theme":
         state.theme = str(req.get("theme", "Daybreak"))
         state.cfg["theme"] = state.theme
@@ -4482,7 +4557,7 @@ def main():
     # outlives the process — the Mac would then never sleep, lid closed, in a
     # bag. If Tower's rule is installed, assume a lingering disablesleep is ours
     # and clear it; keepawake_loop re-takes it only if the policy wants it.
-    if not IS_WINDOWS:
+    if sys.platform == "darwin":
         _lid_sleep_disabled(False)      # a crashed predecessor's lid hold
         # Older versions held the lid with `pmset disablesleep` (root).
         if os.path.exists(SUDOERS_FILE) and _sleep_disabled():

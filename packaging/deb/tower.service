@@ -1,0 +1,34 @@
+# Tower daemon, as a systemd *user* unit — the Linux analog of a macOS login
+# item. It is a user unit on purpose: everything Tower touches lives in your
+# own home (~/.tower, ~/.claude/settings.json), so a system unit would either
+# guard the wrong user or need to guess which one.
+#
+# It is NOT enabled by installing the package (a proxy daemon that rewrites
+# ~/.claude/settings.json should be something you switch on knowingly):
+#
+#     systemctl --user enable --now tower.service
+#
+# Stopping it sends SIGTERM, which the daemon handles by removing the proxy
+# from ~/.claude/settings.json before exiting — so a stopped Tower always
+# leaves Claude Code on a working direct connection.
+[Unit]
+Description=Tower — control tower for your Claude Code agents
+Documentation=https://github.com/imanimen/tower
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/towerd
+# A systemd user unit inherits almost no PATH, and Claude Code is usually a
+# user-scoped npm install. `claude -p /usage` is how Tower reads real plan
+# usage, so it has to be findable from here.
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:%h/bin:/usr/local/bin:/usr/bin:/bin:/snap/bin
+Restart=on-failure
+RestartSec=3
+# SIGTERM is the un-route path; give it room to finish, and never escalate to
+# SIGKILL before it has (a killed daemon leaves settings.json pointing at a
+# proxy that is gone).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,71 @@
+.TH TOWER-TRAY 1 "" "tower @VERSION@" "User Commands"
+.SH NAME
+tower\-tray \- Tower's radar in the top bar
+.SH SYNOPSIS
+.B tower-tray
+.SH DESCRIPTION
+.B tower-tray
+puts Tower's radar in your top bar and a panel behind it: guard status, network
+weather, every running Claude Code agent, your location, keep-awake, and plan
+usage. It is the Linux counterpart of Tower's macOS menu-bar app.
+.PP
+It starts
+.BR towerd (1)
+if it is not already running, so this one command arms the guard and shows it.
+Like every Tower front-end it is thin: it reads
+.I ~/.tower/state.json
+and writes command files into
+.IR ~/.tower/cmd/ .
+.SH THE MARK IS THE STATE
+The radar has five looks, one per guard state: a calm pulse with live blips
+while guarding, a rotating sweep while confirming your location, an amber
+dashed ring with sonar pings when there is no usable path to Anthropic, an
+amber ring with a fence and a lunging blip when you are off-country, and a red
+dashed ring with a hollow core when routing is off and Claude is unguarded.
+Amber means *held* — pending, and it clears itself; red means unguarded.
+.PP
+While keep-awake is on, the radar's core lights as a neutral lamp; the
+lid-closed vigil breathes. It is never amber or red, so a guard hold always
+outranks it.
+.PP
+Motion is information: a hold or a sweep animates, a clear guard with nothing
+running is completely still, and the desktop's own "reduce animations" setting
+freezes every state at a legible still frame.
+.SH USING IT
+Left-click the radar for the menu — status, the guard toggle, keep-awake,
+target country, the running agents, and
+.BR "Open Tower…" ,
+which opens the full panel. Middle-click opens the panel directly. Closing the
+panel never stops the guard.
+.SH DANGEROUS ACTIONS
+Turning the guard off and quitting Tower both let Claude reach the API
+unguarded, so each is warned and confirmed twice. The warning says how many
+agents are working right now, and quitting also says how many chats are pinned
+to the proxy and will lose their connection until restarted.
+.SH AT LOGIN
+.RS
+.B systemctl --user enable --now tower-tray.service
+.RE
+.PP
+Or copy
+.I /usr/share/applications/tower-tray.desktop
+into
+.IR ~/.config/autostart .
+.SH GNOME
+The top bar shows a StatusNotifierItem only through the shipped appindicator
+extension. Ubuntu's GNOME session enables it by default; elsewhere:
+.PP
+.RS
+.B sudo apt install gnome-shell-extension-appindicator
+.br
+.B gnome-extensions enable ubuntu-appindicators@ubuntu.com
+.RE
+.PP
+KDE, XFCE, Cinnamon and Budgie need nothing extra.
+.SH FILES
+.TP
+.I ~/.cache/tower/icons
+rendered radar frames (a cache; safe to delete)
+.SH SEE ALSO
+.BR tower (1),
+.BR towerd (1)

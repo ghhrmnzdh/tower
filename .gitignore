@@ -15,3 +15,7 @@ Tower.app.zip
 # Promo render artifacts — regenerate with `python3 promo/film/make.py all`.
 # 1200 PNG frames plus the master encode; ~2 GB, and every byte is derived.
 promo/film/out/
+
+# Debian package build — regenerate with packaging/deb/build.sh
+build/
+dist/

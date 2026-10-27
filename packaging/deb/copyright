@@ -1,0 +1,12 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: tower
+Source: https://github.com/imanimen/tower
+
+Files: *
+Copyright: Tower contributors
+License: other
+ The upstream project declares its terms in README.md as, in full:
+ "Open source. Use it, fork it, port it."
+ .
+ No formal license text is shipped upstream, so none is reproduced here.
+ If you need a specific license for redistribution, ask upstream to add one.

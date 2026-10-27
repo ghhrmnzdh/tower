@@ -1,0 +1,17 @@
+#!/bin/sh
+#
+# tower-tray — put Tower's radar in the top bar.
+#
+# The daemon starts on demand (the tray calls ensure_daemon() the same way the
+# dashboard does), so this is the only command needed to arm the guard and
+# watch it.
+set -eu
+
+TRAY=/usr/lib/tower/tower-tray.py
+
+[ -f "$TRAY" ] || {
+  echo "tower-tray: $TRAY is missing — reinstall the tower-tray package." >&2
+  exit 1
+}
+
+exec python3 "$TRAY" "$@"

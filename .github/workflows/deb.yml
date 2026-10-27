@@ -1,0 +1,113 @@
+# Build the Debian package and prove it installs and runs on every Ubuntu we
+# claim: 22.04 through 26.04. It is Architecture: all (Tower on Linux compiles
+# nothing), so it is built once and then installed into each release's
+# container.
+name: deb
+
+on:
+  push:
+    # A vX.Y.Z tag is a release: the attach job below publishes the .deb to it.
+    # No `paths:` filter here on purpose — GitHub ANDs path filters with tag
+    # pushes, which is a well-worn way to have your release workflow quietly
+    # not run. Running the matrix on every main push is the cheaper mistake.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: packaging/deb/build.sh
+      - name: lintian
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lintian
+          lintian --no-tag-display-limit dist/*.deb || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  install:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Ubuntu the README claims. Plain `docker run` rather than a
+        # `container:` job so the smoke test runs on the release's own Python
+        # with nothing from the runner leaking in.
+        image: ['ubuntu:22.04', 'ubuntu:24.04', 'ubuntu:26.04']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: dist
+      - name: install, run, un-route, remove on ${{ matrix.image }}
+        run: |
+          DEB=$(ls dist/tower_*.deb | head -1)
+          docker run --rm -v "$PWD:/pkg" -w /pkg "${{ matrix.image }}" \
+            bash packaging/deb/ci-smoke.sh "$DEB"
+
+  # Publish the .deb to the release for this tag — reached either by pushing a
+  # vX.Y.Z tag or by publishing a release in the UI, so it does not matter which
+  # happens first. release.sh does the same dance from a Mac for Tower.app.zip:
+  # create the release if it isn't there yet, then upload with --clobber. That
+  # way the two assets land on one release in any order, and re-running either
+  # side just replaces its own file.
+  attach:
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    needs: [build, install]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+      - name: publish tower_all.deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-${GITHUB_REF#refs/tags/}}"
+          VERSION="${TAG#v}"
+          # A version-less asset name so the install line in the README can be
+          # a fixed URL under /releases/latest/download — the same reason
+          # Tower.app.zip carries no version.
+          mv "tower_${VERSION}_all.deb" tower_all.deb
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            # --notes-file, not --notes: this run block is an indented YAML
+            # scalar, and any inline multi-line string would carry that
+            # indentation into the notes, where four leading spaces is a
+            # markdown code block.
+            printf '%s\n' \
+              'Debian/Ubuntu — the daemon, the terminal dashboard and the' \
+              'radar for your top bar, in one package (Ubuntu 22.04 to 26.04,' \
+              'amd64 and arm64).' \
+              '' \
+              '```sh' \
+              'sudo apt install ./tower_all.deb' \
+              'tower-tray' \
+              '```' \
+              '' \
+              "Requirements and details: [docs/LINUX.md](https://github.com/$REPO/blob/main/docs/LINUX.md)." \
+              '' \
+              'The macOS app (`Tower.app.zip`) is published from a Mac by' \
+              '`release.sh` and may appear here separately.' \
+              > notes.md
+            gh release create "$TAG" --repo "$REPO" \
+              --title "Tower $VERSION" --notes-file notes.md
+          fi
+          gh release upload "$TAG" tower_all.deb --clobber --repo "$REPO"
+          gh release view "$TAG" --repo "$REPO" --json url -q .url

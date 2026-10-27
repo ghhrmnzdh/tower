@@ -1,0 +1,33 @@
+Package: tower
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: @MAINTAINER@
+Depends: python3 (>= 3.9), procps
+Recommends: systemd, tmux, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0,
+ gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1
+Suggests: nodejs, gnome-shell-extension-appindicator
+Homepage: https://github.com/imanimen/tower
+Installed-Size: @SIZE@
+Description: control tower for your Claude Code agents
+ Tower pins Claude Code to a country (the fence), isolates network faults
+ (the weather), watches plan usage, and monitors every running Claude agent.
+ .
+ One daemon owns all the logic and state; the front-ends are thin. This package
+ has both of them: "tower-tray" puts the radar in your top bar with a panel
+ behind it — the counterpart of Tower's macOS menu-bar app — and "tower" is the
+ curses terminal dashboard, which needs no graphical session at all.
+ .
+ The guard is fail-closed: a Claude request is allowed only when Tower has
+ *confirmed* you are inside the target country and that there is a usable
+ network path to Anthropic. Anything uncertain is held and answered 503, which
+ Claude Code shows as its own "Retrying" spinner, so a blocked request is
+ pending rather than failed and resumes on its own.
+ .
+ Routing is installed by editing the "env" block of ~/.claude/settings.json
+ only — never a shell alias — and it is removed again on every clean exit.
+ .
+ GTK is a Recommends, not a Depends, so the daemon and the terminal dashboard
+ still install on a headless machine (apt install --no-install-recommends). The
+ top bar needs those packages; without them "tower-tray" says so and names them.

@@ -43,8 +43,20 @@ no app, no `swiftc`. From a checkout: `python3 src/tower-tui.py`.
 
 </details>
 
+**On Ubuntu or Debian?** There's a package on every release — daemon,
+dashboard and the radar for your top bar, all in one:
+
+```sh
+curl -fLO https://github.com/imanimen/tower/releases/latest/download/tower_all.deb
+sudo apt install ./tower_all.deb
+tower-tray                                 # the radar in your top bar
+```
+
+Ubuntu 22.04 → 26.04, amd64 and arm64. See [Linux](#linux-debianubuntu).
+
 Requires macOS 14+ on Apple Silicon, Python 3.8+, and Claude Code.
-(Windows: the daemon and terminal dashboard run today, [experimentally](#windows-experimental).)
+(Linux: [daemon, dashboard and a top-bar radar, packaged](#linux-debianubuntu).
+Windows: the daemon and dashboard, [experimentally](#windows-experimental).)
 
 ---
 
@@ -232,12 +244,16 @@ tower/
 ├── build.sh                     # assembles the .app from src/
 ├── release.sh                   # builds, packages and publishes a release
 ├── site/                        # the landing page + install.sh (→ gh-pages)
-├── docs/                        # ARCHITECTURE, DESIGN, APP, TUI
+├── packaging/deb/               # the Debian/Ubuntu package (build.sh, unit, docs)
+├── docs/                        # ARCHITECTURE, DESIGN, APP, TUI, LINUX
 ├── windows_plan.md              # plan to port this to Windows
 └── src/
     ├── towerd.py               # the daemon (proxy + geo + usage + net + agents + IPC)
     ├── *.swift                  # native menubar app (AppKit + SwiftUI); Glyph.swift = the marks
     ├── tower-tui.py            # terminal dashboard (curses)
+    ├── tower-tray.py           # Linux top-bar radar (GTK3 + AppIndicator)
+    ├── _linux.py                # the Linux edges (systemd-inhibit, /proc)
+    ├── _win.py, _wincurses.py   # the Windows edges (mutex, keep-awake, curses shim)
     ├── Info.plist
     └── AppIcon.icns
 ```
@@ -263,6 +279,8 @@ codebase small and the [Windows port](windows_plan.md) straightforward.
 ## Requirements
 
 - **macOS 14+**, Apple Silicon — for the full experience (menubar app + TUI).
+- **Ubuntu 22.04+ / Debian 12+** — daemon, terminal dashboard **and a top-bar
+  radar**, in one `.deb`; see [Linux](#linux-debianubuntu) below.
 - **Windows 10/11** — daemon + terminal dashboard only, and **experimental**;
   see [Windows](#windows-experimental) below.
 - **Python 3.8+** on `PATH` (macOS ships one; Homebrew or python.org also fine).
@@ -273,6 +291,89 @@ No root, no daemons installed system-wide (except the optional keep-awake
 "lid-closed" mode, which asks for admin once and can be fully removed).
 Nothing leaves your machine but the public-IP country lookup and the network
 probes.
+
+---
+
+## Linux (Debian/Ubuntu)
+
+All three parts run on Linux, packaged: the daemon, the terminal dashboard, and
+**the radar in your top bar** — the Linux counterpart of the macOS menu-bar app.
+
+```sh
+curl -fLO https://github.com/imanimen/tower/releases/latest/download/tower_all.deb
+sudo apt install ./tower_all.deb
+
+tower-tray                                 # the radar in your top bar
+tower                                      # the terminal dashboard
+systemctl --user enable --now tower-tray   # the radar there from login
+```
+
+`tower_all.deb` carries no version in its name on purpose, so that URL is
+always the newest one — the same reason `Tower.app.zip` doesn't either. CI
+builds it from the tag and attaches it to the release, after running the
+install/run/remove matrix below against it.
+
+One package, everything in it. Either front-end starts the daemon on demand.
+
+**Requirements.** `Depends` is only `python3 (>= 3.9)` and `procps` — both on a
+stock Ubuntu, and `procps` just for the `ps` table the agent monitor reads.
+Everything the top bar needs is a **Recommends** (`python3-gi`,
+`python3-gi-cairo`, `gir1.2-gtk-3.0`, `gir1.2-ayatanaappindicator3-0.1`), so
+apt pulls it by default on a desktop while `--no-install-recommends` still arms
+the guard on a headless build box without dragging GTK onto a server. `tmux`
+(to raise an agent's tab) and `systemd` (the user units) are Recommends too;
+`gnome-shell-extension-appindicator` is a *Suggests*, since as a Recommends it
+would pull all of GNOME Shell. Without the GTK set, `tower-tray` exits with one
+line naming those four packages. No root at runtime, no pip, no PPA, no
+third-party Python — and Claude Code itself is the one thing apt cannot install
+for you. Full table: **[docs/LINUX.md](docs/LINUX.md#requirements)**.
+
+**Ubuntu 22.04, 24.04 and 26.04 are tested in CI** — install without
+recommends, run, un-route on `SIGTERM`, remove; plus both halves of that
+bargain: with no toolkit `tower-tray` names the packages it wants, and with the
+toolkit added its typelibs really import and it exits for the honest reason (no
+session). All on each release's own Python. `Architecture: all`: nothing is
+compiled, so one build covers amd64 and arm64.
+
+The top bar is a StatusNotifierItem, which KDE, XFCE, Cinnamon and Budgie show
+natively. **GNOME shows one only through its shipped appindicator extension** —
+Ubuntu's session enables it by default; if the radar doesn't appear, `sudo apt
+install gnome-shell-extension-appindicator`.
+
+Installing starts nothing on purpose — the daemon opens a proxy and edits
+`~/.claude/settings.json`, so switching it on stays your call. "On by default"
+still holds where it counts: opening either front-end starts the daemon.
+Stopping it (`systemctl --user stop tower`, `Q` in the dashboard, **Quit
+Tower** in the menu) sends `SIGTERM`, and the daemon un-routes Claude Code
+before it exits.
+
+Build it from a checkout — the only build dependency is `dpkg` itself:
+
+```sh
+packaging/deb/build.sh             # → dist/tower_<version>_all.deb
+packaging/deb/build.sh --install
+```
+
+The top-bar radar is [`src/tower-tray.py`](src/tower-tray.py) — GTK3 through
+the distro's own `python3-gi`, with the mark itself a Cairo port of
+`drawRadar()` in [`src/Glyph.swift`](src/Glyph.swift), so it is the same five
+states and the same keep-awake lamp, not a lookalike. Reduce Motion (the
+desktop's own setting) freezes each state at its legible still frame, and the
+two dangerous switch-offs are confirmed twice with the agent counts quoted,
+exactly as in the app.
+
+Four OS edges differ from macOS, all in [`src/_linux.py`](src/_linux.py):
+keep-awake is `systemd-inhibit` (which covers idle, sleep **and the lid** with
+no admin password — the one macOS feature that costs `sudo` is free here),
+and reading a process's cwd, finding who is connected to the guard, and
+focusing a tab go through `/proc` and `tmux` instead of `lsof` and `osascript`.
+There is no TCC on Linux either, so the agent monitor reads git roots and
+branches for agents working anywhere. Everything else — the proxy, the
+fail-closed gate, geolocation, the network probe, `/usage`, the transcript
+index — is the same shared daemon.
+
+Details, including where Claude Code has to be findable from a systemd user
+unit: **[docs/LINUX.md](docs/LINUX.md)**.
 
 ---
 
@@ -324,6 +425,8 @@ flag. The plan for the native tray is [windows_plan.md](windows_plan.md).
 
 ## License
 
-Open source. Use it, fork it, port it. The Windows daemon and terminal dashboard
-already run ([experimental](#windows-experimental)) — `windows_plan.md` covers
-what's left, chiefly the native tray.
+Open source. Use it, fork it, port it. It has been: on
+[Linux](#linux-debianubuntu) the daemon, the dashboard **and the top-bar
+radar** are packaged for Debian/Ubuntu; on [Windows](#windows-experimental) the
+daemon and dashboard run experimentally, and the native tray is still missing —
+`windows_plan.md` covers what that takes.

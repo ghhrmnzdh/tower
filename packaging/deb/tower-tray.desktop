@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Tower
+GenericName=Claude agent control tower
+Comment=Pin Claude Code to a country, watch plan usage, monitor every agent
+Exec=tower-tray
+Terminal=false
+Icon=tower
+Categories=Development;
+Keywords=claude;agent;proxy;geo;vpn;usage;monitor;
+StartupNotify=false
+SingleMainWindow=true
+# Copy this file into ~/.config/autostart to have the radar there at login
+# (or: systemctl --user enable --now tower-tray).
+X-GNOME-Autostart-enabled=true

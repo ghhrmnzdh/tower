@@ -1,0 +1,60 @@
+.TH TOWER 1 "" "tower @VERSION@" "User Commands"
+.SH NAME
+tower \- terminal dashboard for the Tower Claude Code guard
+.SH SYNOPSIS
+.B tower
+.SH DESCRIPTION
+.B tower
+opens the Tower terminal dashboard: your location and the country the guard is
+pinned to, network health, plan usage, and a live list of every Claude Code
+agent running on this machine.
+.PP
+It also starts
+.BR towerd (1)
+if it is not already running, so opening the dashboard is enough to arm the
+guard. The dashboard is a thin front-end: it reads
+.I ~/.tower/state.json
+and writes command files into
+.IR ~/.tower/cmd/ .
+All the logic lives in the daemon.
+.SH KEYS
+.TP
+.B c
+set the target country
+.TP
+.B w
+cycle keep-awake: off, idle, lid-closed
+.TP
+.B r
+re-check location and network now
+.TP
+.B q
+quit the dashboard (the daemon keeps running)
+.TP
+.B ?
+the full key list, in the app
+.SH FAIL-CLOSED
+Claude requests are allowed only while Tower has confirmed both that you are
+inside the target country and that there is a usable network path to Anthropic.
+Anything else — checking, cached, off-country, offline, a captive portal — is
+held and then answered 503, which Claude Code renders as its own
+.I Retrying
+spinner. A blocked request is pending, not failed, and resumes by itself when
+the condition clears. Seeing a block is Tower doing its job; quitting only
+removes the guard.
+.SH FILES
+.TP
+.I ~/.tower/state.json
+everything the daemon knows, rewritten once a second
+.TP
+.I ~/.tower/config.json
+country, theme, plan size, whether routing is on
+.TP
+.I ~/.tower/daemon.log
+.TP
+.I ~/.claude/settings.json
+where routing is installed, in the
+.B env
+block only
+.SH SEE ALSO
+.BR towerd (1)

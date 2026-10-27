@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Tower Dashboard (Terminal)
+GenericName=Claude agent control tower
+Comment=Pin Claude Code to a country, watch plan usage, monitor every agent
+Exec=tower
+Terminal=true
+Icon=tower
+Categories=Development;ConsoleOnly;
+Keywords=claude;agent;proxy;geo;vpn;usage;monitor;
+StartupNotify=false

@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# tower — open the Tower terminal dashboard (Debian/Ubuntu package).
+#
+# The macOS shim resolves the TUI inside an .app bundle; here the layout is
+# fixed by the package, so this stays deliberately dumb. It also starts the
+# daemon on demand: the TUI's own ensure_daemon() does that, which is what
+# makes "on by default" true on Linux without a system-wide login hook.
+set -eu
+
+TUI=/usr/lib/tower/tower-tui.py
+
+[ -f "$TUI" ] || {
+  echo "tower: $TUI is missing — reinstall the tower package." >&2
+  exit 1
+}
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "tower: python3 not found — the dashboard needs it." >&2
+  echo "       install it with: sudo apt install python3" >&2
+  exit 1
+}
+
+exec python3 "$TUI" "$@"
