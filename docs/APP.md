@@ -125,7 +125,7 @@ width: status and how long, branch, what it's doing, tools / files /
 subagents / errors, every subagent, what it was asked, health, details, its own
 timeline), **Network** (verdict hero, hover-able dual-series latency chart,
 speed test, live traffic), **Usage** (two even rows: plan limits as slim bars with exact countdowns beside
-the cost estimate — today, session, this week (since Monday), its pace, and the
+the cost estimate — today, session, this week (your plan's weekly window — from its reset, not Monday), its pace, and the
 mix by model; then the last 7 days in dollars beside **Where your limits go** —
 Claude's top `/usage` suggestions by share and its top subagent / skill / MCP
 server, 24 h or 7 d. Monochrome; yellow/red only past your lines), **Settings** (one short grouped form: guard; menu bar — what it shows, the

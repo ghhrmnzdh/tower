@@ -2398,7 +2398,9 @@ struct EstimatePanel: View {
                              detail: u?.today?.tokens.map { fmtTokens($0) + " tokens" }, size: 24)
                     StatTile(label: "Session", value: fmtCost(u?.session?.cost ?? 0), size: 16)
                     StatTile(label: "This week", value: fmtCost(u?.week?.cost ?? 0),
-                             detail: u?.pace?.projected_week_cost.map { "on pace for ~\(fmtCost($0))" }, size: 16)
+                             detail: u?.pace?.projected_week_cost.map { "on pace for ~\(fmtCost($0))" }
+                                ?? weekSincePhrase(u?.week), size: 16)
+                        .help(weekSincePhrase(u?.week).map { "This week runs \($0) — your plan's weekly window" } ?? "")
                 }
                 if !bm.isEmpty {
                     VStack(spacing: 8) {

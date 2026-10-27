@@ -65,7 +65,20 @@ struct GSession: Decodable {
     var tokens: Int?; var input: Int?; var output: Int?; var cache: Int?
     var cost: Double?; var msgs: Int?; var since: Double?
 }
-struct GBucket: Decodable { var tokens: Int?; var cost: Double? }
+struct GBucket: Decodable {
+    var tokens: Int?; var cost: Double?
+    /// The week only: when it began, and why — "plan" (your weekly reset) or
+    /// "calendar" (Monday, until the plan has been read).
+    var since: Double?; var basis: String?
+}
+
+/// "since Tue 10:30" — where the week began, for its tile.
+func weekSincePhrase(_ b: GBucket?) -> String? {
+    guard let t = b?.since else { return nil }
+    let f = DateFormatter()
+    f.dateFormat = b?.basis == "plan" ? "EEE HH:mm" : "EEE"
+    return (b?.basis == "plan" ? "since your reset " : "since ") + f.string(from: Date(timeIntervalSince1970: t))
+}
 struct GPace: Decodable {
     var tokens_per_active_hr: Int?; var active_hrs: Int?
     var projected_week_tokens: Int?; var projected_week_cost: Double?

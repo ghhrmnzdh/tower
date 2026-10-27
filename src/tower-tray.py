@@ -1675,10 +1675,11 @@ class Panel(Gtk.Window):
         self.est_session.set_text(
             f"session  {fmt_tok(sess.get('tokens'))} tokens · "
             f"{fmt_cost(sess.get('cost'))} · {sess.get('msgs', 0)} msgs")
+        proj = pace.get("projected_week_tokens")    # None the first day after a reset
         self.est_week.set_text(
             f"week  {fmt_tok(wk.get('tokens'))} tokens · "
-            f"{fmt_cost(wk.get('cost'))} · "
-            f"~{fmt_tok(pace.get('projected_week_tokens'))} projected")
+            f"{fmt_cost(wk.get('cost'))}"
+            + (f" · ~{fmt_tok(proj)} projected" if proj is not None else ""))
         bm = u.get("byModel") or []
         models = " · ".join(f"{_model_short(m.get('model'))} "
                             f"{fmt_tok(m.get('tokens'))}" for m in bm[:4])

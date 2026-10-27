@@ -2955,7 +2955,25 @@ class AgentMonitor:
 # Usage (reads Claude Code transcripts)
 # --------------------------------------------------------------------------- #
 USAGE_RECALC_S = 60.0   # rebuild an unchanged view at most this often (decay)
-USAGE_SERIES_DAYS = 7   # the day series; the week (since Monday) always fits inside
+USAGE_SERIES_DAYS = 7   # the day series (local days ending today)
+WEEK_S = 7 * 86400
+
+
+def _plan_week_start(plan, now):
+    """Where the plan's weekly window began: its next weekly reset (from
+    /usage) less seven days, rolled forward if a reset has passed since the
+    last read. This is *your* week — a reset on Tuesday 4pm starts it there,
+    not on Monday. None until the plan has been read."""
+    try:
+        r = float(((plan or {}).get("week") or {}).get("resets_at"))
+    except (TypeError, ValueError):
+        return None
+    start = r - WEEK_S
+    while start + WEEK_S <= now:        # the reset came and went: next window
+        start += WEEK_S
+    while start > now:                  # a reset further out than a week: odd
+        start -= WEEK_S
+    return start
 
 
 class UsageIndex:
@@ -3084,19 +3102,26 @@ class UsageIndex:
         day_starts = [time.mktime(d.timetuple()) for d in days]
         tomorrow = time.mktime((today + timedelta(days=1)).timetuple())
         today_start = day_starts[-1]
-        week_start = time.mktime(
-            (today - timedelta(days=today.weekday())).timetuple())
-        changed = self._scan(min(day_starts[0], week_start))
         now_e = time.time()
+        # The week is the plan's weekly window (it resets on your schedule);
+        # until /usage has been read, fall back to the calendar week.
+        week_start = _plan_week_start(self.state.plan, now_e)
+        week_basis = "plan"
+        if week_start is None:
+            week_start = time.mktime(
+                (today - timedelta(days=today.weekday())).timetuple())
+            week_basis = "calendar"
+        changed = self._scan(min(day_starts[0], week_start))
         # Nothing appended and the day hasn't turned: every number is the same
         # except the time-decaying ones (live tokens/min, pace), which only need
         # a refresh once a minute. Skip the full re-merge until then.
-        key = (today_start, self.state.plan_week_tokens)
+        key = (today_start, self.state.plan_week_tokens, week_start)
         if (not changed and key == self._calc_key
                 and now_e - self._calc_ts < USAGE_RECALC_S):
             return
         self._calc_key, self._calc_ts = key, now_e
-        elapsed_frac = max((now_e - week_start) / (7 * 86400.0), 1e-3)
+        elapsed_frac = max((now_e - week_start) / WEEK_S, 1e-3)
+        settled = now_e - week_start >= 86400
 
         # One row per message: a subagent transcript can repeat a message its
         # parent logged too — keep the most complete copy.
@@ -3152,8 +3177,12 @@ class UsageIndex:
         snap["pace"] = {
             "tokens_per_active_hr": int(snap["week"]["tokens"] / ahrs) if ahrs else 0,
             "active_hrs": ahrs,
-            "projected_week_tokens": int(snap["week"]["tokens"] / elapsed_frac),
-            "projected_week_cost": round(snap["week"]["cost"] / elapsed_frac, 2),
+            # A pace needs a day of the week behind it: hours after a reset,
+            # spend ÷ a sliver of the week is a wild number, not a forecast.
+            "projected_week_tokens": (int(snap["week"]["tokens"] / elapsed_frac)
+                                      if settled else None),
+            "projected_week_cost": (round(snap["week"]["cost"] / elapsed_frac, 2)
+                                    if settled else None),
             "live_tpm": live}
         plan = max(self.state.plan_week_tokens, 1)
         snap["headroom"] = {"used_week_tokens": snap["week"]["tokens"],
@@ -3169,6 +3198,10 @@ class UsageIndex:
                           for i, d in enumerate(days)]
         for k in ("today", "week"):
             snap[k]["cost"] = round(snap[k]["cost"], 2)
+        # When "this week" began, and why: "plan" = your weekly reset,
+        # "calendar" = Monday, until the plan has been read.
+        snap["week"]["since"] = round(week_start)
+        snap["week"]["basis"] = week_basis
         snap["session"]["cost"] = round(snap["session"]["cost"], 2)
         with self.lock:
             self.snapshot = snap
