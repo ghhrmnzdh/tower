@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ghhrmnzdh.github.io/tower/sitemap.xml
