@@ -12,7 +12,7 @@ read: HOME points at an empty temp dir for the run.
 
 Run it whenever the TUI's layout changes. Not published (deploy strips tools/).
 """
-import copy, curses, importlib.util, json, os, re, sys, tempfile
+import copy, curses, importlib.util, json, os, re, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -53,6 +53,19 @@ def frames():
     # (the charts bin by wall time and drifted minute to minute). The page swaps
     # the header clock for the visitor's own; nothing else reads as a date.
     now = 1793173260.0
+    # compose() reads the clock itself too (every "ago" and "up"), so hold
+    # the time module at that instant for the run
+    real = time.time, time.localtime, time.strftime
+    time.time = lambda: now
+    time.localtime = lambda t=None: real[1](now if t is None else t)
+    time.strftime = lambda f, t=None: real[2](f, time.localtime() if t is None else t)
+    try:
+        return _frames(now)
+    finally:
+        time.time, time.localtime, time.strftime = real
+
+
+def _frames(now):
     state = fixture.build(now)
     out = {}
     for name, h, w in SIZES:
