@@ -171,6 +171,12 @@ condition (your location or your connection) recovers.
   subagents still out stays working, and a session whose process exits without
   a SessionEnd is *gone*, never *failed*. Mid-work noise must never reach the
   needs-you count.
+  **Rows hold still:** working agents (and running subagents) sit in the order
+  they *started*, ties broken by id; needs-you by rank, then when it began;
+  resting by when it went quiet. Never sort a list by `last_activity`, tier or
+  anything a hook event moves: with many agents at work the rows swapped on
+  every update and clicks landed on the wrong one. Daemon `rows.sort`, app
+  `stableBefore`, TUI `agents_view`, tray `working.sort` all follow this.
 - **Claude Desktop is fenced per app, never system-wide.** Tower opens it with
   Chromium's `--proxy-server` pointed at its proxy — covering its chats and the
   Claude Code it runs. Never change the macOS system proxy / PAC settings, and

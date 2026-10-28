@@ -832,12 +832,13 @@ extension TowerModel {
             self?.send(["cmd": "enforce", "on": false]) }
     }
 
-    /// Needs-you first, then working, then everyone else by recency.
+    /// Needs-you first, then working, then everyone else, most recently quiet
+    /// first — by status change, not by activity, so the list holds still.
     var sessionsOrdered: [GAgentSession] {
         let needs = needsYou, working = workingAgents
         let seen = Set((needs + working).map(\.id))
         let rest = agentSessions.filter { !seen.contains($0.id) }
-            .sorted { ($0.last_activity ?? 0) > ($1.last_activity ?? 0) }
+            .sorted { stableBefore($1.status_since, $1.id, $0.status_since, $0.id) }
         return needs + working + rest
     }
 }

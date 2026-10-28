@@ -426,8 +426,10 @@ class AgentsView:
                 self.paused.append(("paused", x, x.get("status_since")))
             elif st in ("idle", "gone", "done", "waiting_input"):
                 self.resting += 1
-        self.working.sort(key=lambda r: -TIER_RANK.get(
-            (r[1].get("model_family") or "").lower(), -1))
+        # A fixed place per agent, by when it started: sorting by tier left
+        # same-tier agents in activity order, and they swapped on every update.
+        self.working.sort(key=lambda r: (r[1].get("started") or 0,
+                                         str(r[1].get("session_id") or "")))
         summary = ag.get("summary") if isinstance(ag.get("summary"), dict) else {}
         self.working_n = working_now(s)
         self.done_today = summary.get("done_today") or 0

@@ -346,9 +346,11 @@ def subagent_lines(sess, limit=3):
     the ones that came back, newest first. -> [(branch, node, text, right, live)]."""
     subs = [x for x in (sess.get("subagents") or []) if isinstance(x, dict)]
     run = sorted((x for x in subs if x.get("status") == "working"),
-                 key=lambda x: x.get("started") or x.get("since") or 0)
+                 key=lambda x: (x.get("started") or x.get("since") or 0,
+                                str(x.get("agent_id") or "")))
     back = sorted((x for x in subs if x.get("status") != "working"),
-                  key=lambda x: x.get("since") or 0, reverse=True)
+                  key=lambda x: (x.get("since") or 0, str(x.get("agent_id") or "")),
+                  reverse=True)
     subs = run + back
     shown, rest = subs[:limit], subs[limit:]
     now = time.time()
@@ -740,6 +742,9 @@ def agents_view(s):
             A.paused.append(("paused", x, None, sid))
         elif st in ("idle", "gone", "done"):
             A.resting.append(x)
+    # A fixed place per agent: the order they started, never their latest
+    # activity (an older daemon still sends that), so rows don't reshuffle.
+    A.working.sort(key=lambda r: (r[1].get("started") or 0, str(r[3] or "")))
     summary = ag.get("summary") or {}
     A.working_n = summary.get("working", len(A.working)) or 0
     A.done_today = summary.get("done_today", 0) or 0

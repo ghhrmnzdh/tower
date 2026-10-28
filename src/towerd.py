@@ -2617,7 +2617,10 @@ class AgentMonitor:
         # or idle since): still a row, so counts and warnings stay truthful.
         for p in getattr(self, "_unmatched", []):
             rows.append(self._placeholder(p, now))
-        rows.sort(key=lambda r: -(r["last_activity"] or 0))
+        # A stable order: when the session started, never when it last spoke.
+        # Sorting by activity reshuffled the list on every hook event, so rows
+        # swapped places under the pointer while many agents worked.
+        rows.sort(key=lambda r: (r["started"] or 0, r["session_id"] or ""))
         needs = [{"session_id": r["session_id"], "reason": r["status"],
                   "since": r["status_since"]}
                  for r in rows
@@ -2655,7 +2658,9 @@ class AgentMonitor:
         fam = _model_family(model)
         status = s["status"]
         tty = p.get("tty") if p else None
-        subs = sorted(s["subs"].values(), key=lambda x: x.get("since") or 0)
+        subs = sorted(s["subs"].values(),
+                      key=lambda x: (x.get("started") or x.get("since") or 0,
+                                     x.get("agent_id") or ""))
         return {
             "session_id": s["sid"],
             "pid": p["pid"] if p else None,

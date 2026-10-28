@@ -277,8 +277,8 @@ struct GAgentSession: Decodable, Identifiable {
     /// Running first (oldest first — the fan-out order), then finished, newest first.
     var subagentsOrdered: [GSubagent] {
         let subs = subagents ?? []
-        return subs.filter(\.working).sorted { ($0.started ?? 0) < ($1.started ?? 0) }
-            + subs.filter { !$0.working }.sorted { ($0.since ?? 0) > ($1.since ?? 0) }
+        return subs.filter(\.working).sorted { stableBefore($0.started, $0.agent_id, $1.started, $1.agent_id) }
+            + subs.filter { !$0.working }.sorted { stableBefore($1.since, $1.agent_id, $0.since, $0.agent_id) }
     }
 
     var tier: ModelTier { ModelTier(family: model_family) }
@@ -649,15 +649,17 @@ final class TowerModel: ObservableObject {
                 let ra = AgentStatus(raw: $0.status).needsYouRank ?? 9
                 let rb = AgentStatus(raw: $1.status).needsYouRank ?? 9
                 if ra != rb { return ra < rb }
-                return ($0.status_since ?? 0) < ($1.status_since ?? 0)
+                return stableBefore($0.status_since, $0.id, $1.status_since, $1.id)
             }
     }
 
-    /// Agents at work right now (working / pending grace).
+    /// Agents at work right now (working / pending grace), in the order they
+    /// started — a fixed place per agent, so a busy floor never reshuffles
+    /// under the pointer as their updates land.
     var workingAgents: [GAgentSession] {
         agentSessions
             .filter { AgentStatus(raw: $0.status) == .working }
-            .sorted { ModelTier(family: $0.model_family) > ModelTier(family: $1.model_family) }
+            .sorted { stableBefore($0.started, $0.id, $1.started, $1.id) }
     }
 
     /// Resting: idle sessions, collapsed by default.
@@ -819,6 +821,13 @@ func durString(_ secs: Double) -> String {
     if s < 60 { return "\(s)s" }
     if s < 3600 { return String(format: "%dm %02ds", s / 60, s % 60) }
     return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+}
+
+/// A total, stable order for rows: by time, then by id, so two rows that
+/// share a timestamp never trade places from one update to the next.
+func stableBefore(_ ta: Double?, _ ia: String?, _ tb: Double?, _ ib: String?) -> Bool {
+    let a = ta ?? 0, b = tb ?? 0
+    return a != b ? a < b : (ia ?? "") < (ib ?? "")
 }
 
 /// A running clock, to the second while it's short: "42s", "4m 12s", "1h 5m".
