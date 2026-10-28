@@ -60,6 +60,7 @@ const SF = {
   chevd: L('<path d="M6 9.5l6 6 6-6"/>', 2.4),
   updown: L('<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>', 2.2),
   refresh: L('<path d="M19.2 12.5a7.2 7.2 0 1 1-2.2-5.6"/><path d="M19.5 4.5v4.4h-4.4"/>', 2.2),
+  xf: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M8.7 8.7l6.6 6.6M15.3 8.7l-6.6 6.6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>',
   checkf: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M7.4 12.4l3.1 3.1 6.1-6.7" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   exf: '<circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M12 6.8v6" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="16.9" r="1.45" fill="#fff"/>',
   check: L('<path d="M5 12.5l4.5 4.5L19 7.5"/>', 2.2),
@@ -119,7 +120,7 @@ const SF = {
   leaf: L('<path d="M5 19c0-8 5-13.5 15-14-.4 9.8-6 14.6-14 14z"/><path d="M5 19c3-4 6-6.6 9.5-8.6"/>', 1.6),
   thermo: L('<path d="M10 4.8a2 2 0 0 1 4 0v9.3a4 4 0 1 1-4 0z"/><path d="M12 10v6.5"/>', 1.6),
   cpu: L('<rect x="6" y="6" width="12" height="12" rx="2.4"/><rect x="9.4" y="9.4" width="5.2" height="5.2" rx="1"/><path d="M9.5 3v3M14.5 3v3M9.5 18v3M14.5 18v3M3 9.5h3M3 14.5h3M18 9.5h3M18 14.5h3"/>', 1.5),
-  memory: L('<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7v10M11 7v10M15 7v10M5 19.5v-2.5M19 19.5v-2.5"/>', 1.4),
+  memory: L('<rect x="2.5" y="5.5" width="19" height="10" rx="1.8"/><path d="M5 15.5v3M7.4 15.5v3M9.8 15.5v3M14.2 15.5v3M16.6 15.5v3M19 15.5v3"/>', 1.4) + F('<rect x="5" y="8.2" width="3.6" height="4.6" rx=".7"/><rect x="10.2" y="8.2" width="3.6" height="4.6" rx=".7"/><rect x="15.4" y="8.2" width="3.6" height="4.6" rx=".7"/>'),
   speed: L('<path d="M4.2 16.6a8.6 8.6 0 1 1 15.6 0"/><path d="M12 13.4l4.6-4.4"/>', 1.7) + F('<circle cx="12" cy="13.6" r="1.6"/>'),
   sparkle: F('<path d="M12 2.8c.5 4.6 2.6 6.7 7.2 7.2-4.6.5-6.7 2.6-7.2 7.2-.5-4.6-2.6-6.7-7.2-7.2 4.6-.5 6.7-2.6 7.2-7.2zM18.6 15.4c.25 2 1.1 2.85 3.1 3.1-2 .25-2.85 1.1-3.1 3.1-.25-2-1.1-2.85-3.1-3.1 2-.25 2.85-1.1 3.1-3.1z"/>'),
   plug: L('<path d="M8 3v5M16 3v5M6 8h12v3.5a6 6 0 0 1-12 0zM12 17.5V21"/>', 1.6),
@@ -1023,6 +1024,50 @@ function dashHTML() {
 {
   const o = $('.orbit');
   if (o) new IntersectionObserver(es => es.forEach(e => o.classList.toggle('run', e.isIntersecting && !REDUCE))).observe(o);
+}
+
+/* the night: one long run in 3.1 and in 4.0. A playhead crosses it while
+   it is on screen; pick a fix (or a pin) to stop it and light that one. */
+{
+  const n = $('#night');
+  if (n) {
+    const ar = $('.ng-ar', n), pins = $$('.ng-pin', n), fx = $$('.ng-f', n), marks = $$('.ng-mk', n), cap = $('.ng-cap', n);
+    const X = pins.map(e => +e.style.getPropertyValue('--x')), MX = marks.map(e => +e.style.getPropertyValue('--x'));
+    let auto = !REDUCE, sel = -1, hov = -1, p = REDUCE ? 1 : 0, last = null, rest = 0, shown = -2;
+    const paint = () => {
+      ar.style.setProperty('--p', p.toFixed(4));
+      const cur = hov >= 0 ? hov : sel >= 0 ? sel : auto ? X.reduce((a, x, i) => p >= x ? i : a, -1) : -1;
+      marks.forEach((m, i) => { m.classList.toggle('lit', p >= MX[i]); m.classList.toggle('on', +m.dataset.i === cur); });
+      pins.forEach((e, i) => { e.classList.toggle('lit', p >= X[i]); e.classList.toggle('on', i === cur); });
+      fx.forEach((e, i) => e.classList.toggle('on', i === cur));
+      n.classList.toggle('pick', !auto && cur >= 0);
+      const c = cur >= 0 ? cur : Math.max(0, shown);
+      if (c !== shown && cap) { shown = c; const f = fx[c]; cap.innerHTML = `<i class="n">${$('.n', f).textContent}</i><span><b>${$('b', f).textContent}.</b> ${$('p', f).innerHTML}</span>`; }
+    };
+    const pick = i => { auto = false; n.classList.remove('auto'); sel = sel === i ? -1 : i; p = 1; paint(); };
+    pins.forEach((e, i) => e.onclick = () => pick(i));
+    fx.forEach((e, i) => { e.onclick = () => pick(i); e.onpointerenter = ev => { if (ev.pointerType === 'mouse' && !auto) { hov = i; paint(); } }; e.onpointerleave = () => { if (hov >= 0) { hov = -1; paint(); } }; });
+    n.classList.toggle('auto', auto); paint();
+    if (auto) TW.ticker(n, P => {
+      if (!auto) return false;
+      const dt = last == null || P - last > 1 ? 0 : P - last; last = P;
+      if (p < 1) p = Math.min(1, p + dt / 12); else if ((rest += dt) > 4) { rest = 0; p = 0; }
+      paint(); return true;
+    });
+  }
+}
+
+/* a chapter that should fit one desktop screen scales down to it, never up */
+{
+  const fits = $$('[data-fit]');
+  const fit = () => fits.forEach(sec => {
+    const w = $('.wrap', sec); w.style.zoom = '';
+    if (innerWidth < 1100 || innerHeight < 600) return;
+    const cs = getComputedStyle(sec), room = innerHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const k = Math.min(1, room / w.offsetHeight);
+    if (k < .995) w.style.zoom = Math.max(.72, k).toFixed(3);
+  });
+  if (fits.length) { addEventListener('resize', fit); document.fonts?.ready.then(fit); fit(); }
 }
 
 /* ── the rest: copy, your system, the nav ── */

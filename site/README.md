@@ -1,7 +1,7 @@
 # Tower — the site
 
 Two pages, `index.html` and `fa/index.html`, sharing one stylesheet and two
-scripts (`app.css`, `app.js`, `anatomy.js`). There is no build step, and **no
+scripts (`app.css`, `app.js`, `how.js`). There is no build step, and **no
 third-party origin is contacted**: the fonts are served from this folder.
 
 The page is a **showcase of the real app, running**. Every window on it is a
@@ -24,7 +24,8 @@ fa/index.html         the Persian edition (RTL)
 app.css               every style, both pages (tokens at the top)
 app.js                marks, the working day, the popover/menu-bar/dashboard
                       replicas, the director (hero + OG), page wiring
-anatomy.js            the "How it works" figure
+how.js                the "How it works" map
+img/people/           contributor avatars, saved from GitHub at 144 px
 tools/tui-frames.py   re-renders the terminal frames from src/tower-tui.py  ← not published
 tools/fixture.py      the fictional working day those frames show           ← not published
 tools/shot.mjs        headless screenshots + console errors, for looking    ← not published
@@ -63,21 +64,32 @@ itself is.
   an off-country hold and a no-path hold; the radar, the header, the network
   row, the location row, the plan and the callouts all crossfade between the
   same weights (`stackTo`).
-- **How it works is a machine, not a film.** `anatomy.js` draws Tower as a
-  solid isometric figure in the manner of the Anatomy skill
-  (github.com/wheresryan22/anatomy, MIT): Claude Code, Desktop and the web feed
-  one track; the gate lifts only while the radar has the country confirmed and
-  the probe has a path; held requests wait in the bay and go on by themselves;
-  hooks light the agent board; `/usage` moves the gauge only while the gate is
-  green. It tours pass → off-country → pass → no path on its own, and clicking
-  the radar or the probe (or `G` / `N`) takes over for ten seconds. The geometry
-  and the little engine are this page's own.
+- **How it works is a map you can click.** `how.js` lays out nine nodes
+  (Claude Code, Desktop, the web, Location, Path, Tower, Anthropic, Agents,
+  Usage) on their own places, in a wide layout and a narrow one, so nothing
+  ever sits over anything else. Six steps beside it tour the map on their own
+  (each lights its nodes and wires and dims the rest); clicking a step or a
+  node takes over. "Try a fault" holds the gate off-country or with no path:
+  requests wait in line on their own wire and go on by themselves when it
+  clears. On a phone the steps become a row of chips and the step's text reads
+  above the map.
 - **Faster is shown, not just stated.** The Faster section draws the same
   16,036 transcripts twice (`#scan` in `app.js`): 3.1 sweeps every one each
   second while its CPU trace sits near 17%; in 4.0 Tower's own 15,751 probes
   let go, and only a file that grew lights up, at about 1.5%. The meters start
   at the 3.1 value and settle on the 4.0 one. The numbers are the measured ones
-  in the copy; keep the figure and the copy in step.
+  in the copy; keep the figure and the copy in step. The chapter fits one
+  desktop screen (`data-fit` scales it down to the viewport, never up).
+- **Steadier is one night, then and now.** `#night` in `app.js`: three lanes on
+  one 17-hour clock (the pins, 3.1, 4.0), a playhead that lands each mark as it
+  passes, six fixes from the connectivity work since 3.1 (adaptive handshake
+  timeout, the 10-minute first-byte window, keepalive drop time, the 1,500
+  retry budget, the fd limit and the reset rule, the quit relay). The night is
+  illustrative; the before/after figures are Tower's real limits and
+  timeouts. A fix's story reads in the caption under the figure, never over it.
+- **Contributors are real.** `#people` names everyone in GitHub's contributor
+  list, with the avatar GitHub serves (saved here, no third-party origin) and
+  what they built. Add a card when a new contributor lands.
 - **The platforms are logos.** macOS, Linux and Windows marks (`macos`, `tux`,
   `windows` in the symbol set) sit on the install tabs, the hero, the platform
   cards and a small constellation wired to the one daemon.
@@ -241,6 +253,24 @@ so cut a release before pointing people at the Linux tab. Windows clones the
 repository and runs the TUI.
 
 ## Editing
+
+- **Spacing and radius rules.** These are checked by eye on every change, in
+  both editions:
+  - **Logical sides only** in page chrome: `padding-inline` / `margin-inline` /
+    `inset-inline`, never a four-value `padding` with different left and right.
+    The Persian page mirrors, so a physical side lands on the wrong edge (the
+    nav's Install pill once sat 16 px from one end and 6 px from the other).
+    App replicas are the exception; they stay `dir="ltr"`, as the app is.
+  - **Concentric nesting.** A control inside a rounded container sits at the
+    same inset on every side, and its radius is the container's minus that
+    inset: the nav (48 px pill) holds 36 px pills at 6 px; the install box
+    (18 px radius) holds its copy button at 8 px inset, 10 px radius.
+  - **One radius scale.** Cards 28. Blocks inside a surface (rows, tiles,
+    panels) 18. Diagram nodes 22. Icon tiles about 0.3 × their size (36 → 10,
+    40 → 12, 64 → 20). Pills and dots fully round. A new value needs a reason.
+  - **Scoped class names.** Short names (`.mk`, `.st`, `.b`, `.win`, `.wt`,
+    `.x`) are taken. Prefix a new component's classes (`.ng-`, `.how-`, `.hn`)
+    and check `app.css` for an existing global rule before reusing a word.
 
 - **Tokens** are the `:root` block at the top of `app.css`; the Persian faces
   and RTL rules sit under `html[lang=fa]`.
