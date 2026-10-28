@@ -74,7 +74,7 @@
     {"@type":"Question","name":"آیا Tower توکن Anthropic یا ترافیک من را می‌خواند؟","acceptedAnswer":{"@type":"Answer","text":"نه. مصرف پلن از دستور خود Claude Code یعنی claude -p /usage خوانده می‌شود؛ ورود را خود Claude انجام می‌دهد و Tower هیچ توکنی را نمی‌خواند. پراکسی ترافیک HTTPS را با CONNECT تونل می‌کند: فقط نام میزبان‌ها را می‌بیند و آنچه می‌فرستید را هرگز رمزگشایی نمی‌کند."}},
     {"@type":"Question","name":"Tower چطور Claude Code را در یک کشور نگه می‌دارد؟","acceptedAnswer":{"@type":"Answer","text":"یک پراکسی محلی کوچک اجرا می‌کند و Claude Code را از طریق بخش env در ~/.claude/settings.json به آن وصل می‌کند، هرگز از طریق shell شما. یک درخواست Claude فقط وقتی رد می‌شود که تأیید شده باشد داخل کشورتان هستید و مسیری قابل‌استفاده تا Anthropic دارید. در غیر این صورت چند لحظه نگه داشته می‌شود و با 503 و Retry-After جواب می‌گیرد؛ پس Claude در چرخندهٔ تلاش دوبارهٔ خودش منتظر می‌ماند و خودش ادامه می‌دهد."}},
     {"@type":"Question","name":"Tower از کجا می‌داند هر ایجنت چه می‌کند؟","acceptedAnswer":{"@type":"Answer","text":"از طریق هوک‌های خود Claude Code. Tower کنار تنظیم مسیردهی خودش در settings.json چند هوک HTTP فقط برای مشاهده اضافه می‌کند، به هوک‌های شما دست نمی‌زند و در هر خروج هوک‌های خودش را برمی‌دارد. این هوک‌ها همیشه یک 200 خالی جواب می‌گیرند: Tower هرگز جلوی چیزی را نمی‌گیرد، به جای ایجنت تصمیم نمی‌گیرد و چیزی تایپ نمی‌کند."}},
-    {"@type":"Question","name":"اگر Tower بسته شود یا از کار بیفتد چه می‌شود؟","acceptedAnswer":{"@type":"Answer","text":"هنگام خروج، اول پراکسی از settings.json برداشته می‌شود تا sessionهای جدید Claude مستقیم وصل شوند. چت‌هایی که از قبل به پراکسی وصل‌اند از طریق یک رله‌ٔ عبوری تا وقتی بسته شوند کار می‌کنند، و Tower بعدی همان پورت را پس می‌گیرد. خاموش کردن گارد یا خروج، دو بار تأیید می‌شود."}},
+    {"@type":"Question","name":"اگر Tower بسته شود یا از کار بیفتد چه می‌شود؟","acceptedAnswer":{"@type":"Answer","text":"هنگام خروج، اول پراکسی از settings.json برداشته می‌شود تا sessionهای جدید Claude مستقیم وصل شوند. چت‌هایی که از قبل باز بوده‌اند قطع نمی‌شوند: Tower تا وقتی بسته شوند راهشان را باز نگه می‌دارد، فقط دیگر گاردی در کار نیست. دفعهٔ بعد هم همان پورت را پس می‌گیرد. خاموش کردن گارد یا خروج، دو بار تأیید می‌شود."}},
     {"@type":"Question","name":"Tower رایگان است؟ روی Linux و Windows اجرا می‌شود؟","acceptedAnswer":{"@type":"Answer","text":"Tower رایگان و متن‌باز است. روی macOS 14 یا جدیدتر (Apple Silicon) یک اپ نوار منو، یک داشبورد بومی و یک داشبورد ترمینال است. Linux و Windows نسخه‌های کامیونیتی هستند. روی Ubuntu 22.04 تا 26.04 و Debian، یک بستهٔ deb شامل daemon، داشبورد ترمینال و یک رادار در نوار بالاست و در هر نسخه داخل CI نصب و اجرا می‌شود. روی Windows 10/11، daemon و داشبورد ترمینال یک پیش‌نمایش‌اند: نوشته و بازبینی شده‌اند، اما هنوز روی یک کامپیوتر واقعی Windows اجرا نشده‌اند."}}
   ]
 }
@@ -176,26 +176,26 @@
       <p class="lede rv d2">Claude Code، Claude Desktop و claude.ai همه از یک دروازهٔ کوچک روی مک شما به Anthropic می‌رسند. این دروازه فقط وقتی باز می‌شود که برج کشورتان را تأیید کرده باشد و مسیر باز باشد. هر چیز دیگری که می‌بینید از روی همین دستگاه خوانده می‌شود.</p></div>
     <div class="how rv d2" id="howMap">
       <div class="how-steps" role="tablist" aria-label="Tower چطور کار می‌کند، قدم به قدم">
-        <button type="button" role="tab" class="on" aria-selected="true"><i>01</i><span><b>یک در</b><p>Claude Code، Claude Desktop و claude.ai از راه Tower به Anthropic می‌رسند؛ یک پراکسی کوچک روی مک شما. Claude Code در تنظیمات خودش به آن اشاره می‌کند و Desktop و وب از داخل Tower باز می‌شوند.</p></span><u></u></button>
-        <button type="button" role="tab" aria-selected="false"><i>02</i><span><b>کشور شما</b><p>یک درخواست فقط وقتی رد می‌شود که چند منبع موقعیت توافق کنند داخل کشورتان هستید. نامطمئن، کش‌شده یا خطادار یعنی هنوز نه.</p></span><u></u></button>
-        <button type="button" role="tab" aria-selected="false"><i>03</i><span><b>یک مسیر باز</b><p>Tower همچنین بررسی می‌کند که Anthropic از جایی که هستید در دسترس باشد. آفلاین، پورتال ورود یا لبهٔ دور از دسترس درخواست‌ها را نگه می‌دارد؛ اینترنت کند همچنان رد می‌شود.</p></span><u></u></button>
-        <button type="button" role="tab" aria-selected="false"><i>04</i><span><b>نگه‌داشته، نه شکست‌خورده</b><p>وقتی یکی از بررسی‌ها رد شود، درخواست‌ها پشت دروازه منتظر می‌مانند. Claude چرخندهٔ تلاش دوبارهٔ خودش را نشان می‌دهد و همان نوبت، به محض رفع مشکل، خودش ادامه پیدا می‌کند. پایین امتحانش کنید.</p></span><u></u></button>
-        <button type="button" role="tab" aria-selected="false"><i>05</i><span><b>ایجنت‌ها، زنده</b><p>هوک‌های خود Claude Code حدود ۷۰ میلی‌ثانیه بعد از هر اتفاق به Tower می‌گویند هر ایجنت و ساب‌ایجنت چه می‌کند. Tower فقط گوش می‌دهد و هیچ‌وقت هدایت نمی‌کند.</p></span><u></u></button>
-        <button type="button" role="tab" aria-selected="false"><i>06</i><span><b>مصرف واقعی</b><p>سقف‌های پلن از <code>/usage</code> خود Claude Code می‌آید؛ از راه دروازه و فقط وقتی باز است. ورود با Claude است؛ Tower هیچ توکنی نمی‌خواند.</p></span><u></u></button>
+        <button type="button" role="tab" class="on" aria-selected="true"><i>01</i><span><b>یک در برای همه</b><p>Claude Code، Claude Desktop و claude.ai همه از یک در رد می‌شوند: Tower، یک پراکسی کوچک روی مک خودتان. Claude Code در تنظیمات خودش به آن وصل است؛ Desktop و نسخهٔ وب را هم از داخل Tower باز می‌کنید.</p></span><u></u></button>
+        <button type="button" role="tab" aria-selected="false"><i>02</i><span><b>کشور شما</b><p>درخواست فقط وقتی رد می‌شود که چند منبع موقعیت با هم بگویند داخل کشورتان هستید. شک، کش یا خطا یعنی فعلاً نه.</p></span><u></u></button>
+        <button type="button" role="tab" aria-selected="false"><i>03</i><span><b>راه باز</b><p>Tower مطمئن می‌شود Anthropic از همان‌جایی که هستید در دسترس است. آفلاین، پورتال ورود یا سرور دور از دسترس یعنی صبر؛ اینترنتِ کند ولی سالم، رد می‌شود.</p></span><u></u></button>
+        <button type="button" role="tab" aria-selected="false"><i>04</i><span><b>منتظر، نه شکست‌خورده</b><p>اگر یکی از این دو بررسی رد شود، درخواست‌ها پشت در منتظر می‌مانند. Claude همان چرخندهٔ تلاش دوباره‌اش را نشان می‌دهد و به محض باز شدن راه، همان نوبت خودش ادامه پیدا می‌کند. پایین امتحانش کنید.</p></span><u></u></button>
+        <button type="button" role="tab" aria-selected="false"><i>05</i><span><b>ایجنت‌ها، زنده</b><p>هوک‌های خود Claude Code حدود ۷۰ میلی‌ثانیه بعد از هر اتفاق به Tower خبر می‌دهند هر ایجنت و ساب‌ایجنت دارد چه می‌کند. Tower فقط گوش می‌دهد، هیچ‌وقت فرمان نمی‌دهد.</p></span><u></u></button>
+        <button type="button" role="tab" aria-selected="false"><i>06</i><span><b>مصرف واقعی</b><p>سقف‌های پلن را خود Claude Code با <code>/usage</code> می‌گوید؛ از همان در و فقط وقتی باز است. ورود با Claude است و Tower هیچ‌وقت توکنی نمی‌خواند.</p></span><u></u></button>
       </div>
       <div class="card how-card">
         <p class="how-cap" aria-hidden="true"></p>
         <div class="how-stage"><div class="how-map" dir="ltr" data-s="pass">
           <svg class="how-wires" aria-hidden="true"></svg>
           <div class="hn" data-n="web" dir="rtl"><span class="ic" data-sf="globe"></span><span class="tx"><b>claude.ai</b><small>پروفایل مخصوص Tower</small></span></div>
-          <div class="hn" data-n="desk" dir="rtl"><span class="ic" data-sf="macwin"></span><span class="tx"><b>Claude Desktop</b><small>باز شده از داخل Tower</small></span></div>
+          <div class="hn" data-n="desk" dir="rtl"><span class="ic" data-sf="macwin"></span><span class="tx"><b>Claude Desktop</b><small>از داخل Tower</small></span></div>
           <div class="hn" data-n="code" dir="rtl"><span class="ic" data-sf="term"></span><span class="tx"><b>Claude Code</b><small>از راه settings.json</small></span></div>
-          <div class="hn" data-n="geo" dir="rtl"><span class="ic" data-sf="loc"></span><span class="tx"><b>موقعیت</b><small><span data-when="pass net">کانادا، تأییدشده</span><span data-when="geo">بیرون از کانادا</span></small></span></div>
+          <div class="hn" data-n="geo" dir="rtl"><span class="ic" data-sf="loc"></span><span class="tx"><b>موقعیت</b><small><span data-when="pass net">داخل کانادا، تأیید شد</span><span data-when="geo">بیرون از کانادا</span></small></span></div>
           <div class="hn" data-n="net" dir="rtl"><span class="ic" data-sf="wifi"></span><span class="tx"><b>مسیر</b><small><span data-when="pass geo">در دسترس · 214 ms</span><span data-when="net">آفلاین · بی‌مسیر</span></small></span></div>
           <div class="hn hg" data-n="gate"><span class="rd"></span><span class="tx"><b>Tower</b><small class="m">127.0.0.1:8888</small><em><span data-when="pass">باز</span><span data-when="geo net">نگه‌داشته · 503</span></em></span></div>
           <div class="hn" data-n="api" dir="rtl"><span class="ic" data-sf="rack"></span><span class="tx"><b>Anthropic</b><small><span class="m">api.anthropic.com</span></small></span></div>
           <div class="hn" data-n="agents" dir="rtl"><span class="ic" data-sf="radio"></span><span class="tx"><b>ایجنت‌ها</b><small>۳ در کار · ۱ منتظر شما</small></span></div>
-          <div class="hn" data-n="usage" dir="rtl"><span class="ic" data-sf="gauge"></span><span class="tx"><b>مصرف</b><small><span data-when="pass">نشست ۳۴٪ · هفته ۴۷٪</span><span data-when="geo net">تا رفع مشکل متوقف</span></small></span></div>
+          <div class="hn" data-n="usage" dir="rtl"><span class="ic" data-sf="gauge"></span><span class="tx"><b>مصرف</b><small><span data-when="pass">نشست ۳۴٪ · هفته ۴۷٪</span><span data-when="geo net">صبر تا باز شدن راه</span></small></span></div>
           <svg class="how-dots" aria-hidden="true"></svg>
         </div></div>
         <div class="how-bar"><div class="hsc" role="group" aria-label="یک خطا را امتحان کنید"><button type="button" data-s="pass" class="on" aria-pressed="true"><i data-sf="checkc"></i>در حال عبور</button><button type="button" data-s="geo" aria-pressed="false"><i data-sf="locslash"></i>VPN جابه‌جا شد</button><button type="button" data-s="net" aria-pressed="false"><i data-sf="wifislash"></i>Wi-Fi قطع شد</button></div><span class="how-ro">باز · ۰ رد شده · ۰ در انتظار</span></div>
@@ -260,7 +260,7 @@
     <div class="facts">
       <div class="card rv"><i data-sf="hold"></i><b>503، هرگز 403</b><p>Claude Code یک <code>503</code> را در چرخندهٔ خودش دوباره امتحان می‌کند و نوبت ادامه پیدا می‌کند. <code>403</code> نوبت را تمام می‌کرد، پس Tower هیچ‌وقت آن را نمی‌فرستد.</p></div>
       <div class="card rv d1"><i data-sf="lock"></i><b>هرگز رمزگشایی نمی‌کند</b><p>پراکسی HTTPS را با <code>CONNECT</code> تونل می‌کند. نام میزبان را می‌بیند، نه آنچه می‌فرستید.</p></div>
-      <div class="card rv d2"><i data-sf="plug"></i><b>پورتی که جابه‌جا نمی‌شود</b><p>هر بار همان پورت، تا چتی که دیروز شروع شده از ری‌استارت جان سالم به در ببرد. بعد از خروج هم یک رله چت‌های وصل‌شده را زنده نگه می‌دارد.</p></div>
+      <div class="card rv d2"><i data-sf="plug"></i><b>پورتی که جابه‌جا نمی‌شود</b><p>هر بار همان پورت، تا چتی که دیروز شروع کرده‌اید بعد از ری‌استارت هم سر جایش باشد. بعد از خروج هم چت‌های باز قطع نمی‌شوند؛ Tower راهشان را باز نگه می‌دارد.</p></div>
       <div class="card rv d3"><i data-sf="two"></i><b>خاموش کردن، دو بار بله</b><p>خاموش کردن گارد یا خروج اول می‌گوید همین حالا چند ایجنت در حال کارند، بعد دوباره می‌پرسد. روشن کردنش یک ضربه است.</p></div>
     </div>
   </div>
@@ -327,7 +327,7 @@
   <div class="wrap">
     <div class="head c"><span class="kicker rv"><i data-sf="bolt"></i>سریع‌تر در 4.0</span>
       <h2 class="rv d1">سبک‌تر، سریع‌تر، خنک برای هفته‌ها.</h2>
-      <p class="lede rv d2">نسخهٔ 3.1 بعد از یک روز طولانی داغ می‌کرد. 4.0 فقط روی چیزی کار می‌کند که تغییر کرده، و چیزی را که کسی نمی‌بیند نمی‌کشد.</p></div>
+      <p class="lede rv d2">3.1 بعد از یک روز طولانی داغ می‌کرد. 4.0 فقط سراغ چیزی می‌رود که عوض شده، و چیزی را که دیده نمی‌شود اصلاً نمی‌کشد.</p></div>
     <div class="cool-g">
       <div class="card scan rv d2" id="scan">
         <div class="sd v3"><div class="sc-hd"><span class="ver">3.1</span><b>قبل</b><span class="sc-ro"><span class="n">16,036</span>بازبینی در این ثانیه</span></div>
@@ -362,8 +362,8 @@
 <section id="steady" data-fit>
   <div class="wrap">
     <div class="head c"><span class="kicker rv"><i data-sf="wifi"></i>پایدارتر در 4.0</span>
-      <h2 class="rv d1">نشست‌های طولانی، بدون خطا.</h2>
-      <p class="lede rv d2">از 3.1 به این طرف، هر راهی که یک اجرای طولانی می‌توانست نوبتش را از دست بدهد پیدا و بسته شد. یک شب، دوازده ایجنت، یک VPN دور: قبل و حالا.</p></div>
+      <h2 class="rv d1">نشست‌های طولانی، بی‌هیچ خطا.</h2>
+      <p class="lede rv d2">از 3.1 تا حالا، هر چیزی که می‌توانست وسط یک کار طولانی نوبتی را به باد بدهد پیدا و درست شد. یک شب با دوازده ایجنت روی یک VPN دور؛ قبل و حالا.</p></div>
     <div class="card ng rv d2" id="night">
       <div class="ng-tl" dir="ltr">
         <div class="ng-lb"><span></span><span class="ver">3.1</span><span class="ver on">4.0</span></div>
@@ -374,20 +374,20 @@
           <div class="ng-ax"><span style="--x:0.000">ساعت ۰</span><span style="--x:0.235">۴</span><span style="--x:0.471">۸</span><span style="--x:0.706">۱۲</span><span style="--x:0.941">۱۶</span></div>
           <i class="ng-ph"></i>
         </div>
-        <div class="ng-ends" dir="rtl"><span></span><b class="bad">۳ نوبت از دست رفت · ۳ توقف</b><b class="ok">چیزی از دست نرفت · هنوز در کار</b></div>
+        <div class="ng-ends" dir="rtl"><span></span><b class="bad">۳ نوبت پرید · ۳ بار گیر کرد</b><b class="ok">هیچ نوبتی نپرید · هنوز سر کار</b></div>
       </div>
-      <div class="ng-key" dir="rtl"><span><i data-sf="xf" class="x"></i>نوبت از دست رفت</span><span><i data-sf="exf" class="w"></i>متوقف شد</span><span><i class="hk"></i>نگه‌داشته، خودش ادامه می‌دهد</span><span><i data-sf="checkf" class="ok"></i>ادامه داد</span></div>
+      <div class="ng-key" dir="rtl"><span><i data-sf="xf" class="x"></i>نوبت پرید</span><span><i data-sf="exf" class="w"></i>گیر کرد</span><span><i class="hk"></i>منتظر ماند، خودش ادامه داد</span><span><i data-sf="checkf" class="ok"></i>بی‌وقفه ادامه داد</span></div>
       <div class="ng-cap" aria-live="polite"></div>
       <div class="ng-fx">
-      <button type="button" class="ng-f" data-i="0"><span class="ng-fh"><i class="n">۱</i><i data-sf="wifi"></i></span><b>VPNهای کند رد می‌شوند</b><span class="ba"><s>مهلت ثابت</s><em aria-hidden="true">→</em><strong>تطبیقی، تا ۱۰ ثانیه</strong></span><p>بررسی دست‌دادن با لینک شما تنظیم می‌شود: سه برابرِ کندترین دست‌دادن موفق اخیر. یک VPN با ۲ تا ۴ ثانیه دیگر «در دسترس نیست» خوانده نمی‌شود.</p></button>
-      <button type="button" class="ng-f" data-i="1"><span class="ng-fh"><i class="n">۲</i><i data-sf="clock"></i></span><b>اولین بایت گفت‌وگوهای طولانی</b><span class="ba"><s>حدود ۳ دقیقه</s><em aria-hidden="true">→</em><strong>۱۰ دقیقه</strong></span><p>یک درخواست چندمگابایتی روی لینک کند، به جای قطع شدن، کل مهلت Claude را برای آپلود پیش از اولین بایت دارد.</p></button>
-      <button type="button" class="ng-f" data-i="2"><span class="ng-fh"><i class="n">۳</i><i data-sf="ecg"></i></span><b>مسیر مرده زود قطع می‌شود</b><span class="ba"><s>کل مهلت</s><em aria-hidden="true">→</em><strong>حدود ۲ دقیقه</strong></span><p>TCP keepalive وصل‌شدن دوبارهٔ VPN یا از دست رفتن مسیر NAT را می‌فهمد، پس Claude به جای انتظار روی یک تونل ساکت دوباره تلاش می‌کند.</p></button>
-      <button type="button" class="ng-f" data-i="3"><span class="ng-fh"><i class="n">۴</i><i data-sf="refresh"></i></span><b>قطعی‌ها را صبر می‌کند</b><span class="ba"><s>حدود ۳٫۵ ساعت</s><em aria-hidden="true">→</em><strong>حدود ۱۷ ساعت</strong></span><p>بودجهٔ تلاش دوباره از ۳۰۰ به ۱٬۵۰۰ رسید. بعد از یک شب طولانیِ آفلاین، همان نوبت خودش ادامه پیدا می‌کند.</p></button>
-      <button type="button" class="ng-f" data-i="4"><span class="ng-fh"><i class="n">۵</i><i data-sf="two"></i></span><b>دوازده ایجنت با هم</b><span class="ba"><s>۲۵۶</s><em aria-hidden="true">→</em><strong>۸٬۱۹۲</strong></span><p>اتصال‌های بازی که پراکسی نگه می‌دارد. چند قطعی میان ایجنت‌های زیاد دیگر همه را متوقف نمی‌کند.</p></button>
-      <button type="button" class="ng-f" data-i="5"><span class="ng-fh"><i class="n">۶</i><i data-sf="power"></i></span><b>خروج، گفت‌وگوها را زنده نگه می‌دارد</b><span class="ba"><s>ECONNREFUSED</s><em aria-hidden="true">→</em><strong>رله</strong></span><p>گفت‌وگوهای باز از راه یک رلهٔ عبوری ادامه می‌دهند، بدون گارد، تا Tower دوباره باز شود.</p></button>
+      <button type="button" class="ng-f" data-i="0"><span class="ng-fh"><i class="n">۱</i><i data-sf="wifi"></i></span><b>VPN کند؟ مشکلی نیست</b><span class="ba"><s>مهلت ثابت</s><em aria-hidden="true">→</em><strong>تطبیقی، تا ۱۰ ثانیه</strong></span><p>بررسی مسیر خودش را با سرعت اینترنت شما تنظیم می‌کند: سه برابرِ کندترین اتصال موفق اخیر. پس یک VPN دو سه ثانیه‌ای دیگر «قطع» حساب نمی‌شود.</p></button>
+      <button type="button" class="ng-f" data-i="1"><span class="ng-fh"><i class="n">۲</i><i data-sf="clock"></i></span><b>چت‌های طولانی وقت کافی دارند</b><span class="ba"><s>حدود ۳ دقیقه</s><em aria-hidden="true">→</em><strong>۱۰ دقیقه</strong></span><p>یک درخواست چندمگابایتی روی اینترنت کند، به جای قطع شدن، همهٔ مهلت Claude را برای رسیدن اولین پاسخ دارد.</p></button>
+      <button type="button" class="ng-f" data-i="2"><span class="ng-fh"><i class="n">۳</i><i data-sf="ecg"></i></span><b>اتصال مرده زود شناخته می‌شود</b><span class="ba"><s>کل مهلت</s><em aria-hidden="true">→</em><strong>حدود ۲ دقیقه</strong></span><p>اگر VPN دوباره وصل شود یا مسیر بی‌صدا قطع شود، Tower زود می‌فهمد و Claude به جای انتظار بی‌فایده، دوباره تلاش می‌کند.</p></button>
+      <button type="button" class="ng-f" data-i="3"><span class="ng-fh"><i class="n">۴</i><i data-sf="refresh"></i></span><b>قطعی طولانی؟ صبر می‌کند</b><span class="ba"><s>حدود ۳٫۵ ساعت</s><em aria-hidden="true">→</em><strong>حدود ۱۷ ساعت</strong></span><p>Claude حالا تا ۱٬۵۰۰ بار دوباره تلاش می‌کند، نه ۳۰۰ بار. یک شب کامل بی‌اینترنت هم که بگذرد، همان نوبت خودش ادامه پیدا می‌کند.</p></button>
+      <button type="button" class="ng-f" data-i="4"><span class="ng-fh"><i class="n">۵</i><i data-sf="two"></i></span><b>دوازده ایجنت، هم‌زمان</b><span class="ba"><s>۲۵۶</s><em aria-hidden="true">→</em><strong>۸٬۱۹۲</strong></span><p>این‌قدر اتصال باز را پراکسی هم‌زمان نگه می‌دارد. چند قطعی کوچک میان این‌همه ایجنت دیگر همه را متوقف نمی‌کند.</p></button>
+      <button type="button" class="ng-f" data-i="5"><span class="ng-fh"><i class="n">۶</i><i data-sf="power"></i></span><b>خروج، بی‌آنکه چتی قطع شود</b><span class="ba"><s>قطع می‌شد</s><em aria-hidden="true">→</em><strong>ادامه می‌دهد</strong></span><p>چت‌های باز بعد از خروج هم کار می‌کنند. Tower تا وقتی دوباره بازش کنید، بدون گارد، راهشان را باز نگه می‌دارد.</p></button>
       </div>
     </div>
-    <p class="small rv" style="text-align:center;margin-top:22px">یک شب نمونه. اعداد، محدودیت‌ها و مهلت‌های خود Tower هستند، در 3.1 و در 4.0.</p>
+    <p class="small rv" style="text-align:center;margin-top:22px">این شب نمونه است، اعدادش نه: همه محدودیت‌ها و مهلت‌های واقعی Tower در 3.1 و 4.0 هستند.</p>
   </div>
 </section>
 
@@ -428,13 +428,13 @@
 <section id="people">
   <div class="wrap">
     <div class="head c"><span class="kicker rv"><i data-sf="github"></i>مشارکت‌کنندگان</span>
-      <h2 class="rv d1">ساخته‌شده در فضای باز.</h2>
-      <p class="lede rv d2">کسانی که Tower را ساختند و کسانی که آن را به سیستم‌های تازه بردند. Issue و Pull Request همیشه خوش‌آمد است.</p></div>
+      <h2 class="rv d1">متن‌باز، از روز اول.</h2>
+      <p class="lede rv d2">آدم‌هایی که Tower را ساختند و به سیستم‌های تازه رساندند. هر Issue و Pull Requestی، قدمش روی چشم.</p></div>
     <div class="ppl">
       <a class="card per rv" href="https://github.com/ghhrmnzdh" target="_blank" rel="noopener"><img src="../img/people/ghhrmnzdh.jpg" alt="" width="72" height="72" loading="lazy" decoding="async"><b>Sina</b><code>@ghhrmnzdh</code><span><i data-sf="macos"></i>سازنده · اپ مک و دیمن</span><em aria-hidden="true">↗</em></a>
       <a class="card per rv d1" href="https://github.com/imanimen" target="_blank" rel="noopener"><img src="../img/people/imanimen.jpg" alt="" width="72" height="72" loading="lazy" decoding="async"><b>Iman Imen</b><code>@imanimen</code><span><i data-sf="tux"></i>نسخهٔ لینوکس · PR #2</span><em aria-hidden="true">↗</em></a>
       <a class="card per rv d2" href="https://github.com/malekzahedi" target="_blank" rel="noopener"><img src="../img/people/malekzahedi.jpg" alt="" width="72" height="72" loading="lazy" decoding="async"><b>Mohammad Malekzahedi</b><code>@malekzahedi</code><span><i data-sf="windows"></i>نسخهٔ ویندوز · PR #1</span><em aria-hidden="true">↗</em></a>
-      <a class="card per you rv d3" href="https://github.com/ghhrmnzdh/tower" target="_blank" rel="noopener"><span class="plus" aria-hidden="true">+</span><b>شما؟</b><code>یک Pull Request باز کنید</code><span>لینوکس و ویندوز با ماشین‌های واقعی رشد می‌کنند</span><em aria-hidden="true">↗</em></a>
+      <a class="card per you rv d3" href="https://github.com/ghhrmnzdh/tower" target="_blank" rel="noopener"><span class="plus" aria-hidden="true">+</span><b>شما؟</b><code>یک Pull Request باز کنید</code><span>لینوکس و ویندوز با ماشین‌های واقعی شما بهتر می‌شوند</span><em aria-hidden="true">↗</em></a>
     </div>
   </div>
 </section>
@@ -499,7 +499,7 @@
       <details><summary>آیا Tower توکن Anthropic یا ترافیک من را می‌خواند؟</summary><p>نه. مصرف پلن از دستور خود Claude Code یعنی claude -p /usage خوانده می‌شود؛ ورود را خود Claude انجام می‌دهد و Tower هیچ توکنی را نمی‌خواند. پراکسی ترافیک HTTPS را با CONNECT تونل می‌کند: فقط نام میزبان‌ها را می‌بیند و آنچه می‌فرستید را هرگز رمزگشایی نمی‌کند.</p></details>
       <details><summary>Tower چطور Claude Code را در یک کشور نگه می‌دارد؟</summary><p>یک پراکسی محلی کوچک اجرا می‌کند و Claude Code را از طریق بخش env در ~/.claude/settings.json به آن وصل می‌کند، هرگز از طریق shell شما. یک درخواست Claude فقط وقتی رد می‌شود که تأیید شده باشد داخل کشورتان هستید و مسیری قابل‌استفاده تا Anthropic دارید. در غیر این صورت چند لحظه نگه داشته می‌شود و با 503 و Retry-After جواب می‌گیرد؛ پس Claude در چرخندهٔ تلاش دوبارهٔ خودش منتظر می‌ماند و خودش ادامه می‌دهد.</p></details>
       <details><summary>Tower از کجا می‌داند هر ایجنت چه می‌کند؟</summary><p>از طریق هوک‌های خود Claude Code. Tower کنار تنظیم مسیردهی خودش در settings.json چند هوک HTTP فقط برای مشاهده اضافه می‌کند، به هوک‌های شما دست نمی‌زند و در هر خروج هوک‌های خودش را برمی‌دارد. این هوک‌ها همیشه یک 200 خالی جواب می‌گیرند: Tower هرگز جلوی چیزی را نمی‌گیرد، به جای ایجنت تصمیم نمی‌گیرد و چیزی تایپ نمی‌کند.</p></details>
-      <details><summary>اگر Tower بسته شود یا از کار بیفتد چه می‌شود؟</summary><p>هنگام خروج، اول پراکسی از settings.json برداشته می‌شود تا sessionهای جدید Claude مستقیم وصل شوند. چت‌هایی که از قبل به پراکسی وصل‌اند از طریق یک رله‌ٔ عبوری تا وقتی بسته شوند کار می‌کنند، و Tower بعدی همان پورت را پس می‌گیرد. خاموش کردن گارد یا خروج، دو بار تأیید می‌شود.</p></details>
+      <details><summary>اگر Tower بسته شود یا از کار بیفتد چه می‌شود؟</summary><p>هنگام خروج، اول پراکسی از settings.json برداشته می‌شود تا sessionهای جدید Claude مستقیم وصل شوند. چت‌هایی که از قبل باز بوده‌اند قطع نمی‌شوند: Tower تا وقتی بسته شوند راهشان را باز نگه می‌دارد، فقط دیگر گاردی در کار نیست. دفعهٔ بعد هم همان پورت را پس می‌گیرد. خاموش کردن گارد یا خروج، دو بار تأیید می‌شود.</p></details>
       <details><summary>Tower رایگان است؟ روی Linux و Windows اجرا می‌شود؟</summary><p>Tower رایگان و متن‌باز است. روی macOS 14 یا جدیدتر (Apple Silicon) یک اپ نوار منو، یک داشبورد بومی و یک داشبورد ترمینال است. Linux و Windows نسخه‌های کامیونیتی هستند. روی Ubuntu 22.04 تا 26.04 و Debian، یک بستهٔ deb شامل daemon، داشبورد ترمینال و یک رادار در نوار بالاست و در هر نسخه داخل CI نصب و اجرا می‌شود. روی Windows 10/11، daemon و داشبورد ترمینال یک پیش‌نمایش‌اند: نوشته و بازبینی شده‌اند، اما هنوز روی یک کامپیوتر واقعی Windows اجرا نشده‌اند.</p></details>
     </div>
   </div>

@@ -82,6 +82,10 @@ h1,h2{font-family:var(--display);font-weight:700;letter-spacing:-.035em;line-hei
 h1{font-size:clamp(46px,7.4vw,96px)}
 h2{font-size:clamp(38px,5.2vw,68px);margin-top:18px}
 h2 .dim,h1 .dim{background:linear-gradient(180deg,rgb(255 255 255/.5),rgb(255 255 255/.28));-webkit-background-clip:text;background-clip:text}
+/* gradient text paints only inside its box: give the descenders room
+   (Persian dots and tails reach well under the line) without moving a thing */
+h1,h2{padding-bottom:.22em;margin-bottom:-.22em}
+h2 .dim,h1 .dim{padding-block:.14em .22em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 h3{font:600 21px/1.25 var(--display);letter-spacing:-.015em;color:var(--t1)}
 .lede{font-size:clamp(17px,1.55vw,21px);line-height:1.5;color:var(--t2);max-width:640px;margin-top:22px;letter-spacing:-.005em}
 .lede b{color:var(--t1);font-weight:600}
