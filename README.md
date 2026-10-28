@@ -5,6 +5,11 @@ agents across terminal tabs and projects, Tower brings them into one view:
 what each is doing, which one needs you (blocked, asking, done), and which are
 colliding on the same repo — so none run off unwatched.
 
+[![Tower: every Claude Code agent and subagent, live, with the one that needs you on top](site/og.png)](https://ghhrmnzdh.github.io/tower/)
+
+**[See it running →](https://ghhrmnzdh.github.io/tower/)** The site replays the
+real dashboard, popover and terminal UI.
+
 ## Install
 
 One line — installs Tower to `/Applications`, puts the `tower` command on your
@@ -52,11 +57,77 @@ sudo apt install ./tower_all.deb
 tower-tray                                 # the radar in your top bar
 ```
 
-Ubuntu 22.04 → 26.04, amd64 and arm64. See [Linux](#linux-debianubuntu).
+Ubuntu 22.04 → 26.04, amd64 and arm64. See [Linux](#linux-debianubuntu-community-edition).
 
 Requires macOS 14+ on Apple Silicon, Python 3.8+, and Claude Code.
-(Linux: [daemon, dashboard and a top-bar radar, packaged](#linux-debianubuntu).
-Windows: the daemon and dashboard, [experimentally](#windows-experimental).)
+(Linux and Windows are **community editions**: Linux has the
+[daemon, dashboard and a top-bar radar, packaged](#linux-debianubuntu-community-edition);
+Windows has the daemon and dashboard as a
+[preview](#windows-community-edition-preview).)
+
+---
+
+## What's new in 4.0
+
+The biggest release yet: a new Mac app, a much lighter one, and Tower beyond
+the Mac.
+
+- **A new native dashboard on the Mac.** Overview, Agents, Network, Usage and
+  Settings in one window. The sidebar folds to an icon rail and the guard sits on
+  top of every page. The Agents page works like Mail: the list on the left, and
+  an inspector on the right with what each agent was asked, what it's doing, every
+  subagent it has out, its numbers and its timeline.
+- **A popover you compose.** Choose which sections it shows (network, agents,
+  location, keep-awake, plan) and drag them into your order. Limits show as
+  rings or bars.
+- **Agents, straight from Claude Code.** Status now arrives through Claude
+  Code's own hooks in about 70 ms, subagents included, instead of being guessed
+  from transcripts. Rows hold still: working agents stay in the order they
+  started, and only an approval, a question or a failure moves a row up.
+- **The terminal dashboard, fully featured.** `tower` fills any terminal, from
+  one card in a narrow pane to four columns on a wide screen, with the same
+  guard, agents, usage and network as the app.
+- **Claude apps through the guard.** Open Claude Desktop, and claude.ai in its
+  own browser profile, through Tower's proxy from every surface.
+- **Linux and Windows, as community editions.** Linux has the daemon, the
+  dashboard and a radar in your top bar, in one `.deb`, contributed by the
+  community ([PR #2](https://github.com/ghhrmnzdh/tower/pull/2)). Windows has the
+  daemon and the dashboard, as a preview that has not yet run on a real Windows
+  PC.
+- **Much faster and lighter.** Details below.
+
+## Faster and lighter
+
+The last release ran warm after a long day. On one Mac, 15,751 of the 16,036
+transcripts it checked every second were its own usage probes. Now Tower only
+does work for what changed, and draws nothing that nobody can see. Before and
+after, measured side by side on the same Mac:
+
+| | Before | Now | Change |
+|---|---:|---:|---:|
+| Daemon CPU | 17.3% | 1.5% | **11.5× less** |
+| Daemon memory | 156 MB | 28 MB | **5.6× less** |
+| App CPU, over a long session | 36–40% | ~8% | **~5× less** |
+| App CPU, popover closed | ~21% | ~0% | **idle** |
+| Process scan (`libproc`, was `ps`) | ~35 ms | ~1 ms | **35× faster** |
+| Usage index refresh | ~500 ms | ~11 ms | **45× faster** |
+| Agent status | guessed from transcripts | ~70 ms, via hooks | **event-driven** |
+
+How:
+
+- **Transcripts are read from where they left off**, never from the top.
+  Tower's own usage probes no longer write sessions, and the scans skip them.
+- **The daemon waits on events instead of polling.** `kqueue` watches for
+  commands, `libproc` replaces `ps`, and `state.json` is written only when
+  something changed.
+- **The app redraws only what's visible.** A closed popover or dashboard stops
+  publishing, animations pause off screen, and the menu-bar radar repaints alone
+  at 15 fps.
+- **The usage probe runs on the efficiency cores**, with no hooks, updater or
+  telemetry.
+
+The local cost estimate also stopped double-counting. Claude Code repeats a
+message's usage on every content block, so each message is now counted once.
 
 ---
 
@@ -76,12 +147,15 @@ One daemon, four jobs:
 - **Usage** — your real plan usage (mirrored from `claude -p /usage`)
   plus a clearly-labeled local token/cost estimate.
 
-Two front-ends, one daemon, one source of truth:
+One daemon, one source of truth, and a front-end for wherever you are:
 
-- **`Tower.app`** — a native menubar agent (Swift/AppKit + SwiftUI, macOS 14+).
-  No dock icon, no browser, no terminal required.
-- **Terminal dashboard** — a stdlib `curses` TUI (now with mouse support) for
-  when you live in the shell.
+- **`Tower.app`** — a native menu-bar app with a full dashboard window
+  (Swift/AppKit + SwiftUI, macOS 14+). No dock icon, no browser, no terminal
+  required.
+- **Terminal dashboard** — a stdlib `curses` TUI with mouse support that fills
+  any terminal, for when you live in the shell. Runs on macOS, Linux and Windows.
+- **Linux top-bar radar** — `tower-tray`, the Linux counterpart of the menu-bar
+  app (community edition).
 
 Both read the same `~/.tower/state.json` and drive the daemon through the
 same command files, so you can use either (or both) interchangeably. Either
@@ -279,10 +353,12 @@ codebase small and the [Windows port](windows_plan.md) straightforward.
 ## Requirements
 
 - **macOS 14+**, Apple Silicon — for the full experience (menubar app + TUI).
-- **Ubuntu 22.04+ / Debian 12+** — daemon, terminal dashboard **and a top-bar
-  radar**, in one `.deb`; see [Linux](#linux-debianubuntu) below.
-- **Windows 10/11** — daemon + terminal dashboard only, and **experimental**;
-  see [Windows](#windows-experimental) below.
+- **Ubuntu 22.04+ / Debian 12+** — *community edition*: daemon, terminal
+  dashboard **and a top-bar radar**, in one `.deb`; see
+  [Linux](#linux-debianubuntu-community-edition) below.
+- **Windows 10/11** — *community edition, preview*: daemon + terminal dashboard
+  only, never yet run on a real Windows PC; see
+  [Windows](#windows-community-edition-preview) below.
 - **Python 3.8+** on `PATH` (macOS ships one; Homebrew or python.org also fine).
 - **Xcode Command Line Tools** — only to *build* the Mac app (`xcode-select --install`).
 - **Claude Code** installed, so there are agents to tower.
@@ -294,10 +370,13 @@ probes.
 
 ---
 
-## Linux (Debian/Ubuntu)
+## Linux (Debian/Ubuntu) — community edition
 
 All three parts run on Linux, packaged: the daemon, the terminal dashboard, and
 **the radar in your top bar** — the Linux counterpart of the macOS menu-bar app.
+It is a **community edition**: the package is installed and run in CI on every
+release, but it gets far fewer hands on real desktops than the Mac app does, so
+issues and fixes from Linux users are what keep it honest.
 
 ```sh
 curl -fLO https://github.com/ghhrmnzdh/tower/releases/latest/download/tower_all.deb
@@ -379,7 +458,7 @@ unit: **[docs/LINUX.md](docs/LINUX.md)**.
 
 ---
 
-## Windows (experimental)
+## Windows — community edition (preview)
 
 The daemon and the terminal dashboard **run on Windows 10/11 today** — the same
 guard, the same fail-closed proxy, the same live state, still dependency-free.
@@ -395,10 +474,10 @@ python src\tower-tui.py
 
 or double-click **`Tower (Terminal).cmd`**, which finds Python for you.
 
-> ⚠️ **Experimental — please read.** The Windows port is written and reviewed,
+> ⚠️ **Community preview — please read.** The Windows port is written and reviewed,
 > but it has **never been run on real Windows hardware**. Expect rough edges,
 > and please [open an issue](https://github.com/ghhrmnzdh/tower/issues) with
-> what you hit — that feedback is exactly what promotes it out of experimental.
+> what you hit — that feedback is exactly what promotes it out of preview.
 > Nothing here weakens the guard: the fail-closed rule is in the shared daemon,
 > and the Windows-only shims (single-instance mutex, process enumeration) are
 > written to fail *closed* too.
@@ -428,7 +507,8 @@ flag. The plan for the native tray is [windows_plan.md](windows_plan.md).
 ## License
 
 Open source. Use it, fork it, port it. It has been: on
-[Linux](#linux-debianubuntu) the daemon, the dashboard **and the top-bar
-radar** are packaged for Debian/Ubuntu; on [Windows](#windows-experimental) the
-daemon and dashboard run experimentally, and the native tray is still missing —
+[Linux](#linux-debianubuntu-community-edition) the daemon, the dashboard **and
+the top-bar radar** are packaged for Debian/Ubuntu as a community edition; on
+[Windows](#windows-community-edition-preview) the daemon and dashboard are a
+community preview, and the native tray is still missing —
 `windows_plan.md` covers what that takes.
