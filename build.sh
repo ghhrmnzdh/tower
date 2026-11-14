@@ -22,6 +22,19 @@ echo "▸ cleaning bundle"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+# A raw ProgressView animates forever, even in a closed (still-mounted) popover
+# or dashboard; that once cost ~38% CPU idle. Spinners go through `Spinner`.
+if grep -n 'ProgressView(' src/*.swift | grep -v '^src/Components.swift:'; then
+    echo "✗ use Spinner(...) (Components.swift), not a raw ProgressView" >&2; exit 1
+fi
+# Endless motion must stop off screen: no repeatForever anywhere, and every
+# symbolEffect gated on `visible` (\.surfaceVisible).
+if grep -n 'repeatForever' src/*.swift | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*//'; then
+    echo "✗ no repeatForever: drive loops with TimelineView(paused: !visible)" >&2; exit 1
+fi
+if grep -n '\.symbolEffect(' src/*.swift | grep -v 'visible'; then
+    echo "✗ gate every symbolEffect on surfaceVisible" >&2; exit 1
+fi
 echo "▸ compiling Swift sources (this can take ~20s)"
 # -target matches Info.plist LSMinimumSystemVersion so the binary never
 # silently requires the build machine's OS (latent bug in the old script).

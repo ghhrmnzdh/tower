@@ -55,7 +55,7 @@ struct PopoverView: View {
             PopHeader(model: model)
             if !model.alive {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    Spinner(.small)
                     Text("Starting up…")
                         .font(TowerDesign.Font.activity).foregroundStyle(.secondary)
                 }
@@ -647,8 +647,8 @@ struct AgentRow: View {
                                   : "Last activity \(clock) ago")
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        if tooling && visible {     // a spinner animates even off screen
-                            ProgressView().controlSize(.mini).frame(width: 10, height: 10)
+                        if tooling {
+                            Spinner(.mini).frame(width: 10, height: 10)
                         }
                         Text(session.activity ?? "thinking…")
                             .font(TowerDesign.Font.activity)
@@ -1252,7 +1252,7 @@ struct PlanSection: View {
                     .foregroundStyle(.orange)
             } else {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
+                    Spinner(.small)
                     Text("reading /usage…").font(TowerDesign.Font.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1440,6 +1440,7 @@ struct PressReporting: ButtonStyle {
 struct SummaryCounts: View {
     let items: [(Int, String, String, Color)]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.surfaceVisible) private var visible
     var body: some View {
         let shown = items.filter { $0.0 > 0 }
         HStack(spacing: 10) {
@@ -1451,7 +1452,7 @@ struct SummaryCounts: View {
                     Image(systemName: symbol)
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(tint == .primary ? AnyShapeStyle(.secondary) : AnyShapeStyle(tint))
-                        .symbolEffect(.variableColor.iterative, isActive: symbol == "waveform" && !reduceMotion)
+                        .symbolEffect(.variableColor.iterative, isActive: symbol == "waveform" && !reduceMotion && visible)
                     Text("\(n)")
                         .font(.system(size: 11, weight: .semibold)).monospacedDigit()
                         .foregroundStyle(tint == .secondary ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))

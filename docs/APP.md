@@ -42,9 +42,13 @@ The menu bar is a single mark, the **radar**, whose state *is* the guard
 | **holdGeo** — amber ring + rotating fence + off-country blip | Wrong country / VPN — held, not failed |
 | **off** — red dashed ring, hollow core | Routing off — Claude connects directly, **unguarded** |
 
-In the menu bar it animates (~15fps) only while a state has motion to show — a hold, a
-verify sweep, or a calm scan while agents are working — and freezes under Reduce
-Motion. It also skips frames while the menu bar itself is hidden (a full-screen
+In the menu bar it animates (~15fps) only for a short burst (`menubarMotionS`, 12s)
+when its state changes. After that it holds the state's still frame: the ring's
+colour and dash carry the state, and the motion marks the change. Nothing that
+simply lasts keeps it moving, whether agents at work, an hours-long hold or
+keep-awake. On macOS 26+ every `button.image` change makes AppKit re-snapshot the
+whole status item on the CPU, so a perpetual 15fps loop cost 30–45% CPU. It
+freezes under Reduce Motion. It also skips frames while the menu bar itself is hidden (a full-screen
 app, a sleeping or locked display).
 
 The popover and dashboard stay mounted when closed, so they are kept idle off

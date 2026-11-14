@@ -2,31 +2,29 @@
 
 import SwiftUI
 
-// Modern shimmer that sweeps across the masked content while active.
+// Modern shimmer that sweeps across the masked content while active. Driven by
+// a TimelineView that is paused off screen, never a `repeatForever` animation:
+// that loop lives on in the view's @State after the overlay is removed and kept
+// a closed popover rendering every frame.
 struct Shimmer: ViewModifier {
     var active: Bool
-    @State private var phase: CGFloat = -1
     @Environment(\.surfaceVisible) private var visible
     func body(content: Content) -> some View {
         content.overlay {
-            // Off screen the sweep is dropped (not just hidden) so its
-            // repeatForever animation stops; it restarts on the next appearance.
             if active && visible {
-                GeometryReader { g in
-                    LinearGradient(colors: [.clear, Color.white.opacity(0.85), .clear],
-                                   startPoint: .leading, endPoint: .trailing)
-                        .frame(width: g.size.width * 0.6)
-                        .offset(x: phase * g.size.width * 1.5)
-                        .blendMode(.plusLighter)
+                TimelineView(.animation(minimumInterval: 1.0 / 60, paused: false)) { tl in
+                    let t = tl.date.timeIntervalSinceReferenceDate
+                    let phase = -0.8 + 1.9 * (t / 1.1).truncatingRemainder(dividingBy: 1)
+                    GeometryReader { g in
+                        LinearGradient(colors: [.clear, Color.white.opacity(0.85), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: g.size.width * 0.6)
+                            .offset(x: phase * g.size.width * 1.5)
+                            .blendMode(.plusLighter)
+                    }
                 }
                 .allowsHitTesting(false)
                 .mask(content)
-                .onAppear {
-                    phase = -0.8
-                    withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
-                        phase = 1.1
-                    }
-                }
             }
         }
     }
@@ -197,6 +195,25 @@ struct TreeRail: View {
                 p.addLine(to: CGPoint(x: x, y: size.height))
             }
             ctx.stroke(p, with: .color(.primary.opacity(0.16)), lineWidth: 1)
+        }
+    }
+}
+
+/// The only spinner Tower uses. A `ProgressView` animates forever — even in a
+/// closed popover or dashboard, which stay mounted and, while hidden, stop
+/// following the model. A spinner frozen into a hidden tree (e.g. the popover's
+/// "Starting up…" from launch) then re-rendered SwiftUI every display frame for
+/// as long as the app ran. Off screen this is a still, same-sized placeholder.
+struct Spinner: View {
+    var size: ControlSize = .small
+    @Environment(\.surfaceVisible) private var visible
+    init(_ size: ControlSize = .small) { self.size = size }
+    var body: some View {
+        if visible {
+            ProgressView().controlSize(size)
+        } else {
+            let d: CGFloat = size == .mini ? 10 : 16
+            Color.clear.frame(width: d, height: d)
         }
     }
 }

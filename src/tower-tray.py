@@ -1746,6 +1746,8 @@ class TowerTray:
         self.panel = Panel(self)
         self.panel.set_application(app)
         self.panel.connect("show", lambda _w: self._refresh_clock())
+        # Opening the panel refetches /usage only if the reading is stale.
+        self.panel.connect("show", lambda _w: send({"cmd": "planstale"}))
         self.panel.connect("hide", lambda _w: self._refresh_clock())
         self.menu = self._build_menu()
 

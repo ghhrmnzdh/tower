@@ -324,7 +324,12 @@ class State:
 
         # real plan usage, fetched by running `claude -p /usage` (no creds read)
         self.plan = None
-        self._refreshplan = threading.Event()   # "refresh now" — wakes plan_loop
+        self._refreshplan = threading.Event()   # wakes plan_loop (see the flags)
+        self._plan_force = False    # Refresh / plan toggle: fetch now, whatever its age
+        self._plan_open = False     # a surface opened: fetch only if the reading is stale
+        # Bumped by every admitted Claude tunnel and every hook event: "Claude was
+        # used since the last /usage reading", so the plan may have moved.
+        self.claude_activity = 0
 
         self.stop = threading.Event()
         # Hook events land on proxy threads; the monitor's on_event is the sink.
@@ -399,6 +404,8 @@ class State:
                     self.last_claude_block = time.time()
             else:
                 self.allowed += 1
+                if claude:
+                    self.claude_activity += 1
             self.recent.append({
                 "t": datetime.now().strftime("%H:%M:%S"), "host": host,
                 "kind": "claude" if claude else "other",
@@ -2250,6 +2257,7 @@ class AgentMonitor:
         cwd = ev.get("cwd")
         if cwd and os.path.realpath(cwd) == os.path.realpath(CONFIG_DIR):
             return                      # Tower's own `claude -p /usage` probe
+        self.state.claude_activity += 1     # plan_loop: usage may have moved
         now = time.time()
         with self.lock:
             s = self._sess.get(sid)
@@ -3529,11 +3537,82 @@ def _claude_env(claude=None):
 _NO_PERSIST_UNSUPPORTED = set()
 
 
-def fetch_plan(cfg=None):
+# The fast plan probe (macOS). The plan % is the server's number, but `/usage`
+# also re-reads every recent transcript in ~/.claude/projects to build its "what's
+# contributing to your limits" report: ~21s CPU / 56G instructions on an 18 GB
+# history, vs ~2s / 3G without it, for identical percentages. So the frequent
+# probe runs with HOME = a mirror whose ~/.claude/projects is empty, and the full
+# probe (with the report) runs at most every PLAN_FULL_S. macOS only: the login
+# is in the Keychain there. Where it is a ~/.claude/.credentials.json file
+# (Linux, Windows, a Keychain-less Mac), an atomic save during a token refresh
+# could land a rotated token in the mirror and log the user out.
+PROBE_HOME = os.path.join(CONFIG_DIR, "probe-home")
+
+
+def fast_probe_supported(env=None):
+    real = os.path.join(HOME, ".claude")
+    return (sys.platform == "darwin"
+            and not (env or os.environ).get("CLAUDE_CONFIG_DIR")
+            and os.path.isdir(real)
+            and not os.path.lexists(os.path.join(real, ".credentials.json")))
+
+
+def _drop(path):
+    """Remove a mirror entry WITHOUT following it: a link is unlinked (its target
+    untouched); a real file/dir here was made by the probe itself."""
+    if os.path.islink(path) or not os.path.isdir(path):
+        os.remove(path)
+    else:
+        shutil.rmtree(path)
+
+
+def _sync_probe_home():
+    """Bring the mirror HOME up to date and return it (None on failure): links to
+    ~/Library (the Keychain), ~/.claude.json and every ~/.claude entry except
+    `projects`, which is a real, empty directory. Only names and link targets are
+    compared; nothing behind a link is opened or read."""
+    real = os.path.join(HOME, ".claude")
+    mc = os.path.join(PROBE_HOME, ".claude")
+    mp = os.path.join(mc, "projects")
+    try:
+        os.makedirs(mp, exist_ok=True)
+        want = {os.path.join(PROBE_HOME, "Library"): os.path.join(HOME, "Library"),
+                os.path.join(PROBE_HOME, ".claude.json"):
+                    os.path.join(HOME, ".claude.json")}
+        with os.scandir(real) as it:
+            for e in it:
+                if e.name != "projects":
+                    want[os.path.join(mc, e.name)] = e.path
+        keep = set(want) | {mc, mp}
+        for d in (PROBE_HOME, mc, mp):
+            with os.scandir(d) as it:
+                for e in list(it):
+                    if e.path not in keep:
+                        _drop(e.path)   # stale link, or something a probe wrote
+        for link, target in want.items():
+            if os.path.islink(link) and os.readlink(link) == target:
+                continue
+            if os.path.lexists(link):
+                _drop(link)             # e.g. a link an atomic save replaced
+            os.symlink(target, link)
+        return PROBE_HOME
+    except OSError as e:
+        log(f"probe home sync failed: {e}")
+        return None
+
+
+def fetch_plan(cfg=None, fast=False):
+    """Run `claude -p /usage`. fast=True runs it in the mirror HOME (see
+    PROBE_HOME): same plan numbers, no history read, no contributors report."""
     claude = find_claude(cfg)
     if not claude:
         return {"ok": False, "error": "claude CLI not found"}
     env = _claude_env(claude)
+    if fast:
+        home = _sync_probe_home() if fast_probe_supported(env) else None
+        if not home:
+            return {"ok": False, "error": "fast probe unavailable"}
+        env["HOME"] = home
     argv = [claude, "-p", "/usage",
             "--strict-mcp-config", "--mcp-config", USAGE_MCP_FILE,
             # No hooks for the probe: it must not appear as an agent, and it
@@ -3590,8 +3669,56 @@ def fetch_plan(cfg=None):
     return last
 
 
-def plan_loop(state, interval=60):
-    logged = None           # log a fetch outcome only when it changes, not 1,440×/day
+# The plan reading costs a full `claude -p /usage` CLI boot (~12s CPU, ~450MB)
+# — a minute-by-minute poll was ~20% of a core around the clock. The plan only
+# moves when Claude is used or a window resets, so fetch on exactly that:
+PLAN_ACTIVE_S = 120      # Claude used since the last reading → refresh this often
+PLAN_IDLE_S = 900        # nothing local → still refresh (claude.ai / other devices)
+PLAN_IDLE_FAST_S = 120   # …or this often when the fast probe makes a fetch cheap
+PLAN_FULL_S = 3600       # the full probe (contributors report) at most this often
+PLAN_OPEN_FRESH_S = 60   # a surface opening refetches a reading older than this
+PLAN_RESET_GRACE_S = 5   # refetch this long after a window's resets_at passes
+PLAN_TICK_S = 10         # how often the schedule is re-checked (a few int compares)
+
+
+def _plan_resets(plan, after):
+    """Every window reset time in `plan` still ahead of `after` (epoch s)."""
+    out = []
+    for v in (plan or {}).values():
+        r = v.get("resets_at") if isinstance(v, dict) else None
+        if isinstance(r, (int, float)) and r > after:
+            out.append(float(r))
+    return out
+
+
+def _plan_wait(state, last_mono, last_wall, seen, idle_s=PLAN_IDLE_S):
+    """Sleep until the reading taken at `last_mono` can have changed — Claude was
+    used since (`seen` moved) and it is PLAN_ACTIVE_S old, a window reset, it is
+    PLAN_IDLE_S old, a surface opened on a stale reading, or a forced refresh —
+    or until shutdown."""
+    resets = _plan_resets(state.plan, last_wall)
+    while not state.stop.is_set():
+        if state._refreshplan.wait(PLAN_TICK_S):
+            state._refreshplan.clear()
+            if state._plan_force:
+                return
+            if state._plan_open:
+                state._plan_open = False
+                if time.monotonic() - last_mono >= PLAN_OPEN_FRESH_S:
+                    return
+        age = time.monotonic() - last_mono
+        if age >= idle_s:
+            return
+        if state.claude_activity != seen and age >= PLAN_ACTIVE_S:
+            return
+        if resets and time.time() >= min(resets) + PLAN_RESET_GRACE_S:
+            return
+
+
+def plan_loop(state):
+    logged = None           # log a fetch outcome only when it changes
+    last_full = None        # monotonic time of the last full (report) probe
+    fast_ok = fast_probe_supported()    # off for good if it ever disagrees
     while not state.stop.is_set():
         if not state.plan_enabled:
             # Live plan-fetching off → never run claude (no Photos/Music prompts).
@@ -3614,11 +3741,37 @@ def plan_loop(state, interval=60):
             if state._refreshplan.wait(2.0):
                 state._refreshplan.clear()
             continue
+        full = (not fast_ok or state._plan_force or last_full is None
+                or time.monotonic() - last_full >= PLAN_FULL_S)
+        state._plan_force = state._plan_open = False     # this fetch answers both
         with state.lock:
-            if state.plan and state.plan.get("ok"):
-                state.plan = {**state.plan, "refreshing": True}
-        res = fetch_plan(state.cfg)
+            # The gate has passed: drop its flags, or the UI keeps saying
+            # "paused — location" through the fetch, and after a timeout.
+            keep = {k: v for k, v in (state.plan or {}).items()
+                    if k not in ("gated", "gate_reason")}
+            if keep.get("ok"):
+                state.plan = {**keep, "refreshing": True}
+            elif state.plan:
+                state.plan = keep
+        res = fetch_plan(state.cfg, fast=not full)
+        if (not full and not res.get("ok")
+                and "timed out" not in (res.get("error") or "")):
+            # The fast probe failed where a full one might not (a mirror the CLI
+            # doesn't accept): fall back now, and for good if the full one works.
+            fres = fetch_plan(state.cfg)
+            if fres.get("ok"):
+                log(f"fast plan probe disabled: {res.get('error')}")
+                fast_ok = False
+            res, full = fres, True
+        if full and res.get("ok"):
+            last_full = time.monotonic()
         with state.lock:
+            if res.get("ok") and not full:
+                # The fast reading has no history-derived parts; keep the last
+                # full probe's report until the next one.
+                for k in ("windows", "last24h"):
+                    if k not in res and (state.plan or {}).get(k):
+                        res[k] = state.plan[k]
             if res.get("ok"):
                 state.plan = res                       # fresh; flags cleared
             elif state.plan and state.plan.get("ok"):
@@ -3631,8 +3784,13 @@ def plan_loop(state, interval=60):
         if outcome != logged:
             log(f"plan fetch: {outcome}")
             logged = outcome
-        if state._refreshplan.wait(interval):   # sleep, unless asked to refresh
-            state._refreshplan.clear()
+        # Activity is read after the fetch, so the probe's own tunnel doesn't
+        # count as use. No good reading at all → retry on the active cadence.
+        with state.lock:
+            have = bool(state.plan and state.plan.get("ok"))
+        _plan_wait(state, time.monotonic(), time.time(),
+                   state.claude_activity if have else -1,
+                   PLAN_IDLE_FAST_S if fast_ok else PLAN_IDLE_S)
 
 
 # --------------------------------------------------------------------------- #
@@ -4228,6 +4386,11 @@ def dispatch(state, usage, net, agents, req):
         net._probe_now.set()    # one user gesture refreshes both signals
         return {"ok": True}
     if cmd == "refreshplan":
+        state._plan_force = True
+        state._refreshplan.set()
+        return {"ok": True}
+    if cmd == "planstale":      # a surface opened: refresh only a stale reading
+        state._plan_open = True
         state._refreshplan.set()
         return {"ok": True}
     if cmd == "speedtest":
@@ -4246,6 +4409,7 @@ def dispatch(state, usage, net, agents, req):
         state.plan_enabled = bool(req.get("on", True))
         state.cfg["plan_enabled"] = state.plan_enabled
         save_config(state.cfg)
+        state._plan_force = True
         state._refreshplan.set()
         return {"plan_enabled": state.plan_enabled}
     if cmd == "enforce":

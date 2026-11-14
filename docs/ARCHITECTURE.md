@@ -55,7 +55,26 @@ Runs these threads:
   the 7-day window, and counted once per message id — Claude writes a line per
   content block, each repeating the message's usage, with the final output count
   on the last one.
-- **plan** — every **60s** runs `claude -p /usage` and parses it for the
+- **plan** — runs `claude -p /usage` *only when the reading can have changed*.
+  Each run is a full CLI boot (~12s CPU, ~450MB), and the old 60s poll averaged
+  ~20% of a core around the clock. `plan_loop` / `_plan_wait` fetch when:
+  Claude was used since the last reading (`State.claude_activity`, bumped by
+  every admitted Claude tunnel and hook event) and it is `PLAN_ACTIVE_S` (2 min)
+  old; a window's `resets_at` passes; it is `PLAN_IDLE_S` (15 min) old, for use
+  on claude.ai or other devices; a surface opens on a reading older than
+  `PLAN_OPEN_FRESH_S` (`planstale`); or Refresh is pressed (`refreshplan`).
+  On macOS the idle floor is `PLAN_IDLE_FAST_S` (2 min), because most fetches
+  there use the **fast probe**. `/usage` also re-reads every recent transcript
+  to build its "what's contributing" report (~21s CPU on an 18 GB history). The
+  fast probe instead runs with `HOME` = `~/.tower/probe-home`, a mirror of
+  symlinks to `~/Library` (Keychain), `~/.claude.json` and every `~/.claude`
+  entry except `projects`, which is an empty real directory. That gives
+  identical percentages for ~1–2s CPU. The full probe (report included) runs
+  at most every `PLAN_FULL_S` (1h) or on Refresh, and fast readings keep its
+  `windows` / `last24h`. Linux, Windows and a Mac whose login is a
+  `.credentials.json` file always use the full probe: an atomic save during a
+  token refresh could strand a rotated token in the mirror. It parses the
+  output for the
   **real** plan limits (session / weekly / Fable %, reset times), the billing
   source (`billing`, e.g. "subscription"), and Claude's own "what's
   contributing to your limits" report per window (`windows["24h"|"7d"]` →

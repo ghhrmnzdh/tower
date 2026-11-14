@@ -117,8 +117,10 @@ The **dopamine layer**: the summary line (`3 at work · 41 jobs done today · 1
 needs you`) and per-row `n ✓` counters tick up with
 `.contentTransition(.numericText())` as agents complete tools — visible
 momentum. The done payoff is one composite ~0.6s gesture (check draws on, row
-glows, counter ticks), then quiet. The menu-bar radar is driven at ~15fps only
-while the state warrants it, and paused otherwise.
+glows, counter ticks), then quiet. The menu-bar radar moves (~15fps) for a short
+burst when its state changes, then holds that state's still frame. A state that
+simply *lasts* (agents at work, a long offline hold) never keeps it moving. On
+macOS 26+ every menu-bar frame is a CPU snapshot of the whole status item.
 
 **Restraint rules** (enforced in review): at most one glowing row at a time
 (newest wins); the quiet state is completely still; **Reduce Motion** degrades

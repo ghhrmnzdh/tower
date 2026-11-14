@@ -88,7 +88,10 @@ final class DashboardWindowController: NSObject, NSWindowDelegate {
 
     private func setVisible(_ on: Bool) {
         guard model.dashboardVisible != on else { return }
-        if on { model.reveal { model.dashboardVisible = true } }
+        if on {
+            model.reveal { model.dashboardVisible = true }
+            model.send(["cmd": "planstale"])   // refetch /usage only if stale
+        }
         else { model.dashboardVisible = false }
     }
 }
@@ -1276,7 +1279,7 @@ struct SessionRow: View {
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(st.color)
                         } else if tooling && visible {
-                            ProgressView().controlSize(.mini)
+                            Spinner(.mini)
                         }
                         Text(sessionLine(session))
                             .font(.system(size: 11))
@@ -1437,7 +1440,7 @@ struct PlanGlancePanel: View {
                     .foregroundStyle(Color(nsColor: .systemOrange))
             } else {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    Spinner(.small)
                     Text("Reading /usage…").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -2115,7 +2118,7 @@ struct LatencyChart: View {
             chart(pts).frame(height: height)
         } else {
             HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+                Spinner(.small)
                 Text("Collecting samples…").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: height)
@@ -2354,7 +2357,7 @@ struct PlanLimitsPanel: View {
                     .foregroundStyle(Color(nsColor: .systemOrange))
             } else {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    Spinner(.small)
                     Text("Reading /usage…").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }

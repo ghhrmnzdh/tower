@@ -67,6 +67,20 @@ Windows has the daemon and dashboard as a
 
 ---
 
+## 4.0.1: a cooler Tower
+
+- **The menu-bar app idles at ~0% CPU.** On macOS 26+ the bar's animated radar
+  cost 35–45% CPU while agents worked: every frame made AppKit redraw the whole
+  menu-bar item on the CPU. A closed popover also kept a spinner and a symbol
+  animation running where nobody could see them. The radar now moves only for a
+  few seconds when its state changes, and nothing animates off screen.
+- **Plan usage, fresh and cheap.** `/usage` used to run every minute, and each
+  run re-read your whole transcript history (~20s CPU). On the Mac it now
+  refreshes every 2 minutes through a probe that skips the history: same
+  numbers, ~1s CPU. The "what's contributing" breakdown refreshes hourly, or
+  when you press Refresh. On Linux and Windows it runs only when your usage
+  can have changed.
+
 ## What's new in 4.0
 
 The biggest release yet: a new Mac app, a much lighter one, and Tower beyond
@@ -121,8 +135,8 @@ How:
   commands, `libproc` replaces `ps`, and `state.json` is written only when
   something changed.
 - **The app redraws only what's visible.** A closed popover or dashboard stops
-  publishing, animations pause off screen, and the menu-bar radar repaints alone
-  at 15 fps.
+  publishing, animations pause off screen, and the menu-bar radar moves only for a
+  few seconds when its state changes, then stands still.
 - **The usage probe runs on the efficiency cores**, with no hooks, updater or
   telemetry.
 
@@ -170,8 +184,8 @@ from the popover, **Terminal Dashboard…** opens the TUI for you.
 
 Tower's identity is a **radar on a control tower** — its five states *are* the
 guard (cleared, verifying, held on the connection, held off-country, or
-unguarded). The menu bar is that radar; it animates only while a state has
-something to say. Alongside it, one still mark per Claude model:
+unguarded). The menu bar is that radar; it moves only when its state
+changes. Alongside it, one still mark per Claude model:
 
 | Model | Mark |
 |---|---|

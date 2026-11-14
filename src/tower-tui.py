@@ -3861,6 +3861,7 @@ def main():
         if read_state():
             break
         time.sleep(0.2)
+    send({"cmd": "planstale"})      # refetch /usage only if the reading is stale
     curses.wrapper(run)
 
 

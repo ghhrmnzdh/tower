@@ -24,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// assertion, so idle sleep still works and keep-awake stays a separate,
     /// opt-in feature. Held for the process lifetime; never ended.
     var pollActivity: NSObjectProtocol?
-    /// ~15fps clock, live only while the radar has motion to show.
+    /// ~15fps clock, live only for a short burst after the radar's state changes.
     var animTimer: Timer?
     var daemon: Process?
     var confirmedQuit = false
@@ -110,28 +110,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         launchDaemonIfNeeded()
     }
 
-    /// The radar animates only when there's motion worth spending frames on:
-    /// a hold or a verify sweep, or a calm scan while agents are actually
-    /// working. Idle-clear and unguarded-off are static (and Reduce Motion
-    /// freezes everything). This keeps the menu bar smooth but battery-quiet.
-    private var radarShouldAnimate: Bool {
+    /// How long the bar's radar moves after its state changes, before it settles
+    /// on that state's still frame.
+    static let menubarMotionS: TimeInterval = 12
+    private var motionState: RadarState?
+    private var motionSince = Date.distantPast
+
+    /// Motion = state change: the bar's radar animates for a short burst when its
+    /// state changes, then holds that state's still frame — the ring's colour
+    /// and dash already say clear / held / unguarded. It never animates for a
+    /// state that simply lasts, however long it lasts. On macOS 26+ every
+    /// `button.image` assignment makes AppKit snapshot the whole status item on
+    /// the CPU (`NSStatusItem _updateReplicants` → `cacheDisplayInRect`) for the
+    /// out-of-process menu bar. Our own render is ~1% of that. A 15fps loop that
+    /// "agents working" kept alive all day therefore pinned the app at 30–45% CPU.
+    /// Long-lived states (agents at work, an hours-long offline hold, keep-awake)
+    /// must never keep this clock running. The popover and dashboard radars still
+    /// move while they're on screen.
+    private func radarShouldAnimate() -> Bool {
+        let state = model.radarState
+        if state != motionState { motionState = state; motionSince = Date() }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
-        // Keep-awake never starts the clock: it is held for hours or days, and a
-        // breathing lamp in the bar re-rendered the icon 30×/s the whole time. In
-        // the bar both modes are a still lit lamp; the vigil breathes only in
-        // the popover / dashboard, while they're on screen.
-        switch model.radarState {
-        case .verify, .holdNet, .holdGeo: return true
-        case .clear: return model.agentsWorking > 0
-        case .off: return false
-        }
+        if state == .off { return false }
+        return Date().timeIntervalSince(motionSince) < Self.menubarMotionS
     }
 
     private func refreshAnimClock() {
-        let want = radarShouldAnimate
+        let want = radarShouldAnimate()
         if want, animTimer == nil {
-            // 15fps: each frame is a full SwiftUI ImageRenderer pass + a menu-bar
-            // recomposite, and "agents working" can keep this live all day.
+            // 15fps for at most `menubarMotionS`. Each frame costs a SwiftUI
+            // ImageRenderer pass plus an AppKit snapshot of the status item.
             let t = Timer(timeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tickIcon() }
             }
@@ -152,7 +160,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // The Tower radar (see StatusIcon.swift). Badge text: needs-you count, then
     // optional usage %.
 
-    /// One animation frame (~15fps, only while the radar has motion): repaint the
+    /// One animation frame (~15fps, only during a state-change burst): repaint the
     /// radar and nothing else. The badge, tooltip and title belong to the 1 Hz
     /// poll — re-assigning them every frame re-laid-out the menu bar item 30×/s.
     private func tickIcon() {
@@ -266,6 +274,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // so wake it first. show() lays the content out synchronously, so it opens
         // at its up-to-date size — no stale-height open followed by a resize.
         model.reveal { model.popoverVisible = true }
+        model.send(["cmd": "planstale"])   // refetch /usage only if the reading is stale
         // Standard status-item anchor: hang off the bottom edge of the button.
         // (The popover itself is height-capped in PopoverView so it can never
         // grow taller than the screen and get shoved out of place / clipped.)

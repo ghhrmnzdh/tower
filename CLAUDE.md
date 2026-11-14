@@ -207,7 +207,22 @@ condition (your location or your connection) recovers.
   id once), skip Tower's own probe directory (`PROBE_PROJECT_DIR`), and never let
   a probe write artifacts that later scans must walk. Front-ends likewise do no
   work off screen: the model publishes only while a surface is visible, and every
-  continuous animation honors `\.surfaceVisible`.
+  continuous animation honors `\.surfaceVisible`. Spinners are `Spinner`, never
+  a raw `ProgressView`, loops are `TimelineView(paused:)` never
+  `repeatForever`, and every `symbolEffect` is gated on visibility (`build.sh`
+  refuses all three): a closed popover stops following the model, so motion
+  frozen into it animates forever. The
+  menu-bar radar moves only for a short burst after its state changes
+  (`menubarMotionS`). On macOS 26+ every status-item image change is a CPU
+  snapshot of the whole item, so a state that merely lasts, like agents at
+  work, must never keep it animating.
+  `claude -p /usage` re-reads the transcript history (~21s CPU), so it runs
+  only when the plan can have moved (`_plan_wait`: Claude activity, a reset, a
+  stale surface opening, an idle floor), never on a fixed fast poll. On macOS
+  the frequent probe runs in the `PROBE_HOME` mirror, with an empty `projects`
+  and the same numbers for ~1s CPU. The mirror only ever creates and removes
+  links and never reads behind them. Never enable it where the login is a
+  credentials file.
 - **The design system is law:** docs/DESIGN.md — the mark is the state (radar =
   guard, model mark = model), motion = state change (failure never bounces),
   one loudest thing at a time, Reduce Motion always honored.
