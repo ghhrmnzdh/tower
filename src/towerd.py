@@ -625,8 +625,20 @@ TUNNEL_DRAIN_S = 5.0    # bound the wait for the second half to see EOF, no leak
 TUNNEL_SILENT_LOG_S = 60.0  # ledger: log a Claude tunnel whose last request bytes
                             # got no reply for this long, or whose write blocked
                             # this long — evidence of WHO went silent (see _tunnel)
+LEDGER_UPLOAD_MIN = 65536   # ledger: an unanswered upload smaller than one relay
+                            # chunk is chatter (pings, window updates), not a request
 
-def _pipe(src, dst, st=None):
+
+def _still_moving(st):
+    """True while a tunnel half is still relaying: it has not ended, and it handed
+    a chunk on within the idle window."""
+    if not st or "end" in st:
+        return False
+    last = st.get("last")
+    return last is not None and time.monotonic() - last < TUNNEL_IDLE_S
+
+
+def _pipe(src, dst, st=None, peer=None):
     """Copy src→dst until src EOF, then half-close dst's WRITE side only, so the
     peer sees a graceful FIN — never a reset.
 
@@ -650,7 +662,17 @@ def _pipe(src, dst, st=None):
     `st` (optional dict) is the tunnel ledger for this direction: `last` =
     monotonic time the last chunk was fully handed on, `stall` = the longest a
     single write to dst blocked, `end` = why this half stopped. Cheap: one
-    clock read per chunk."""
+    clock read per chunk.
+
+    `peer` (optional dict) is the OTHER direction's ledger, and it is what makes
+    the idle timeout mean idle. A request sends nothing back until it has been
+    received whole, so while a large body crawls up a slow link the upstream-read
+    half hears only silence. Its read timeout used to end the tunnel right there,
+    mid-upload, TUNNEL_IDLE_S after upstream last spoke — on a reused tunnel that
+    is sooner than TUNNEL_IDLE_S into the upload. With `peer`, a read timeout
+    ends this half only when the other half has gone quiet too. `st` also keeps
+    `run`/`run0`: the bytes sent, and since when, with no word back from `peer`
+    (the upload nobody has answered yet — see _ledger)."""
     reset = False
     how = "eof"
     try:
@@ -658,9 +680,16 @@ def _pipe(src, dst, st=None):
             try:
                 data = src.recv(65536)
             except OSError as e:
+                # errno is unset on our own socket timeout. A kernel ETIMEDOUT
+                # (keepalive, retransmission drop) carries it, is a dead path,
+                # and is the same exception class on Python 3.10+ — so it used
+                # to be logged as "idle-timeout" too.
+                idle = isinstance(e, socket.timeout) and e.errno is None
+                if idle and _still_moving(peer):
+                    continue    # the other half is mid-flight: slow, not idle
                 reset = e.errno in (errno.ECONNRESET, errno.EPIPE,
                                     errno.ETIMEDOUT)
-                how = "idle-timeout" if isinstance(e, socket.timeout) else (
+                how = "idle-timeout" if idle else (
                     f"read error ({e.__class__.__name__})")
                 break
             if not data:
@@ -669,13 +698,20 @@ def _pipe(src, dst, st=None):
                 dst.sendall(data)
                 continue
             t0 = time.monotonic()
+            if peer is not None:
+                heard = peer.get("last")
+                if "run0" not in st or st["heard"] != heard:
+                    # The other side spoke since our last chunk: a new run.
+                    st["heard"], st["run"], st["run0"] = heard, 0, t0
             dst.sendall(data)
             st["last"] = t1 = time.monotonic()
             st["stall"] = max(st.get("stall", 0.0), t1 - t0)
+            if peer is not None:
+                st["run"] += len(data)
     except OSError as e:
         how = f"write error ({e.__class__.__name__})"
     if st is not None:
-        st["end"] = how
+        st["end"], st["ended"] = how, time.monotonic()
     try:
         dst.shutdown(socket.SHUT_WR)   # propagate EOF as a FIN, not a RST
     except OSError:
@@ -872,8 +908,10 @@ def _tunnel(conn, state, host, port):
     conn.settimeout(None)   # tunnel relay must block indefinitely, not carry the
                             # header-read deadline set on conn in _handle_proxy_client
     claude = is_claude_host(host)
-    ust, dst_ = ({}, {}) if claude else (None, None)
-    t = threading.Thread(target=_pipe, args=(conn, up, ust), daemon=True)
+    # Every tunnel keeps a ledger, not only Claude's: each half needs the other's
+    # to tell a slow upload from an idle tunnel (see _pipe). Only Claude's is logged.
+    ust, dst_ = {}, {}
+    t = threading.Thread(target=_pipe, args=(conn, up, ust, dst_), daemon=True)
     try:
         conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         t.start()
@@ -888,7 +926,7 @@ def _tunnel(conn, state, host, port):
     # drop from Anthropic/the VPN (not a client abort, which resets `conn` in the
     # upload thread). Both halves half-close on EOF; wait for the upload half to
     # drain rather than guillotining it, then close both.
-    upstream_reset = _pipe(up, conn, dst_)
+    upstream_reset = _pipe(up, conn, dst_, ust)
     t.join(TUNNEL_DRAIN_S)
     for s in (up, conn):
         try:
@@ -909,12 +947,31 @@ def _ledger(host, up_st, down_st):
     arrives, so if the request's bytes were all handed to the upstream socket
     and nothing came back, the silence is on the path (VPN) or Anthropic's side
     — and this line says so, with numbers. A long blocked write says the
-    receiving side stopped taking bytes. Quiet for healthy tunnels."""
+    receiving side stopped taking bytes. Quiet for healthy tunnels.
+
+    The third case is neither silence nor a stall: the request was STILL going up
+    when the tunnel ended. Bytes moved to the last moment, nothing had come back
+    since they started, and Claude (its own window ran out) or the path let go.
+    That is a request too big for the link's upload speed, and without this line
+    it leaves no trace: no chunk ever waited long enough to count as blocked.
+    It is judged at the moment the Claude side let go, not at teardown — what was
+    already buffered can take a while longer to drain — and it replaces the
+    "unanswered" note, which would call a request that never finished silent."""
     now = time.monotonic()
     last_up, last_down = up_st.get("last"), down_st.get("last")
     notes = []
-    if last_up and (last_down or 0) < last_up \
-            and now - last_up >= TUNNEL_SILENT_LOG_S:
+    unanswered = bool(last_up) and (last_down or 0) < last_up
+    run, run0 = up_st.get("run", 0), up_st.get("run0")
+    let_go = up_st.get("ended", now)
+    if unanswered and run0 and run >= LEDGER_UPLOAD_MIN \
+            and last_up - run0 >= TUNNEL_SILENT_LOG_S \
+            and let_go - last_up < TUNNEL_SILENT_LOG_S:
+        took = last_up - run0
+        notes.append(f"upload still in flight after {took:.0f}s: "
+                     f"{run / 1e6:.1f} MB sent at {run / 1e3 / took:.0f} KB/s, "
+                     f"no reply yet (a request too big for this path's upload "
+                     f"speed: slow or lossy link, not Tower)")
+    elif unanswered and now - last_up >= TUNNEL_SILENT_LOG_S:
         notes.append(f"last request unanswered {now - last_up:.0f}s after Tower "
                      f"relayed it (path/Anthropic silent, not Tower)")
     if up_st.get("stall", 0) >= TUNNEL_SILENT_LOG_S:
@@ -952,9 +1009,10 @@ def _plain(conn, state, method, target, raw):
         return
     conn.settimeout(None)   # done reading headers; relay blocks indefinitely
     up.sendall(f"{method} {path} HTTP/1.1\r\n".encode() + blob)
-    t = threading.Thread(target=_pipe, args=(conn, up), daemon=True)
+    ust, dst_ = {}, {}      # same idle rule as a tunnel: a slow upload isn't idle
+    t = threading.Thread(target=_pipe, args=(conn, up, ust, dst_), daemon=True)
     t.start()
-    _pipe(up, conn)
+    _pipe(up, conn, dst_, ust)
     t.join(TUNNEL_DRAIN_S)
     for s in (up, conn):
         try:
@@ -3822,10 +3880,20 @@ def _read_settings():
 # upload — and allows only one retry before failing the turn: "No response from
 # the API after … A proxy or gateway that buffers streaming responses can cause
 # this". Tower's tunnel relays bytes as they arrive (it can't buffer TLS), so the
-# honest fix is patience: wait up to Claude's own request ceiling (API_TIMEOUT_MS,
-# 10 min by default, which caps this value). A tunnel that is actually dead is
-# still cut within ~2 min at the TCP layer (UPSTREAM_KEEPIDLE_S), so the long
-# wait only ever applies to a path that is slow, never to one that is gone.
+# honest fix is patience. A tunnel that is actually dead is still cut within
+# ~2 min at the TCP layer (UPSTREAM_KEEPIDLE_S), so the long wait only ever
+# applies to a path that is slow, never to one that is gone.
+#
+# How long: Claude Code caps the first-byte window at its request ceiling,
+# API_TIMEOUT_MS (10 min by default) minus a second, so raising the window alone
+# stops at 10 min. That is not enough for a chat full of screenshots on a thin
+# uplink: a 10 MB request at 12 KB/s needs 14 min, so every attempt was thrown
+# away at 9:59 and restarted from zero — for the whole retry budget, with nothing
+# on screen but a spinner, each restart spending the uplink the next one needed.
+# So we raise the ceiling with it: 30 min carries that request down to ~6 KB/s.
+# The relay keeps its side of the bargain (_pipe): an upload still moving is
+# never idle, and a request sent whole and then met with silence is still cut
+# TUNNEL_IDLE_S later, so the longer window is spent on uploads, not on hangs.
 #
 # The budget is per request, and Claude Code backs off to ~32 s between attempts
 # (plus our BLOCK_HOLD_S), so each attempt costs ~40 s of wall clock. 300 lasted
@@ -3835,12 +3903,14 @@ def _read_settings():
 RETRY_ENV = {
     "CLAUDE_CODE_RETRY_WATCHDOG": "1",     # unlock the long retry budget
     "CLAUDE_CODE_MAX_RETRIES": "1500",     # attempts before the turn finally errors
-    "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS": "600000",   # slow ≠ dead: see above
+    "API_TIMEOUT_MS": "1800000",           # the ceiling that caps the next value
+    "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS": "1800000",  # slow ≠ dead: see above
 }
 # Values earlier Tower versions installed. They are ours, not a user
 # customisation, so route_on upgrades them in place and route_off removes them.
 RETRY_ENV_PRIOR = {
     "CLAUDE_CODE_MAX_RETRIES": ("300",),
+    "CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS": ("600000",),
 }
 
 

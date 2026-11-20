@@ -65,8 +65,9 @@ condition (your location or your connection) recovers.
   `env` only (`HTTPS_PROXY`/`HTTP_PROXY`, plus `CLAUDE_CODE_RETRY_WATCHDOG` /
   `CLAUDE_CODE_MAX_RETRIES` so a blocked/outaged request stays PENDING in
   Claude's native retry spinner instead of erroring, and
-  `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` so a long chat's multi-MB request on a
-  slow link isn't aborted before its first byte). Shell aliases broke the
+  `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` + `API_TIMEOUT_MS` so a long chat's
+  multi-MB request on a slow link isn't aborted before its first byte — the
+  second is the ceiling that caps the first, so they move together). Shell aliases broke the
   `claude` command before. `route_off` removes those keys, but leaves a
   retry value the user customised themselves (`RETRY_ENV`).
 - **Fail-closed:** a Claude request is allowed ONLY when *confirmed* inside the
@@ -120,6 +121,11 @@ condition (your location or your connection) recovers.
   leaves its connect timeout ON the socket, so the relay must reset it
   (`_upstream_connect` → `settimeout(TUNNEL_IDLE_S)`); a short idle timeout
   silently guillotines slow-first-byte and idle keep-alive tunnels mid-session.
+  And idle means *both* directions quiet: a request sends nothing back until it
+  has arrived whole, so the upstream-read half hears only silence while a big
+  body crawls up a slow link. Each `_pipe` half gets the other's ledger and a
+  read timeout ends it only when the other half has stopped too
+  (`_still_moving`) — never time one direction out on its own.
   Sockets on the hot path also set `TCP_NODELAY` (Nagle batches streamed tokens).
   The flip side — cut what is *dead*, never what is *slow*: the upstream leg
   carries TCP keepalive + a retransmission drop time (`UPSTREAM_KEEPIDLE_S`…),
