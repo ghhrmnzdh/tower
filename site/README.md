@@ -83,13 +83,14 @@ itself is.
 - **Steadier is one night, then and now.** `#night` in `app.js`: three lanes on
   one 17-hour clock (the pins, 3.1, 4.0), a playhead that lands each mark as it
   passes, six fixes from the connectivity work since 3.1 (adaptive handshake
-  timeout, the 10-minute first-byte window, keepalive drop time, the 1,500
+  timeout, the 30-minute first-byte window, keepalive drop time, the 1,500
   retry budget, the fd limit and the reset rule, the quit relay). The night is
   illustrative; the before/after figures are Tower's real limits and
   timeouts. A fix's story reads in the caption under the figure, never over it.
 - **Contributors are real.** `#people` names everyone in GitHub's contributor
   list, with the avatar GitHub serves (saved here, no third-party origin) and
-  what they built. Add a card when a new contributor lands.
+  what they built. Add a card when a new contributor lands (the grid holds
+  five across, and the "You?" card closes the row).
 - **The platforms are logos.** macOS, Linux and Windows marks (`macos`, `tux`,
   `windows` in the symbol set) sit on the install tabs, the hero, the platform
   cards and a small constellation wired to the one daemon.

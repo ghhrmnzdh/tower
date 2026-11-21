@@ -940,7 +940,7 @@ html[dir=rtl] .how-steps u{transform-origin:100% 50%}
 @media (prefers-reduced-motion:reduce){.how-steps span,.how-steps p,.hn,.how-wires path{transition:none}}
 
 /* ───────────────────────── the people ───────────────────────── */
-.ppl{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:52px}
+.ppl{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:52px}
 .per{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;padding:34px 20px 26px;color:inherit;transition:transform .5s var(--spring),box-shadow .4s var(--ease)}
 .per:hover{transform:translateY(-4px);box-shadow:inset 0 0 0 .5px rgb(255 255 255/.2),inset 0 1px 0 rgb(255 255 255/.08),0 30px 60px -30px rgb(0 0 0/.9)}
 .per img,.per .plus{width:72px;height:72px;border-radius:50%;object-fit:cover;background:#1a1a1d;box-shadow:0 0 0 1px rgb(255 255 255/.12),0 0 0 5px rgb(255 255 255/.03);filter:grayscale(1);transition:filter .5s var(--ease)}
@@ -954,7 +954,7 @@ html[lang=fa] .per.you code{direction:rtl;font:500 12.5px/1.2 var(--sans)}
 .per>span .sf{flex:none;font-size:13px;color:var(--t1)}
 .per em{position:absolute;top:16px;inset-inline-end:18px;font:500 14px/1 var(--sans);font-style:normal;color:var(--t4);transition:color .3s,transform .4s var(--spring)}
 .per:hover em{color:var(--t1);transform:translate(2px,-2px)}
-@media (max-width:980px){.ppl{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:980px){.ppl{grid-template-columns:repeat(2,1fr)}.per.you{grid-column:span 2}}
 @media (max-width:480px){.ppl{gap:10px}.per{padding:26px 12px 20px}.per>span:not(.plus){font-size:12px}}
 @media (max-width:700px){.mets{grid-template-columns:1fr}}
 
