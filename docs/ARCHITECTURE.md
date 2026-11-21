@@ -38,7 +38,11 @@ Runs these threads:
   (`_upstream_connect`) sets a **long, bounded idle timeout** (`TUNNEL_IDLE_S`,
   not the connect timeout `create_connection` would otherwise strand on the
   socket) and `TCP_NODELAY`, so slow-first-byte and idle keep-alive tunnels aren't
-  guillotined mid-session and streamed tokens aren't Nagle-batched. It also sets
+  guillotined mid-session and streamed tokens aren't Nagle-batched. That timeout
+  means idle in *both* directions: the upstream-read half hears nothing while a
+  large request is still going up, so it only gives up once the upload half has
+  gone quiet as well (`_still_moving`) — an upload that is slow is never cut for
+  being silent. It also sets
   TCP keepalive (60s idle, 4×15s probes) and a 120s retransmission drop time, so a
   path that died silently — a VPN reconnect, a NAT dropping an idle flow — is cut
   and surfaces to Claude as a closed connection (normal retry budget) instead of
@@ -175,11 +179,17 @@ Runs these threads:
   17 h, sized for 12 h+ unattended multi-agent runs; values older Tower
   versions installed are upgraded in place, a user-set value is never touched) — the hold stays short
   because it's *pre-CONNECT* and a long one risks the client's tunnel connect
-  timeout. `RETRY_ENV` also raises `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS` to
-  Claude's own 10-minute request ceiling: on a slow link a long chat's
-  multi-megabyte upload plus prefill can outlast the default ~3-minute wait for
-  response headers, and that path aborts the upload and fails the turn after a
-  single retry. There is no allow-through fallback; the defense against false blocks
+  timeout. `RETRY_ENV` also raises `CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, and
+  with it `API_TIMEOUT_MS`, the request ceiling that caps it (10 minutes by
+  default), to 30 minutes: on a slow link a long chat's multi-megabyte upload
+  plus prefill can outlast the default ~3-minute wait for response headers, and
+  that path aborts the upload and fails the turn after a single retry. Ten
+  minutes was not enough for a chat full of screenshots on a thin uplink (10 MB
+  at 12 KB/s is 14 minutes): every attempt was discarded at 9:59 and restarted
+  from zero. The relay bounds the longer wait itself: a request sent whole and
+  then met with silence is still cut `TUNNEL_IDLE_S` later, and an upload
+  abandoned mid-flight leaves a line in `daemon.log` with its size and speed
+  (`_ledger`). There is no allow-through fallback; the defense against false blocks
   is **durable, accurate detection**, so `geo_loop` queries
   multiple independent sources (ip-api → ipwho.is → ipapi.co, proxy-bypassed) and
   a merely-slow ("degraded") link still counts as reachable. `claude -p /usage`

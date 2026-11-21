@@ -67,6 +67,20 @@ Windows has the daemon and dashboard as a
 
 ---
 
+## 4.0.2: long chats on a thin uplink
+
+- **A slow upload is no longer cut at ten minutes.** A chat full of screenshots
+  sends 10 MB or more with every turn. On an uplink of a few KB/s that takes
+  longer than ten minutes, and two things ended it there: Claude Code's own
+  request ceiling, and Tower's relay, which counted a tunnel as idle while the
+  request was still going up. Each attempt was thrown away and started again
+  from zero, with only a spinner to show for it. The ceiling is now 30 minutes,
+  and the relay never treats a moving upload as idle.
+- **The log says when a request is too big for the link.** An upload that is
+  abandoned mid-flight now leaves a line in `~/.tower/daemon.log` with how much
+  was sent and how fast, so a chat that has outgrown the link no longer looks
+  like a broken connection.
+
 ## 4.0.1: a cooler Tower
 
 - **The menu-bar app idles at ~0% CPU.** On macOS 26+ the bar's animated radar
